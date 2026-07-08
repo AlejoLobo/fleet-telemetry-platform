@@ -1,0 +1,16 @@
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\bin\Debug\net10.0\FleetTelemetry.Application.deps.json
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\bin\Debug\net10.0\FleetTelemetry.Application.dll
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\bin\Debug\net10.0\FleetTelemetry.Application.pdb
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\bin\Debug\net10.0\FleetTelemetry.Domain.dll
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\bin\Debug\net10.0\FleetTelemetry.Domain.pdb
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.csproj.AssemblyReference.cache
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.AssemblyInfoInputs.cache
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.AssemblyInfo.cs
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.csproj.CoreCompileInputs.cache
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTel.67E7982B.Up2Date
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.dll
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\refint\FleetTelemetry.Application.dll
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.pdb
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\ref\FleetTelemetry.Application.dll
+C:\projects\fleet-telemetry-platform\backend\FleetTelemetry.Application\obj\Debug\net10.0\FleetTelemetry.Application.sourcelink.json
