@@ -7,6 +7,8 @@ using Microsoft.IdentityModel.Tokens;
 // Punto de entrada de la API REST de telemetría de flota.
 var builder = WebApplication.CreateBuilder(args);
 
+ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
+
 // Controladores y documentación OpenAPI.
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
