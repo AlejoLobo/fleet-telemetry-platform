@@ -165,12 +165,16 @@ AI Audit obligatorio:
 - Explicar la corrección técnica aplicada en cada caso.
 
 Reglas de commits:
+- Todos los mensajes de commit y merge en español.
 - Usar commits pequeños y descriptivos.
-- Formato recomendado:
-  - feat(backend): add clean architecture base
-  - feat(events): add kafka telemetry pipeline
-  - feat(worker): add telemetry consumer
-  - feat(web): add realtime fleet dashboard
-  - feat(mobile): add offline-first telemetry queue
-  - test(load): add k6 telemetry simulation
-  - docs(readme): add architecture and AI audit
+- Formato: tipo(alcance): descripción en imperativo
+- Ejemplos:
+  - feat(backend): agregar base de clean architecture
+  - feat(telemetria): implementar pipeline Kafka de telemetría
+  - feat(worker): agregar consumidor de telemetría
+  - feat(web): agregar dashboard de flota en tiempo real
+  - feat(mobile): agregar cola offline-first de telemetría
+  - test(carga): agregar simulación k6 de telemetría
+  - docs(readme): documentar arquitectura y auditoría IA
+  - chore(infra): agregar Redpanda y TimescaleDB
+  - fix(worker): corregir manejo de payloads inválidos
