@@ -1,6 +1,20 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl, isMockMode } from "@/lib/utils";
-import { mockAiResponse, mockAlerts, mockTelemetry, mockVehicles } from "@/mocks/fleet-data";
+import {
+  generateMockAiResponse,
+  getMockDataset,
+  getMockTelemetry,
+  refreshMockDataset,
+} from "@/mocks/fleet-data";
+
+type ApiVehicle = VehicleStatus & { lastHeadingDegrees?: number | null };
+
+function normalizeVehicle(vehicle: ApiVehicle): VehicleStatus {
+  return {
+    ...vehicle,
+    headingDegrees: vehicle.headingDegrees ?? vehicle.lastHeadingDegrees ?? null,
+  };
+}
 
 class ApiError extends Error {
   constructor(message: string) {
@@ -27,17 +41,18 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const apiClient = {
   async getFleet(): Promise<VehicleStatus[]> {
-    if (isMockMode()) return mockVehicles;
-    return fetchJson<VehicleStatus[]>("/api/fleet");
+    if (isMockMode()) return getMockDataset().vehicles;
+    const data = await fetchJson<ApiVehicle[]>("/api/fleet");
+    return data.map(normalizeVehicle);
   },
 
   async getAlerts(): Promise<FleetAlert[]> {
-    if (isMockMode()) return mockAlerts;
+    if (isMockMode()) return getMockDataset().alerts;
     return fetchJson<FleetAlert[]>("/api/alerts");
   },
 
   async getTelemetry(vehicleId: string): Promise<TelemetryEvent[]> {
-    if (isMockMode()) return mockTelemetry.filter((e) => e.vehicleId === vehicleId);
+    if (isMockMode()) return getMockTelemetry(vehicleId);
     const to = new Date().toISOString();
     const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     return fetchJson<TelemetryEvent[]>(
@@ -46,7 +61,7 @@ export const apiClient = {
   },
 
   async queryAi(question: string): Promise<AiQueryResponse> {
-    if (isMockMode()) return mockAiResponse;
+    if (isMockMode()) return generateMockAiResponse();
     return fetchJson<AiQueryResponse>("/api/ai/query", {
       method: "POST",
       body: JSON.stringify({ question }),
@@ -55,6 +70,28 @@ export const apiClient = {
 
   getSseUrl(): string {
     return `${getApiBaseUrl()}/api/events/stream`;
+  },
+
+  /** Regenera datos de demostración (mínimo 6 vehículos por defecto) */
+  refreshMockData(vehicleCount = 6) {
+    refreshMockDataset(vehicleCount);
+  },
+
+  async fetchFleetLive(): Promise<VehicleStatus[]> {
+    const data = await fetchJson<ApiVehicle[]>("/api/fleet?liveOnly=true");
+    return data.map(normalizeVehicle);
+  },
+
+  async fetchAlertsLive(): Promise<FleetAlert[]> {
+    return fetchJson<FleetAlert[]>("/api/alerts");
+  },
+
+  async fetchTelemetryLive(vehicleId: string): Promise<TelemetryEvent[]> {
+    const to = new Date().toISOString();
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    return fetchJson<TelemetryEvent[]>(
+      `/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
+    );
   },
 };
 

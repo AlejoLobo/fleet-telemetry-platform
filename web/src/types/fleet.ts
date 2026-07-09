@@ -6,6 +6,7 @@ export type VehicleStatus = {
   lastSpeedKmh: number | null;
   lastLatitude: number | null;
   lastLongitude: number | null;
+  headingDegrees?: number | null;
 };
 
 export type FleetAlert = {

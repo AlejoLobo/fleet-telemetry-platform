@@ -18,7 +18,7 @@ public static class TelemetryAlertEvaluator
                 telemetryEvent.VehicleId,
                 "overspeed",
                 "critical",
-                $"Vehicle {telemetryEvent.VehicleId} exceeded speed limit: {telemetryEvent.SpeedKmh:F1} km/h"));
+                $"El vehículo {telemetryEvent.VehicleId} superó el límite de velocidad: {telemetryEvent.SpeedKmh:F1} km/h"));
         }
 
         if (telemetryEvent.FuelLevelPercent is < LowFuelPercent)
@@ -27,7 +27,7 @@ public static class TelemetryAlertEvaluator
                 telemetryEvent.VehicleId,
                 "low_fuel",
                 "warning",
-                $"Vehicle {telemetryEvent.VehicleId} has low fuel: {telemetryEvent.FuelLevelPercent:F1}%"));
+                $"El vehículo {telemetryEvent.VehicleId} tiene combustible bajo: {telemetryEvent.FuelLevelPercent:F1}%"));
         }
 
         if (telemetryEvent.BatteryPercent is < LowBatteryPercent)
@@ -36,7 +36,7 @@ public static class TelemetryAlertEvaluator
                 telemetryEvent.VehicleId,
                 "low_battery",
                 "warning",
-                $"Vehicle {telemetryEvent.VehicleId} has low battery: {telemetryEvent.BatteryPercent:F1}%"));
+                $"El vehículo {telemetryEvent.VehicleId} tiene batería baja: {telemetryEvent.BatteryPercent:F1}%"));
         }
 
         return alerts;

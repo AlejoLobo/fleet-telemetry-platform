@@ -1,38 +1,78 @@
-import type { VehicleStatus } from "@/types/fleet";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+"use client";
 
-export function FleetMapPanel({ vehicles }: { vehicles: VehicleStatus[] }) {
+import dynamic from "next/dynamic";
+import { Layers, MapPin, Maximize2 } from "lucide-react";
+import type { VehicleStatus } from "@/types/fleet";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { esVehiculoEnLinea } from "@/lib/labels";
+
+const LeafletFleetMap = dynamic(
+  () => import("@/components/maps/leaflet-fleet-map").then((m) => m.LeafletFleetMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-[400px] flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-sky-50 to-violet-50">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-sm text-slate-500">Cargando mapa…</p>
+      </div>
+    ),
+  },
+);
+
+type FleetMapPanelProps = {
+  vehicles: VehicleStatus[];
+  selectedVehicleId?: string;
+};
+
+export function FleetMapPanel({ vehicles, selectedVehicleId }: FleetMapPanelProps) {
+  const withCoords = vehicles.filter(
+    (v) => v.lastLatitude != null && v.lastLongitude != null,
+  );
+  const onlineOnMap = withCoords.filter((v) => esVehiculoEnLinea(v.status)).length;
+
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Coordenadas de vehículos</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="relative h-64 overflow-hidden rounded-md border border-border bg-slate-950">
-          <div className="absolute inset-0 opacity-20" style={{
-            backgroundImage: "linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)",
-            backgroundSize: "24px 24px",
-          }} />
-          {vehicles.map((vehicle) => {
-            if (vehicle.lastLatitude == null || vehicle.lastLongitude == null) return null;
-            const x = ((vehicle.lastLongitude + 74.12) / 0.08) * 100;
-            const y = ((4.72 - vehicle.lastLatitude) / 0.08) * 100;
-            return (
-              <div
-                key={vehicle.vehicleId}
-                className="absolute -translate-x-1/2 -translate-y-1/2"
-                style={{ left: `${Math.min(Math.max(x, 5), 95)}%`, top: `${Math.min(Math.max(y, 5), 95)}%` }}
-                title={`${vehicle.vehicleId}: ${vehicle.lastLatitude}, ${vehicle.lastLongitude}`}
-              >
-                <span className={`block h-3 w-3 rounded-full ${vehicle.status === "online" ? "bg-emerald-400" : "bg-slate-400"}`} />
-                <span className="mt-1 block text-[10px] font-medium text-white">{vehicle.vehicleId}</span>
-              </div>
-            );
-          })}
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border bg-gradient-to-r from-sky-50 via-white to-violet-50">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <MapPin className="h-5 w-5 text-primary" />
+              Mapa en tiempo real
+            </CardTitle>
+            <CardDescription className="mt-1 flex items-center gap-2">
+              <Layers className="h-3.5 w-3.5" />
+              OpenStreetMap · Ajuste a calles OSRM
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="success" className="gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {onlineOnMap} en línea
+            </Badge>
+            <Badge variant="outline" className="gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              {withCoords.length - onlineOnMap} off
+            </Badge>
+            <Badge variant="default" className="bg-primary/10 text-primary">
+              <Maximize2 className="mr-1 h-3 w-3" />
+              {withCoords.length} vehículos
+            </Badge>
+          </div>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Vista simplificada (Bogotá). En producción: mapa interactivo.
-        </p>
+      </CardHeader>
+      <CardContent className="p-4">
+        <div className="relative h-[min(520px,60vh)] min-h-[400px] overflow-hidden rounded-xl border border-border shadow-inner">
+          {withCoords.length > 0 ? (
+            <LeafletFleetMap vehicles={vehicles} selectedVehicleId={selectedVehicleId} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-50 to-sky-50">
+              <MapPin className="h-10 w-10 text-slate-300" />
+              <p className="text-sm font-medium text-slate-500">Sin coordenadas disponibles</p>
+              <p className="text-xs text-slate-400">Selecciona modo demo o conecta el backend</p>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
