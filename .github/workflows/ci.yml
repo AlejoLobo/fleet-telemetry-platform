@@ -23,8 +23,33 @@ jobs:
       - name: Build
         run: dotnet build backend/FleetTelemetry.sln --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test backend/FleetTelemetry.sln --configuration Release --no-build
+      - name: Unit tests
+        run: dotnet test backend/FleetTelemetry.Application.Tests --configuration Release --no-build
+
+      - name: Vulnerable packages audit
+        run: |
+          OUTPUT=$(dotnet list backend/FleetTelemetry.Api/FleetTelemetry.Api.csproj package --vulnerable --include-transitive)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -qi "high\|critical" && exit 1 || true
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore backend/FleetTelemetry.Integration.Tests
+
+      - name: Build integration tests
+        run: dotnet build backend/FleetTelemetry.Integration.Tests --configuration Release
+
+      - name: Integration tests
+        run: dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build
 
   web:
     runs-on: ubuntu-latest
