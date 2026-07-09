@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Fleet Telemetry Driver",
+    "slug": "fleet-telemetry-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fleettelemetry.driver"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.fleettelemetry.driver"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Permite registrar telemetría de la flota mientras conduces."
+        }
+      ]
+    ]
+  }
+}
