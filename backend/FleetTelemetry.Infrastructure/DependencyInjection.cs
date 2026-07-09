@@ -47,7 +47,10 @@ public static class DependencyInjection
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
             services.AddScoped<AiOperationalTools>();
             services.AddScoped<OperationalAiAgentService>();
-            services.AddHttpClient<OpenAiPolishService>();
+            services.AddHttpClient<OpenAiPolishService>(client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(20);
+            });
             services.AddScoped<IAiAgentService, HybridAiAgentService>();
 
             services.AddScoped<IngestTelemetryEventUseCase>();
@@ -59,6 +62,7 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
+            services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
