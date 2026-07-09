@@ -16,7 +16,7 @@ public class MockTelemetryRepository : ITelemetryRepository
     public Task SaveAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "[MOCK] SaveAsync called for event {EventId} (persistence not implemented in Phase 1)",
+            "[MOCK] SaveAsync called for event {EventId} (API profile does not persist; Worker handles storage)",
             telemetryEvent.EventId);
 
         return Task.CompletedTask;

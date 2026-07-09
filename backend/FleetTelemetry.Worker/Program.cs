@@ -3,8 +3,8 @@ using FleetTelemetry.Worker;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddInfrastructure();
-builder.Services.AddHostedService<Worker>();
+builder.Services.AddInfrastructure(builder.Configuration, InfrastructureProfile.Worker);
+builder.Services.AddHostedService<TelemetryConsumerWorker>();
 
 var host = builder.Build();
 host.Run();
