@@ -1,9 +1,12 @@
 using System.Text.RegularExpressions;
 
+// Formateo y localización de respuestas del agente IA.
 namespace FleetTelemetry.Application.Services;
 
+// Traduce etiquetas y mensajes de alerta al español.
 public static class AiResponseFormatter
 {
+    // Convierte estado online/offline a etiquetas legibles.
     public static string EtiquetaEstado(string? status) =>
         status?.ToLowerInvariant() switch
         {
@@ -12,6 +15,7 @@ public static class AiResponseFormatter
             _ => status ?? "Desconocido"
         };
 
+    // Traduce tipo de alerta interno a texto descriptivo.
     public static string EtiquetaTipoAlerta(string alertType) =>
         alertType.ToLowerInvariant() switch
         {
@@ -21,6 +25,7 @@ public static class AiResponseFormatter
             _ => alertType.Replace('_', ' ')
         };
 
+    // Convierte mensajes de alerta en inglés a español.
     public static string TraducirMensajeAlerta(string vehicleId, string message)
     {
         var exceso = Regex.Match(message, @"exceeded speed limit:\s*([\d.,]+)\s*km/h", RegexOptions.IgnoreCase);
@@ -47,6 +52,7 @@ public static class AiResponseFormatter
         return message;
     }
 
+    // Aplica reemplazos de localización en respuestas completas.
     public static string LocalizarRespuesta(string answer) =>
         answer
             .Replace("Online:", "En línea:", StringComparison.OrdinalIgnoreCase)

@@ -1,5 +1,7 @@
+// Opciones de integración con OpenAI.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
+// API key, modelo y URL base del servicio LLM.
 public class OpenAiOptions
 {
     public const string SectionName = "OpenAI";

@@ -1,6 +1,8 @@
+/** Componentes UI reutilizables: tarjeta contenedora. */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Contenedor con efecto glass y sombra. */
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div

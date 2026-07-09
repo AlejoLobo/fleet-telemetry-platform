@@ -1,3 +1,5 @@
+/** Etiquetas en español y utilidades de localización. */
+
 export function etiquetaEstadoVehiculo(status: string): string {
   switch (status.toLowerCase()) {
     case "online":
@@ -9,6 +11,7 @@ export function etiquetaEstadoVehiculo(status: string): string {
   }
 }
 
+/** Traduce la severidad de alerta al español. */
 export function etiquetaSeveridad(severity: string): string {
   switch (severity.toLowerCase()) {
     case "critical":
@@ -20,6 +23,7 @@ export function etiquetaSeveridad(severity: string): string {
   }
 }
 
+/** Traduce el tipo de alerta al español. */
 export function etiquetaTipoAlerta(alertType: string): string {
   switch (alertType.toLowerCase()) {
     case "overspeed":
@@ -52,14 +56,17 @@ export function etiquetaHerramientaIa(tool: string): string {
   return HERRAMIENTAS_IA[tool] ?? tool;
 }
 
+/** Indica si el vehículo está en línea. */
 export function esVehiculoEnLinea(status: string): boolean {
   return status.toLowerCase() === "online";
 }
 
+/** Indica si la alerta es de severidad crítica. */
 export function esSeveridadCritica(severity: string): boolean {
   return severity.toLowerCase() === "critical";
 }
 
+/** Traduce mensajes de alerta del inglés al español. */
 export function traducirMensajeAlerta(alert: {
   vehicleId: string;
   alertType: string;

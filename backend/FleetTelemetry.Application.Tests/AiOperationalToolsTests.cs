@@ -3,6 +3,7 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
 
+// Pruebas de herramientas operativas del agente IA.
 namespace FleetTelemetry.Application.Tests;
 
 public class AiOperationalToolsTests

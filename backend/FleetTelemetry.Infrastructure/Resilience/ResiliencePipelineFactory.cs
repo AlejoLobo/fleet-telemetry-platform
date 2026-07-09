@@ -9,11 +9,13 @@ using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
 
+// Fábrica de pipelines de resiliencia Polly.
 namespace FleetTelemetry.Infrastructure.Resilience;
 
 /// <summary>
 /// Factory central de pipelines Polly. Circuit breaker externo + retry interno (fail-fast).
 /// </summary>
+// Construye pipelines para Kafka, OpenAI y base de datos.
 public sealed class ResiliencePipelineFactory
 {
     private readonly ICircuitBreakerStateRegistry _registry;

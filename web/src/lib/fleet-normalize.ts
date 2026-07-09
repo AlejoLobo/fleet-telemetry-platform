@@ -1,3 +1,4 @@
+/** Normaliza respuestas del backend al formato del frontend. */
 import type { VehicleStatus } from "@/types/fleet";
 
 type RawVehicle = VehicleStatus & {
@@ -9,7 +10,7 @@ type RawVehicle = VehicleStatus & {
   LastSeenAt?: string | null;
 };
 
-/** Normaliza respuestas del backend (REST/SSE) al shape del dashboard. */
+/** Normaliza un vehículo del API (PascalCase → camelCase). */
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   return {
     vehicleId: vehicle.vehicleId,

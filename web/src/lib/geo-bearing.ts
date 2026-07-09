@@ -1,3 +1,4 @@
+/** Utilidades geográficas: rumbo, desplazamiento y normalización. */
 import type { VehicleStatus } from "@/types/fleet";
 
 /** Rumbo en grados (0=norte, 90=este) desde (lat1,lng1) hacia (lat2,lng2) */

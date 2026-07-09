@@ -1,6 +1,8 @@
+/** Componentes UI reutilizables: insignia de estado. */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Insignia con colores según severidad o estado. */
 export function Badge({
   className,
   variant = "default",

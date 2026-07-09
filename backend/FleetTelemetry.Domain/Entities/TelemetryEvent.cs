@@ -1,5 +1,7 @@
+// Entidad de evento de telemetría vehicular.
 namespace FleetTelemetry.Domain.Entities;
 
+// Datos de posición y estado reportados por un vehículo.
 public class TelemetryEvent
 {
     public Guid EventId { get; set; }

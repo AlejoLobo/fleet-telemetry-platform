@@ -3,10 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+// Inicialización del esquema TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Persistence;
 
+// Crea extensiones, tablas e índices si no existen.
 public static class DatabaseInitializer
 {
+    // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();

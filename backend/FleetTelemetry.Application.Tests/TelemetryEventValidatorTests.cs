@@ -1,6 +1,7 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Validation;
 
+// Pruebas de validación de eventos de telemetría.
 namespace FleetTelemetry.Application.Tests;
 
 public class TelemetryEventValidatorTests

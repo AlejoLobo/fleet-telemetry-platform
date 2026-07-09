@@ -1,3 +1,4 @@
+/** Generador de datos sintéticos para modo demostración. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { computeBearingDegrees, moveByBearing } from "@/lib/geo-bearing";
 import {
@@ -28,6 +29,7 @@ const ALERT_TYPES = [
     `El vehículo ${id} tiene batería baja: ${v.toFixed(1)}%` },
 ];
 
+/** Conjunto completo de datos mock (vehículos, alertas, telemetría). */
 export type MockFleetDataset = {
   vehicles: VehicleStatus[];
   alerts: FleetAlert[];
@@ -65,6 +67,7 @@ function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number):
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+/** Genera coordenadas separadas por zona de Bogotá. */
 function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number; lng: number }[] {
   const coords: { lat: number; lng: number }[] = [];
 
@@ -90,6 +93,7 @@ function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number
   return coords;
 }
 
+/** Crea un vehículo con su historial de telemetría. */
 function generateVehicleBundle(
   index: number,
   coord: { lat: number; lng: number },
@@ -149,6 +153,7 @@ function generateVehicleBundle(
   return { vehicle, events };
 }
 
+/** Genera alertas aleatorias para la flota mock. */
 function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
   const alerts: FleetAlert[] = [];
   const alertCount = randomInt(1, Math.min(4, vehicles.length));
@@ -185,6 +190,7 @@ function generateTelemetryBundles(
   return byVehicle;
 }
 
+/** Genera un dataset completo de flota simulada. */
 export function generateMockFleetDataset(vehicleCount?: number): MockFleetDataset {
   const count = vehicleCount ?? randomInt(8, 12);
   const coords = randomDistinctCoords(count);
@@ -196,11 +202,13 @@ export function generateMockFleetDataset(vehicleCount?: number): MockFleetDatase
   return { vehicles, alerts, telemetryByVehicle };
 }
 
+/** Regenera y cachea un nuevo dataset demo. */
 export function refreshMockDataset(vehicleCount?: number): MockFleetDataset {
   cachedDataset = generateMockFleetDataset(vehicleCount);
   return cachedDataset;
 }
 
+/** Obtiene el dataset mock cacheado o genera uno nuevo. */
 export function getMockDataset(): MockFleetDataset {
   if (!cachedDataset) {
     cachedDataset = generateMockFleetDataset();
@@ -212,6 +220,7 @@ export function getMockTelemetry(vehicleId: string): TelemetryEvent[] {
   return getMockDataset().telemetryByVehicle[vehicleId] ?? [];
 }
 
+/** Respuesta simulada del agente IA para modo demo. */
 export function generateMockAiResponse(): AiQueryResponse {
   const { vehicles, alerts } = getMockDataset();
   const online = vehicles.filter((v) => v.status === "online").length;

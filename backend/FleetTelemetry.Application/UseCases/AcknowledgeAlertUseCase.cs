@@ -1,8 +1,10 @@
 using FleetTelemetry.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 
+// Caso de uso para confirmar alertas.
 namespace FleetTelemetry.Application.UseCases;
 
+// Marca alertas como atendidas en el repositorio.
 public class AcknowledgeAlertUseCase
 {
     private readonly IAlertRepository _alertRepository;
@@ -14,6 +16,7 @@ public class AcknowledgeAlertUseCase
         _logger = logger;
     }
 
+    // Confirma la alerta por identificador; devuelve si existía.
     public async Task<bool> ExecuteAsync(Guid alertId, CancellationToken cancellationToken = default)
     {
         var acknowledged = await _alertRepository.AcknowledgeAsync(alertId, cancellationToken);

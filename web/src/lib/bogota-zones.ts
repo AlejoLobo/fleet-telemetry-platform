@@ -1,4 +1,4 @@
-/** Zonas de Bogotá para dispersar vehículos de prueba (demo, k6, seed). */
+/** Zonas geográficas de Bogotá para datos de prueba. */
 export const BOGOTA_ZONES = [
   { name: "Chapinero", lat: 4.648, lng: -74.063, spread: 0.018 },
   { name: "Usaquén", lat: 4.711, lng: -74.032, spread: 0.015 },
@@ -39,10 +39,12 @@ export function randomTelemetryTimestamp(online: boolean): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
 }
 
+/** Obtiene la zona según el índice del vehículo. */
 export function zoneForVehicleIndex(index: number): BogotaZone {
   return BOGOTA_ZONES[index % BOGOTA_ZONES.length];
 }
 
+/** Obtiene la zona según el ID del vehículo (VH-001, etc.). */
 export function zoneForVehicleId(vehicleId: string): BogotaZone {
   const match = /VH-(\d+)/i.exec(vehicleId);
   const num = match ? Number.parseInt(match[1], 10) : vehicleId.length;

@@ -1,6 +1,8 @@
+/** Componentes UI reutilizables: botón. */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Botón con variantes de estilo y tamaño. */
 export function Button({
   className,
   variant = "default",

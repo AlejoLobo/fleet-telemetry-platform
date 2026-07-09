@@ -1,3 +1,4 @@
+/** Panel contenedor del mapa Leaflet con estadísticas. */
 "use client";
 
 import dynamic from "next/dynamic";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea } from "@/lib/labels";
 
+// Carga dinámica del mapa (sin SSR por Leaflet)
 const LeafletFleetMap = dynamic(
   () => import("@/components/maps/leaflet-fleet-map").then((m) => m.LeafletFleetMap),
   {
@@ -28,6 +30,7 @@ type FleetMapPanelProps = {
   autoFit?: boolean;
 };
 
+/** Tarjeta del mapa en tiempo real con badges de estado. */
 export function FleetMapPanel({
   vehicles,
   selectedVehicleId,

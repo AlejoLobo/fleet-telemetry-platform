@@ -1,6 +1,7 @@
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
 
+// Pruebas del evaluador de alertas por telemetría.
 namespace FleetTelemetry.Application.Tests;
 
 public class TelemetryAlertEvaluatorTests

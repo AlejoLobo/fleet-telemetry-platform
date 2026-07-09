@@ -4,6 +4,7 @@ using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 
+// Controlador de eventos SSE en tiempo real.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
@@ -22,6 +23,7 @@ public class EventsController : ControllerBase
         _broker = broker;
     }
 
+    // Mantiene conexión SSE y reenvía eventos del broker.
     [HttpGet("stream")]
     public async Task Stream(CancellationToken cancellationToken)
     {

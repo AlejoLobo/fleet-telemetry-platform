@@ -1,9 +1,11 @@
+/** Tabla de eventos de telemetría del vehículo seleccionado. */
 import { Battery, Fuel, Gauge, MapPin, TableProperties } from "lucide-react";
 import type { TelemetryEvent } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
+/** Muestra historial de velocidad, combustible y ubicación. */
 export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]; vehicleId: string }) {
   return (
     <Card className="h-full">
@@ -112,6 +114,7 @@ export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]
   );
 }
 
+/** Barra de progreso para combustible o batería. */
 function FuelBar({ value, type }: { value: number; type: "fuel" | "battery" }) {
   const low = value < 25;
   const mid = value < 50;

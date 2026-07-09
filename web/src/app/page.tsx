@@ -1,3 +1,4 @@
+/** Página principal del dashboard de telemetría de flotas. */
 "use client";
 
 
@@ -36,8 +37,10 @@ import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 
 
 
+/** Componente raíz del centro de control operativo. */
 export default function DashboardPage() {
 
+  // Estado de selección y datos en vivo
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("VH-001");
 
   const [liveVehicles, setLiveVehicles] = useState<VehicleStatus[] | null>(null);
@@ -61,6 +64,7 @@ export default function DashboardPage() {
 
 
 
+  /** Consulta si la autenticación está habilitada en el backend. */
   const refreshAuthState = async () => {
 
     try {
@@ -115,6 +119,7 @@ export default function DashboardPage() {
 
 
 
+  // Stream SSE para actualizaciones en tiempo real
   const { connectionState } = useSseStream({
 
     enabled: dataSource === "api",
@@ -145,6 +150,7 @@ export default function DashboardPage() {
 
 
 
+  /** Cambia a modo API y limpia datos en vivo. */
   const handleLoadApi = async () => {
 
     setLiveVehicles(null);
@@ -165,6 +171,7 @@ export default function DashboardPage() {
 
 
 
+  /** Cambia a modo demo con datos sintéticos. */
   const handleLoadDemo = async () => {
 
     setLiveVehicles(null);
@@ -185,12 +192,14 @@ export default function DashboardPage() {
 
 
 
+  // Combina datos del API con actualizaciones SSE
   const displayVehicles = useMemo(() => {
     if (dataSource === "demo") return vehicles;
     if (liveVehicles && liveVehicles.length > 0) return liveVehicles;
     return vehicles;
   }, [dataSource, liveVehicles, vehicles]);
 
+  // Une alertas en vivo con las del API sin duplicados
   const displayAlerts = useMemo(() => {
 
     if (dataSource === "demo") return alerts;
@@ -217,6 +226,7 @@ export default function DashboardPage() {
 
 
 
+  /** Centra el mapa en un vehículo específico. */
   const handleFocusVehicle = (vehicleId: string) => {
 
     setSelectedVehicleId(vehicleId);
@@ -229,6 +239,7 @@ export default function DashboardPage() {
 
 
 
+  /** Confirma una alerta en el backend. */
   const handleAcknowledgeAlert = async (alertId: string) => {
 
     if (dataSource === "demo") return;
@@ -418,9 +429,9 @@ export default function DashboardPage() {
 
 
       <footer className="border-t border-border bg-white py-4 text-center text-xs text-slate-500">
-
         Fleet Telemetry Platform · Monitoreo operativo en tiempo real
-
+        <br />
+        Powered By: Ing. Alejandro Lobo-Guerrero C.
       </footer>
 
     </div>

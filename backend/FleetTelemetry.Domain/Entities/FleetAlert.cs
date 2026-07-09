@@ -1,5 +1,7 @@
+// Entidad de alerta operativa de la flota.
 namespace FleetTelemetry.Domain.Entities;
 
+// Representa una alerta generada por telemetría.
 public class FleetAlert
 {
     public Guid AlertId { get; set; }

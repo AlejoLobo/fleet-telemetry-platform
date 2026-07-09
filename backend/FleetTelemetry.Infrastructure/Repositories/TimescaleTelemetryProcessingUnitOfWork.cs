@@ -6,8 +6,10 @@ using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+// Unidad de trabajo transaccional para procesar telemetría.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
+// Persiste evento, alertas e idempotencia en una transacción.
 public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOfWork
 {
     private readonly FleetDbContext _dbContext;
@@ -21,6 +23,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         _logger = logger;
     }
 
+    // Procesa evento en transacción con idempotencia y alertas.
     public async Task<ProcessTelemetryOutcome> ProcessAsync(
         TelemetryEvent telemetryEvent,
         CancellationToken cancellationToken = default)

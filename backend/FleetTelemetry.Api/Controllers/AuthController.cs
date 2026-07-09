@@ -4,6 +4,7 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
+// Controlador de autenticación JWT.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
@@ -19,6 +20,7 @@ public class AuthController : ControllerBase
         _jwtTokenService = jwtTokenService;
     }
 
+    // Emite token JWT con credenciales de demo.
     [HttpPost("login")]
     public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
     {
@@ -32,6 +34,7 @@ public class AuthController : ControllerBase
         return Ok(new LoginResponse(token, _authOptions.TokenExpirationMinutes));
     }
 
+    // Indica si la autenticación está activa.
     [HttpGet("status")]
     public IActionResult Status() =>
         Ok(new { enabled = _authOptions.Enabled });

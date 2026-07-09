@@ -1,3 +1,4 @@
+/** Cabecera del dashboard con controles de fuente de datos. */
 import { Database, Dices, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/connection-status";
@@ -18,6 +19,7 @@ type DashboardHeaderProps = {
   onRefresh: () => void;
 };
 
+/** Barra superior con título, conexión y acciones. */
 export function DashboardHeader({
   loading,
   dataSource,

@@ -4,8 +4,10 @@ using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
+// Repositorio de alertas en TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
+// Implementación de IAlertRepository con EF Core.
 public class TimescaleAlertRepository : IAlertRepository
 {
     private readonly FleetDbContext _dbContext;

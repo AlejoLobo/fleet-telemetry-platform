@@ -1,3 +1,4 @@
+// Prueba de carga k6: ingesta de telemetría con escenarios online/offline
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
@@ -23,6 +24,7 @@ const BOGOTA_ZONES = [
   { lat: 4.612, lng: -74.195, spread: 0.02 },
 ];
 
+// Métricas personalizadas de la prueba
 const acceptedEvents = new Counter("telemetry_accepted");
 const duplicateEvents = new Counter("telemetry_duplicate_sent");
 const intentionalInvalid = new Counter("telemetry_intentional_invalid");
@@ -30,6 +32,7 @@ const unexpectedFailures = new Counter("telemetry_unexpected_failure");
 const intentionalErrorRate = new Rate("telemetry_intentional_error_rate");
 const validRequestDuration = new Trend("telemetry_valid_request_duration", true);
 
+// IDs reutilizados para simular eventos duplicados
 const duplicateEventIds = Array.from({ length: 50 }, () => uuidv4());
 
 export const options = {
@@ -48,21 +51,25 @@ export const options = {
   },
 };
 
+// Construye headers con token opcional
 function headers() {
   const h = { "Content-Type": "application/json" };
   if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
   return h;
 }
 
+// Genera un ID de vehículo aleatorio
 function vehicleId() {
   return `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
 }
 
+// Extrae el número del ID de vehículo
 function vehicleNumber(vehicle) {
   const match = /VH-(\d+)/.exec(vehicle);
   return match ? Number.parseInt(match[1], 10) : 1;
 }
 
+// Punto aleatorio dentro de una zona geográfica
 function randomPointInZone(zone) {
   const angle = Math.random() * Math.PI * 2;
   const radius = Math.random() * zone.spread;
@@ -72,13 +79,14 @@ function randomPointInZone(zone) {
   };
 }
 
+// Asigna ubicación según la zona del vehículo
 function locationForVehicle(vehicle) {
   const num = vehicleNumber(vehicle);
   const zone = BOGOTA_ZONES[num % BOGOTA_ZONES.length];
   return randomPointInZone(zone);
 }
 
-/** ~62% online (timestamp reciente), resto offline. */
+// ~62% online (timestamp reciente), resto offline
 function randomTimestamp() {
   const online = Math.random() < 0.62;
   if (online) {
@@ -89,6 +97,7 @@ function randomTimestamp() {
   return new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
 }
 
+// Construye un payload válido de telemetría
 function buildValidPayload(eventId, vehicle) {
   const { lat, lng } = locationForVehicle(vehicle);
   const online = Math.random() < 0.62;
@@ -105,6 +114,7 @@ function buildValidPayload(eventId, vehicle) {
   });
 }
 
+// Construye un payload inválido para probar errores 400
 function buildInvalidPayload() {
   return JSON.stringify({
     eventId: uuidv4(),
@@ -119,10 +129,12 @@ function buildInvalidPayload() {
   });
 }
 
+// Función principal ejecutada por cada VU
 export default function () {
   const roll = Math.random();
   const vehicle = vehicleId();
 
+  // Envía payload inválido según tasa de error configurada
   if (roll < ERROR_RATE) {
     const res = http.post(`${API_URL}/api/telemetry`, buildInvalidPayload(), { headers: headers() });
     intentionalInvalid.add(1);
@@ -137,6 +149,7 @@ export default function () {
     return;
   }
 
+  // Decide si reutilizar un eventId duplicado
   const isDuplicate = roll < ERROR_RATE + DUPLICATE_RATE;
   const eventId = isDuplicate
     ? duplicateEventIds[randomIntBetween(0, duplicateEventIds.length - 1)]

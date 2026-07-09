@@ -1,7 +1,10 @@
+// Excepción cuando un circuit breaker está abierto.
 namespace FleetTelemetry.Application.Exceptions;
 
+// Indica dependencia externa no disponible temporalmente.
 public class DependencyCircuitOpenException : Exception
 {
+    // Crea la excepción con nombre de dependencia y reintento opcional.
     public DependencyCircuitOpenException(string dependency, TimeSpan? retryAfter = null)
         : base($"El circuit breaker de {dependency} está abierto; la dependencia no está disponible temporalmente.")
     {

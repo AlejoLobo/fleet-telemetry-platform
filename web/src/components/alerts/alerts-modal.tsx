@@ -1,3 +1,4 @@
+/** Modal y botón para ver y confirmar alertas activas. */
 "use client";
 
 import { useEffect } from "react";
@@ -21,6 +22,7 @@ type AlertsModalProps = {
   acknowledgingId?: string | null;
 };
 
+/** Botón del header que abre el modal de alertas. */
 export function AlertsModalTrigger({
   alertCount,
   criticalCount,
@@ -75,6 +77,7 @@ export function AlertsModalTrigger({
   );
 }
 
+/** Modal con lista de alertas y confirmación. */
 export function AlertsModal({
   open,
   alerts,

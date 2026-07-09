@@ -1,6 +1,8 @@
+// Cliente HTTP para enviar eventos de telemetría a la API
 import { getApiBaseUrl } from "@/config/env";
 import type { TelemetryEventPayload } from "@/types/telemetry";
 
+// Error personalizado para fallos de la API
 class TelemetryApiError extends Error {
   constructor(message: string) {
     super(message);
@@ -8,6 +10,7 @@ class TelemetryApiError extends Error {
   }
 }
 
+// Realiza POST JSON y valida la respuesta
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: "POST",
@@ -23,10 +26,12 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Envía un solo evento de telemetría
 export async function sendSingleEvent(event: TelemetryEventPayload): Promise<void> {
   await postJson("/api/telemetry", event);
 }
 
+// Envía varios eventos en un lote
 export async function sendBatchEvents(events: TelemetryEventPayload[]): Promise<void> {
   await postJson("/api/telemetry/batch", { events });
 }
