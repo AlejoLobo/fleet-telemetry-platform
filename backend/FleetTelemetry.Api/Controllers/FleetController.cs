@@ -19,9 +19,10 @@ public class FleetController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<VehicleLatestStatusResponse>>> GetAll(
-        CancellationToken cancellationToken)
+        [FromQuery] bool liveOnly = false,
+        CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(liveOnly, cancellationToken);
         return Ok(vehicles);
     }
 

@@ -32,7 +32,7 @@ public class AiOperationalTools
 
         var answer = new StringBuilder()
             .AppendLine($"Estado de {status.VehicleId}:")
-            .AppendLine($"- Estado: {status.Status}")
+            .AppendLine($"- Estado: {AiResponseFormatter.EtiquetaEstado(status.Status)}")
             .AppendLine($"- Última señal: {status.LastSeenAt:u}")
             .AppendLine($"- Velocidad: {status.LastSpeedKmh:F1} km/h")
             .AppendLine($"- Ubicación: {status.LastLatitude:F4}, {status.LastLongitude:F4}")
@@ -44,7 +44,7 @@ public class AiOperationalTools
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetStoppedVehiclesAsync(
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
         var stopped = vehicles
             .Where(v => v.LastSpeedKmh is <= StoppedSpeedThresholdKmh)
             .ToList();
@@ -65,7 +65,8 @@ public class AiOperationalTools
         if (critical.Count == 0)
             return ("No hay alertas críticas abiertas.", ["GetVehiclesWithCriticalAlerts"]);
 
-        var lines = critical.Select(a => $"- {a.VehicleId}: {a.AlertType} — {a.Message}");
+        var lines = critical.Select(a =>
+            $"- {a.VehicleId}: {AiResponseFormatter.EtiquetaTipoAlerta(a.AlertType)} — {AiResponseFormatter.TraducirMensajeAlerta(a.VehicleId, a.Message)}");
         return ($"Alertas críticas abiertas ({critical.Count}):\n{string.Join('\n', lines)}", ["GetVehiclesWithCriticalAlerts"]);
     }
 
@@ -73,7 +74,7 @@ public class AiOperationalTools
         double thresholdKmh,
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
         var above = vehicles.Where(v => v.LastSpeedKmh > thresholdKmh).ToList();
 
         if (above.Count == 0)
@@ -87,7 +88,7 @@ public class AiOperationalTools
         string? vehicleId,
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
         if (vehicles.Count == 0)
             return ("No hay datos de flota para generar analítica.", ["GetAnalyticsSummary"]);
 
@@ -99,8 +100,8 @@ public class AiOperationalTools
         var answer = new StringBuilder()
             .AppendLine($"Resumen analítico (últimas 24 h) — vehículo {targetId}:")
             .AppendLine($"- Velocidad promedio: {avgSpeed:F1} km/h")
-            .AppendLine($"- Vehículos activos en flota: {vehicles.Count(v => v.Status == "online")}/{vehicles.Count}")
-            .AppendLine("- Fuente: TimescaleDB (mock de Druid en MVP)")
+            .AppendLine($"- Vehículos en línea: {vehicles.Count(v => v.Status == "online")}/{vehicles.Count}")
+            .AppendLine("- Fuente: TimescaleDB")
             .ToString();
 
         return (answer.Trim(), ["GetAnalyticsSummary", "IAnalyticsQueryService"]);
@@ -109,14 +110,14 @@ public class AiOperationalTools
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetFleetOverviewAsync(
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
         var alerts = await _alertRepository.GetOpenAlertsAsync(cancellationToken);
 
         var answer = new StringBuilder()
             .AppendLine("Resumen operativo de flota:")
             .AppendLine($"- Vehículos con telemetría: {vehicles.Count}")
-            .AppendLine($"- Online: {vehicles.Count(v => v.Status == "online")}")
-            .AppendLine($"- Offline: {vehicles.Count(v => v.Status == "offline")}")
+            .AppendLine($"- En línea: {vehicles.Count(v => v.Status == "online")}")
+            .AppendLine($"- Desconectados: {vehicles.Count(v => v.Status == "offline")}")
             .AppendLine($"- Alertas abiertas: {alerts.Count}")
             .ToString();
 

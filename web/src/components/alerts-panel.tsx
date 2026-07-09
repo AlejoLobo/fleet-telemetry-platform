@@ -1,33 +1,83 @@
+import { AlertTriangle, Bell, ShieldAlert } from "lucide-react";
 import type { FleetAlert } from "@/types/fleet";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  esSeveridadCritica,
+  etiquetaSeveridad,
+  etiquetaTipoAlerta,
+  traducirMensajeAlerta,
+} from "@/lib/labels";
+import { cn } from "@/lib/utils";
 
 export function AlertsPanel({ alerts }: { alerts: FleetAlert[] }) {
+  const criticalCount = alerts.filter((a) => esSeveridadCritica(a.severity)).length;
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Alertas abiertas ({alerts.length})</CardTitle>
+    <Card className="flex h-full flex-col">
+      <CardHeader className="border-b border-border">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-amber-500" />
+              Alertas activas
+            </CardTitle>
+            <CardDescription className="mt-1">
+              {criticalCount > 0
+                ? `${criticalCount} crítica(s) · atención inmediata`
+                : "Monitoreo de incidentes"}
+            </CardDescription>
+          </div>
+          <Badge variant={criticalCount > 0 ? "critical" : "outline"} className="tabular-nums">
+            {alerts.length}
+          </Badge>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="max-h-72 space-y-2 overflow-y-auto">
+      <CardContent className="custom-scrollbar max-h-[420px] flex-1 overflow-y-auto pt-4">
+        <div className="space-y-3">
           {alerts.length === 0 && (
-            <p className="text-sm text-muted-foreground">No hay alertas abiertas.</p>
-          )}
-          {alerts.map((alert) => (
-            <div key={alert.alertId} className="rounded-md border border-border p-3 text-sm">
-              <div className="mb-1 flex items-center gap-2">
-                <Badge variant={alert.severity === "critical" ? "critical" : "warning"}>
-                  {alert.severity}
-                </Badge>
-                <span className="font-medium">{alert.vehicleId}</span>
-                <span className="text-muted-foreground">· {alert.alertType}</span>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
+                <ShieldAlert className="h-7 w-7 text-emerald-400" />
               </div>
-              <p>{alert.message}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(alert.createdAt).toLocaleString()}
-              </p>
+              <p className="mt-3 text-sm font-medium text-slate-600">Todo en orden</p>
+              <p className="text-xs text-muted-foreground">No hay alertas abiertas</p>
             </div>
-          ))}
+          )}
+          {alerts.map((alert, index) => {
+            const critical = esSeveridadCritica(alert.severity);
+
+            return (
+              <div
+                key={alert.alertId}
+                className={cn(
+                  "relative rounded-xl border p-4 transition-shadow hover:shadow-soft",
+                  critical
+                    ? "border-red-200 bg-gradient-to-r from-red-50 to-white"
+                    : "border-amber-200 bg-gradient-to-r from-amber-50 to-white",
+                )}
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant={critical ? "critical" : "warning"}>
+                    {etiquetaSeveridad(alert.severity)}
+                  </Badge>
+                  <span className="font-semibold text-slate-800">{alert.vehicleId}</span>
+                  <span className="text-xs text-slate-400">·</span>
+                  <span className="text-xs font-medium text-slate-500">
+                    {etiquetaTipoAlerta(alert.alertType)}
+                  </span>
+                </div>
+                <p className="text-sm leading-relaxed text-slate-700">
+                  {traducirMensajeAlerta(alert)}
+                </p>
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+                  <AlertTriangle className="h-3 w-3" />
+                  {new Date(alert.createdAt).toLocaleString("es-CO")}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </CardContent>
     </Card>

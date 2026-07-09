@@ -14,6 +14,7 @@ public class MockFleetQueryService : IFleetQueryService
     }
 
     public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
+        bool liveOnly = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("[MOCK] GetLatestVehicleStatusesAsync called");
@@ -27,7 +28,8 @@ public class MockFleetQueryService : IFleetQueryService
                 LastSeenAt: DateTimeOffset.UtcNow.AddMinutes(-2),
                 LastSpeedKmh: 42.5,
                 LastLatitude: 4.6533,
-                LastLongitude: -74.0836)
+                LastLongitude: -74.0836,
+                LastHeadingDegrees: 127.5)
         ];
 
         return Task.FromResult(result);
@@ -49,7 +51,8 @@ public class MockFleetQueryService : IFleetQueryService
                     LastSeenAt: DateTimeOffset.UtcNow.AddMinutes(-2),
                     LastSpeedKmh: 42.5,
                     LastLatitude: 4.6533,
-                    LastLongitude: -74.0836));
+                    LastLongitude: -74.0836,
+                    LastHeadingDegrees: 127.5));
         }
 
         return Task.FromResult<VehicleLatestStatusResponse?>(null);

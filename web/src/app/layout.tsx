@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-jakarta",
+});
 
 export const metadata: Metadata = {
-  title: "Fleet Telemetry Dashboard",
-  description: "Portal corporativo de monitoreo de flotas",
+  title: "Fleet Telemetry — Centro de Control",
+  description: "Plataforma de monitoreo y telemetría de flotas en tiempo real",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body className={inter.className}>{children}</body>
+      <body className={`${jakarta.className} min-h-screen`}>{children}</body>
     </html>
   );
 }

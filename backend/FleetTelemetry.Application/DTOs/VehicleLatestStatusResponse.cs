@@ -7,4 +7,5 @@ public record VehicleLatestStatusResponse(
     DateTimeOffset? LastSeenAt,
     double? LastSpeedKmh,
     double? LastLatitude,
-    double? LastLongitude);
+    double? LastLongitude,
+    double? LastHeadingDegrees);

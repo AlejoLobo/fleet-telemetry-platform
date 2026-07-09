@@ -29,7 +29,7 @@ public class OperationalAiAgentService : IAiAgentService
         _logger.LogInformation("Consulta IA operativa: {Question}", question);
 
         var (answer, sources) = await RouteQuestionAsync(question, cancellationToken);
-        return new AiQueryResponse(answer, sources);
+        return new AiQueryResponse(AiResponseFormatter.LocalizarRespuesta(answer), sources);
     }
 
     private async Task<(string Answer, IReadOnlyList<string> Sources)> RouteQuestionAsync(

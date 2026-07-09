@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Infrastructure.Geo;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
     }
 
     public async Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
+        bool liveOnly = false,
         CancellationToken cancellationToken = default)
     {
         var records = await _dbContext.TelemetryEvents
@@ -30,12 +32,21 @@ public class TimescaleFleetQueryService : IFleetQueryService
 
         var latest = records
             .GroupBy(e => e.VehicleId)
-            .Select(g => g.First())
-            .Select(MapToStatus)
+            .Select(g =>
+            {
+                var ordered = g.OrderByDescending(e => e.Timestamp).Take(2).ToList();
+                var current = ordered[0];
+                var previous = ordered.Count > 1 ? ordered[1] : null;
+                var heading = GeoBearing.ComputeHeadingDegrees(previous, current);
+                return MapToStatus(current, heading);
+            })
             .OrderBy(v => v.VehicleId)
             .ToList();
 
-        _logger.LogDebug("Consultados {Count} vehículos con telemetría", latest.Count);
+        if (liveOnly)
+            latest = latest.Where(v => v.Status == "online").ToList();
+
+        _logger.LogDebug("Consultados {Count} vehículos con telemetría (liveOnly={LiveOnly})", latest.Count, liveOnly);
         return latest;
     }
 
@@ -43,16 +54,25 @@ public class TimescaleFleetQueryService : IFleetQueryService
         string vehicleId,
         CancellationToken cancellationToken = default)
     {
-        var record = await _dbContext.TelemetryEvents
+        var records = await _dbContext.TelemetryEvents
             .AsNoTracking()
             .Where(e => e.VehicleId == vehicleId)
             .OrderByDescending(e => e.Timestamp)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Take(2)
+            .ToListAsync(cancellationToken);
 
-        return record is null ? null : MapToStatus(record);
+        if (records.Count == 0) return null;
+
+        var heading = records.Count > 1
+            ? GeoBearing.ComputeHeadingDegrees(records[1], records[0])
+            : null;
+
+        return MapToStatus(records[0], heading);
     }
 
-    private static VehicleLatestStatusResponse MapToStatus(TelemetryEventRecord record)
+    private static VehicleLatestStatusResponse MapToStatus(
+        TelemetryEventRecord record,
+        double? headingDegrees)
     {
         var isOnline = DateTimeOffset.UtcNow - record.Timestamp <= OnlineThreshold;
 
@@ -63,6 +83,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastSeenAt: record.Timestamp,
             LastSpeedKmh: record.SpeedKmh,
             LastLatitude: record.Latitude,
-            LastLongitude: record.Longitude);
+            LastLongitude: record.Longitude,
+            LastHeadingDegrees: headingDegrees);
     }
 }
