@@ -1,0 +1,80 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { apiClient } from "@/lib/api-client";
+import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
+import { isMockMode } from "@/lib/utils";
+
+type SseHandlers = {
+  onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
+  onAlert?: (alert: FleetAlert) => void;
+};
+
+export function useSseStream(handlers: SseHandlers) {
+  const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
+  const connect = useCallback(() => {
+    if (isMockMode()) {
+      setConnectionState("connected");
+      return () => setConnectionState("disconnected");
+    }
+
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
+
+    const open = () => {
+      setConnectionState("reconnecting");
+      eventSource = new EventSource(apiClient.getSseUrl());
+
+      eventSource.addEventListener("connected", () => {
+        setConnectionState("connected");
+      });
+
+      eventSource.addEventListener("fleet-update", (event) => {
+        try {
+          const vehicles = JSON.parse(event.data) as VehicleStatus[];
+          handlersRef.current.onFleetUpdate?.(vehicles);
+        } catch {
+          /* ignorar payload inválido */
+        }
+      });
+
+      eventSource.addEventListener("alert", (event) => {
+        try {
+          const alert = JSON.parse(event.data) as FleetAlert;
+          handlersRef.current.onAlert?.(alert);
+        } catch {
+          /* ignorar payload inválido */
+        }
+      });
+
+      eventSource.addEventListener("heartbeat", () => {
+        setConnectionState("connected");
+      });
+
+      eventSource.onerror = () => {
+        setConnectionState("reconnecting");
+        eventSource?.close();
+        if (!closed) {
+          reconnectTimer = setTimeout(open, 3000);
+        }
+      };
+    };
+
+    open();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      eventSource?.close();
+      setConnectionState("disconnected");
+    };
+  }, []);
+
+  useEffect(() => connect(), [connect]);
+
+  return { connectionState };
+}
