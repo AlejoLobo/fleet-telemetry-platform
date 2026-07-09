@@ -75,7 +75,7 @@ export function DriverDashboard() {
           <Button title="Detener tracking" onPress={() => run(async () => stopTracking())} variant="danger" disabled={busy} />
         )}
         <Button title="Capturar ahora" onPress={() => run(captureOnce)} disabled={busy} />
-        <Button title="Sincronizar cola" onPress={() => run(syncNow)} disabled={busy || !isOnline} />
+        <Button title="Sincronizar cola" onPress={() => run(async () => { await syncNow(); })} disabled={busy || !isOnline} />
       </View>
 
       {busy && <ActivityIndicator style={styles.loader} />}
