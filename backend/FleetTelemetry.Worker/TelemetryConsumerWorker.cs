@@ -76,6 +76,10 @@ public class TelemetryConsumerWorker : BackgroundService
             {
                 _logger.LogError(ex, "Kafka consume error: {Reason}", ex.Error.Reason);
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Skipping message with invalid telemetry payload");
+            }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
