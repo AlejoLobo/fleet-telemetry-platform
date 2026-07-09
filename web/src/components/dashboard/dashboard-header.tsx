@@ -1,6 +1,7 @@
 import { Database, Dices, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/connection-status";
+import { AlertsModalTrigger } from "@/components/alerts/alerts-modal";
 import { cn } from "@/lib/utils";
 import type { SseConnectionState } from "@/types/fleet";
 
@@ -8,6 +9,10 @@ type DashboardHeaderProps = {
   loading: boolean;
   dataSource: "api" | "demo" | null;
   connectionState: SseConnectionState;
+  alertCount: number;
+  criticalAlertCount: number;
+  alertsAttention?: boolean;
+  onOpenAlerts: () => void;
   onLoadApi: () => void;
   onLoadDemo: () => void;
   onRefresh: () => void;
@@ -17,6 +22,10 @@ export function DashboardHeader({
   loading,
   dataSource,
   connectionState,
+  alertCount,
+  criticalAlertCount,
+  alertsAttention = false,
+  onOpenAlerts,
   onLoadApi,
   onLoadDemo,
   onRefresh,
@@ -47,6 +56,12 @@ export function DashboardHeader({
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <ConnectionStatus state={connectionState} dataSource={dataSource} />
+          <AlertsModalTrigger
+            alertCount={alertCount}
+            criticalCount={criticalAlertCount}
+            attention={alertsAttention}
+            onClick={onOpenAlerts}
+          />
           <div className="hidden h-6 w-px bg-slate-200 sm:block" />
           <Button
             variant={dataSource === "api" ? "default" : "outline"}

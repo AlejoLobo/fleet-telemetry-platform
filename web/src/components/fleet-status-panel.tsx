@@ -9,12 +9,14 @@ type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
   selectedVehicleId?: string;
   onSelectVehicle?: (vehicleId: string) => void;
+  onFocusVehicle?: (vehicleId: string) => void;
 };
 
 export function FleetStatusPanel({
   vehicles,
   selectedVehicleId,
   onSelectVehicle,
+  onFocusVehicle,
 }: FleetStatusPanelProps) {
   const onlineCount = vehicles.filter((v) => esVehiculoEnLinea(v.status)).length;
 
@@ -28,7 +30,7 @@ export function FleetStatusPanel({
               Estado de flota
             </CardTitle>
             <CardDescription className="mt-1">
-              {onlineCount} en línea · {vehicles.length} total
+              {onlineCount} en línea · {vehicles.length} total · doble clic centra en mapa
             </CardDescription>
           </div>
           <Badge variant="success" className="tabular-nums">
@@ -55,6 +57,10 @@ export function FleetStatusPanel({
                 key={vehicle.vehicleId}
                 type="button"
                 onClick={() => onSelectVehicle?.(vehicle.vehicleId)}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  onFocusVehicle?.(vehicle.vehicleId);
+                }}
                 className={cn(
                   "group flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-all duration-200",
                   selected

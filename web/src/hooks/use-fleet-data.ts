@@ -76,7 +76,7 @@ export function useFleetData(selectedVehicleId: string | null) {
         loading: false,
         error:
           vehicles.length === 0
-            ? "Sin vehículos en vivo. Solo aparecen si enviaron telemetría en los últimos 5 minutos. Usa modo Demo o publica eventos al API."
+            ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
             : null,
         dataSource: "api",
       });
@@ -94,7 +94,7 @@ export function useFleetData(selectedVehicleId: string | null) {
   const loadDemoData = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
-    const dataset = refreshMockDataset(6);
+    const dataset = refreshMockDataset(10);
     const vehicleId =
       selectedVehicleId && dataset.vehicles.some((v) => v.vehicleId === selectedVehicleId)
         ? selectedVehicleId
