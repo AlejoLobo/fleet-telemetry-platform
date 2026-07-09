@@ -229,16 +229,19 @@ Limitaciones conscientes del MVP (defendibles en sustentación):
 - **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck TypeScript; **no despliega** a App Store ni Play Store.
 - **OpenAI es opcional.** El agente operativo funciona sin LLM externo vía tools internas; OpenAI solo pule redacción si hay API key.
 - **JWT parcial en API:** con `Auth:Enabled=true` protege ingesta y ack de alertas; lectura de flota/SSE/IA permanece abierta en el MVP.
-- **Circuit breaker y retry** aplican a dependencias externas (Kafka publish, OpenAI HTTP), no a microservicios HTTP internos (no existen en este MVP).
+- **Circuit breaker y retry** aplican a Kafka, TimescaleDB (Worker) y OpenAI, con estado observable en `/health`.
 
 ## Resiliencia (dependencias externas)
 
 | Dependencia | Política | Archivo |
 |-------------|----------|---------|
-| Kafka `ProduceAsync` | Retry corto con backoff exponencial (3 intentos) | `Infrastructure/Kafka/KafkaTelemetryEventPublisher.cs` |
-| OpenAI HTTP | Timeout 20 s, retry (2), circuit breaker | `Infrastructure/Services/OpenAiPolishService.cs`, `Infrastructure/Resilience/ExternalDependencyResilience.cs` |
+| Kafka `ProduceAsync` | Circuit breaker + retry con backoff exponencial | `Infrastructure/Resilience/ResiliencePipelineFactory.cs`, `Infrastructure/Kafka/KafkaTelemetryEventPublisher.cs` |
+| TimescaleDB (Worker) | Circuit breaker + retry en procesamiento | `Worker/TelemetryConsumerWorker.cs`, `Infrastructure/Resilience/ResiliencePipelineFactory.cs` |
+| OpenAI HTTP | Timeout 20 s, circuit breaker + retry | `Infrastructure/Services/OpenAiPolishService.cs`, `Infrastructure/Resilience/ResiliencePipelineFactory.cs` |
 
-Si OpenAI falla o el circuit breaker está abierto, el agente devuelve la respuesta operativa sin pulir (`HybridAiAgentService`).
+Configuración en `Resilience` dentro de `appsettings.json`. Estado en `GET /health` y `GET /health/circuit-breakers`.
+
+Si Kafka está en circuit breaker abierto, la ingesta responde `503` con `Retry-After`. Si OpenAI falla o el circuit breaker está abierto, el agente devuelve la respuesta operativa sin pulir (`HybridAiAgentService`). Si TimescaleDB está abierto, el Worker no confirma offsets y reintenta tras backoff.
 
 ## Fase 6 ✅
 

@@ -4,26 +4,33 @@ using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
+using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Worker;
 
 public class TelemetryConsumerWorker : BackgroundService
 {
+    private static readonly TimeSpan CircuitOpenBackoff = TimeSpan.FromSeconds(5);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly ResiliencePipelineFactory _resilience;
     private readonly ILogger<TelemetryConsumerWorker> _logger;
 
     public TelemetryConsumerWorker(
         IServiceScopeFactory scopeFactory,
         IOptions<KafkaOptions> kafkaOptions,
+        ResiliencePipelineFactory resilience,
         ILogger<TelemetryConsumerWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _kafkaOptions = kafkaOptions.Value;
+        _resilience = resilience;
         _logger = logger;
     }
 
@@ -65,7 +72,10 @@ public class TelemetryConsumerWorker : BackgroundService
 
                 using var scope = _scopeFactory.CreateScope();
                 var processUseCase = scope.ServiceProvider.GetRequiredService<ProcessTelemetryEventUseCase>();
-                var outcome = await processUseCase.ExecuteAsync(telemetryEvent, stoppingToken);
+
+                var outcome = await _resilience.DatabaseProcessingPipeline.ExecuteAsync(
+                    async token => await processUseCase.ExecuteAsync(telemetryEvent, token),
+                    stoppingToken);
 
                 consumer.Commit(consumeResult);
 
@@ -76,6 +86,14 @@ public class TelemetryConsumerWorker : BackgroundService
                         telemetryEvent.EventId,
                         telemetryEvent.VehicleId);
                 }
+            }
+            catch (BrokenCircuitException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "TimescaleDB circuit breaker abierto; offset no confirmado. Reintento en {Seconds}s",
+                    CircuitOpenBackoff.TotalSeconds);
+                await Task.Delay(CircuitOpenBackoff, stoppingToken);
             }
             catch (ConsumeException ex)
             {
