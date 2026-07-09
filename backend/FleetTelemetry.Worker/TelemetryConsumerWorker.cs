@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
@@ -38,7 +39,7 @@ public class TelemetryConsumerWorker : BackgroundService
             BootstrapServers = _kafkaOptions.BootstrapServers,
             GroupId = _kafkaOptions.ConsumerGroup,
             AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = true
+            EnableAutoCommit = false
         };
 
         using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
@@ -52,9 +53,11 @@ public class TelemetryConsumerWorker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            ConsumeResult<string, string>? consumeResult = null;
+
             try
             {
-                var consumeResult = consumer.Consume(stoppingToken);
+                consumeResult = consumer.Consume(stoppingToken);
                 if (consumeResult?.Message?.Value is null)
                     continue;
 
@@ -62,9 +65,11 @@ public class TelemetryConsumerWorker : BackgroundService
 
                 using var scope = _scopeFactory.CreateScope();
                 var processUseCase = scope.ServiceProvider.GetRequiredService<ProcessTelemetryEventUseCase>();
-                var processed = await processUseCase.ExecuteAsync(telemetryEvent, stoppingToken);
+                var outcome = await processUseCase.ExecuteAsync(telemetryEvent, stoppingToken);
 
-                if (processed)
+                consumer.Commit(consumeResult);
+
+                if (outcome == ProcessTelemetryOutcome.Processed)
                 {
                     _logger.LogInformation(
                         "Telemetry event processed: {EventId} vehicle {VehicleId}",
@@ -79,6 +84,8 @@ public class TelemetryConsumerWorker : BackgroundService
             catch (InvalidOperationException ex)
             {
                 _logger.LogWarning(ex, "Skipping message with invalid telemetry payload");
+                if (consumeResult is not null)
+                    consumer.Commit(consumeResult);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -86,7 +93,7 @@ public class TelemetryConsumerWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error processing telemetry message");
+                _logger.LogError(ex, "Unexpected error processing telemetry message; offset not committed");
             }
         }
 
