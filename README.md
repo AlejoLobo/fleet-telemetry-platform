@@ -8,15 +8,16 @@ Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-
 
 MVP diseñado para demostrar una vertical funcional completa: conductores envían telemetría (offline-first en mobile), el backend la ingesta vía Kafka, un worker la persiste en TimescaleDB y genera alertas, y un dashboard en tiempo real expone estado de flota, alertas y un agente IA operativo.
 
-## Estado actual: Fase 3 ✅
+## Estado actual: Fase 4 (en progreso) 🚧
 
-Pipeline event-driven operativo + **lectura**, **SSE** y **agente IA operativo** con tools internas.
+Pipeline event-driven operativo + **lectura**, **SSE**, **agente IA** y **dashboard Next.js**.
 
 ```
 POST /api/telemetry → Kafka → Worker → TimescaleDB + alertas
 GET  /api/fleet, /api/alerts, /api/telemetry/{id}
 GET  /api/events/stream (SSE)
 POST /api/ai/query (tools internas, sin LLM externo)
+Dashboard Next.js → http://localhost:3000 (web/)
 ```
 
 ## Stack de Fase 2
@@ -43,7 +44,7 @@ fleet-telemetry-platform/
 │   ├── FleetTelemetry.Domain/
 │   ├── FleetTelemetry.Application/
 │   └── FleetTelemetry.Infrastructure/
-├── web/                              # (Fase 4) Dashboard Next.js
+├── web/                              # Dashboard Next.js (Fase 4)
 ├── mobile/                           # (Fase 5) App React Native Expo
 ├── load-tests/                       # (Fase 6) k6
 ├── infra/                            # (Fase 6) Terraform AWS
@@ -186,18 +187,34 @@ Preguntas soportadas: alertas críticas, vehículos detenidos, exceso de velocid
 Valores en `backend/FleetTelemetry.Api/appsettings.json` y `backend/FleetTelemetry.Worker/appsettings.json`.
 Referencia adicional en `.env.example` (no se carga automáticamente; usar convención `Kafka__BootstrapServers` si se prefiere variables de entorno).
 
+## Dashboard web (Fase 4)
+
+```bash
+cd web
+cp .env.example .env.local   # opcional
+npm install
+npm run dev
+```
+
+| Variable | Descripción |
+|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | Backend .NET (default `http://localhost:5000`) |
+| `NEXT_PUBLIC_USE_MOCK=true` | Datos mock sin backend |
+
+Incluye: mapa de flota, alertas, telemetría, SSE en vivo, chat IA y resumen analítico. Fallback automático a mock si el backend no responde.
+
+Ver `web/README.md` para detalles.
+
 ## Qué NO está implementado todavía
 
-- Dashboard Next.js
 - App móvil React Native Expo
 - Pruebas de carga k6
 - Terraform AWS blueprint
 - LLM externo (agente usa tools internas + reglas, sin API key)
 
-## Fase 4 (siguiente)
+## Fase 5 (siguiente)
 
-- Dashboard Next.js con mapa, alertas, SSE, chat IA
-- App móvil offline-first
+- App móvil offline-first (SQLite + sync batch)
 
 ## Git y convención de commits
 
