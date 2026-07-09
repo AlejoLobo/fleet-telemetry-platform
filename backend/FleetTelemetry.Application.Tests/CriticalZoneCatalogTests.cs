@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.Services;
 
+// Pruebas del catálogo de zonas críticas.
 namespace FleetTelemetry.Application.Tests;
 
 public class CriticalZoneCatalogTests

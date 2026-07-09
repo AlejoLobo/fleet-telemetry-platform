@@ -1,6 +1,7 @@
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Resilience;
 
+// Pruebas del registro de circuit breakers.
 namespace FleetTelemetry.Application.Tests;
 
 public class CircuitBreakerStateRegistryTests

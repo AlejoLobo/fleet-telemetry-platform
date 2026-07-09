@@ -1,3 +1,4 @@
+/** Hook para cargar y gestionar datos de la flota (API o demo). */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
 import { getApiBaseUrl } from "@/lib/utils";
 
+/** Origen de los datos: backend real o demostración. */
 export type FleetDataSource = "api" | "demo";
 
 type FleetDataState = {
@@ -26,6 +28,7 @@ const defaultAnalytics: AnalyticsSummary = {
   source: "TimescaleDB",
 };
 
+/** Calcula métricas resumidas a partir de los datos cargados. */
 function computeAnalytics(
   vehicles: VehicleStatus[],
   alerts: FleetAlert[],
@@ -44,6 +47,7 @@ function computeAnalytics(
   };
 }
 
+/** Hook principal de datos de flota para el dashboard. */
 export function useFleetData(selectedVehicleId: string | null) {
   const [state, setState] = useState<FleetDataState>({
     vehicles: [],
@@ -57,6 +61,7 @@ export function useFleetData(selectedVehicleId: string | null) {
 
   const dataSourceRef = useRef<FleetDataSource>("api");
 
+  /** Carga vehículos, alertas y telemetría desde el API. */
   const loadFromApi = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
@@ -91,6 +96,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
   }, [selectedVehicleId]);
 
+  /** Carga datos sintéticos para modo demostración. */
   const loadDemoData = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
@@ -113,6 +119,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     dataSourceRef.current = "demo";
   }, [selectedVehicleId]);
 
+  /** Recarga según el origen de datos activo. */
   const refresh = useCallback(async () => {
     if (dataSourceRef.current === "demo") {
       await loadDemoData();

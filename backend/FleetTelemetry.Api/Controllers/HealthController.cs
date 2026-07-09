@@ -1,12 +1,14 @@
 using FleetTelemetry.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
+// Controlador de salud y circuit breakers.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
 [Route("health")]
 public class HealthController : ControllerBase
 {
+    // Estado general del servicio y circuitos abiertos.
     [HttpGet]
     public IActionResult Get([FromServices] ICircuitBreakerStateRegistry registry)
     {
@@ -23,6 +25,7 @@ public class HealthController : ControllerBase
         });
     }
 
+    // Detalle de todos los circuit breakers.
     [HttpGet("circuit-breakers")]
     public IActionResult CircuitBreakers([FromServices] ICircuitBreakerStateRegistry registry)
     {

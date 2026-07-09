@@ -1,9 +1,11 @@
+// Obtiene lecturas de ubicación GPS o simuladas
 import * as Location from "expo-location";
 import type { LocationReading } from "@/types/telemetry";
 
 const BOGOTA_LAT = 4.711;
 const BOGOTA_LNG = -74.0721;
 
+// Genera una lectura simulada cerca de Bogotá
 function simulateReading(): LocationReading {
   const jitter = () => (Math.random() - 0.5) * 0.01;
   return {
@@ -14,6 +16,7 @@ function simulateReading(): LocationReading {
   };
 }
 
+// Obtiene la ubicación actual del GPS o simula si no hay permiso
 export async function getCurrentReading(): Promise<LocationReading> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -39,6 +42,7 @@ export async function getCurrentReading(): Promise<LocationReading> {
   }
 }
 
+// Observa lecturas periódicas de ubicación
 export async function watchReading(
   onReading: (reading: LocationReading) => void,
   intervalMs = 5000,
@@ -54,6 +58,7 @@ export async function watchReading(
   await tick();
   const timer = setInterval(tick, intervalMs);
 
+  // Retorna función para detener el observador
   return () => {
     active = false;
     clearInterval(timer);

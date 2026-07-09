@@ -1,3 +1,4 @@
+/** Hook para chat con el agente IA operativo. */
 "use client";
 
 import { useState } from "react";
@@ -12,11 +13,13 @@ type ChatMessage = {
   sources?: string[];
 };
 
+/** Hook de chat con agente IA para consultas de flota. */
 export function useAiChat(useDemoResponses = false) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Envía una pregunta al agente IA (API o demo). */
   const sendMessage = async (question: string) => {
     if (!question.trim()) return;
 

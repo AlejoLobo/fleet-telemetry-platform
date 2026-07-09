@@ -1,8 +1,10 @@
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
+// Contexto Entity Framework para TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Persistence;
 
+// Mapea entidades de telemetría, alertas e idempotencia.
 public class FleetDbContext : DbContext
 {
     public FleetDbContext(DbContextOptions<FleetDbContext> options) : base(options)

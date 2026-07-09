@@ -1,3 +1,4 @@
+// Panel principal del conductor: captura y sincroniza telemetría
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -11,6 +12,7 @@ import {
 import { getDefaultDriverId, getDefaultVehicleId } from "@/config/env";
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
 
+// Pantalla de control para el conductor
 export function DriverDashboard() {
   const [vehicleId, setVehicleId] = useState(getDefaultVehicleId());
   const [driverId, setDriverId] = useState(getDefaultDriverId());
@@ -31,6 +33,7 @@ export function DriverDashboard() {
     syncNow,
   } = useDriverTelemetry(vehicleId.trim(), driverId.trim());
 
+  // Ejecuta una acción async y muestra estado de carga
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     try {
@@ -57,6 +60,7 @@ export function DriverDashboard() {
         <TextInput style={styles.input} value={driverId} onChangeText={setDriverId} />
       </View>
 
+      {/* Indicadores de red, cola y fuente GPS */}
       <View style={styles.row}>
         <Badge label={`Red: ${networkStatus}`} tone={isOnline ? "ok" : "warn"} />
         <Badge label={`Pendientes: ${pendingCount}`} tone={pendingCount > 0 ? "warn" : "ok"} />
@@ -108,6 +112,7 @@ export function DriverDashboard() {
   );
 }
 
+// Etiqueta visual con color según el estado
 function Badge({ label, tone }: { label: string; tone: "ok" | "warn" | "neutral" }) {
   const bg =
     tone === "ok" ? "#dcfce7" : tone === "warn" ? "#fef3c7" : "#e2e8f0";
@@ -121,6 +126,7 @@ function Badge({ label, tone }: { label: string; tone: "ok" | "warn" | "neutral"
   );
 }
 
+// Botón reutilizable con variantes primary y danger
 function Button({
   title,
   onPress,

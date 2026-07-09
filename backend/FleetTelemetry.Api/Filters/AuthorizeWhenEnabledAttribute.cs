@@ -2,6 +2,7 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
+// Filtro de autorización condicional según configuración.
 namespace FleetTelemetry.Api.Filters;
 
 /// <summary>
@@ -10,6 +11,7 @@ namespace FleetTelemetry.Api.Filters;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
 public sealed class AuthorizeWhenEnabledAttribute : Attribute, IAuthorizationFilter
 {
+    // Valida JWT solo si Auth:Enabled está activo.
     public void OnAuthorization(AuthorizationFilterContext context)
     {
         var configuration = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>();

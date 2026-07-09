@@ -1,3 +1,4 @@
+/** Cliente HTTP para comunicarse con el backend .NET. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
 import { normalizeVehicles } from "@/lib/fleet-normalize";
@@ -11,6 +12,7 @@ type AuthStatusResponse = {
   enabled: boolean;
 };
 
+/** Error HTTP con código de estado. */
 export class ApiError extends Error {
   readonly status: number;
 
@@ -21,12 +23,14 @@ export class ApiError extends Error {
   }
 }
 
+/** Obtiene el token JWT del almacenamiento local. */
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const token = localStorage.getItem("fleet_api_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Realiza petición GET/POST y parsea JSON. */
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,

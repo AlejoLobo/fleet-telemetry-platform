@@ -4,8 +4,10 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
+// Punto de entrada de la API REST de telemetría de flota.
 var builder = WebApplication.CreateBuilder(args);
 
+// Controladores y documentación OpenAPI.
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddCors(options =>
@@ -22,6 +24,7 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOpt
 builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.SectionName));
 
 var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
+// JWT solo si la autenticación está habilitada en configuración.
 if (authOptions.Enabled)
 {
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

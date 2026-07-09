@@ -1,3 +1,4 @@
+/** Panel lateral con lista de vehículos y su estado. */
 import { Navigation, Clock, Gauge } from "lucide-react";
 import type { VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,7 @@ type FleetStatusPanelProps = {
   onFocusVehicle?: (vehicleId: string) => void;
 };
 
+/** Lista interactiva de vehículos con velocidad y estado. */
 export function FleetStatusPanel({
   vehicles,
   selectedVehicleId,
@@ -124,6 +126,7 @@ export function FleetStatusPanel({
   );
 }
 
+/** Anillo circular que muestra velocidad relativa. */
 function SpeedRing({ speed, online }: { speed: number; online: boolean }) {
   const max = 120;
   const pct = Math.min(speed / max, 1);
@@ -149,6 +152,7 @@ function SpeedRing({ speed, online }: { speed: number; online: boolean }) {
   );
 }
 
+/** Icono vacío cuando no hay vehículos cargados. */
 function TruckPlaceholder() {
   return (
     <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">

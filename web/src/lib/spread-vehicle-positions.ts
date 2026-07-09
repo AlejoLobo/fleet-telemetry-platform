@@ -1,3 +1,4 @@
+/** Separa vehículos que quedaron en la misma posición. */
 import type { VehicleStatus } from "@/types/fleet";
 
 const EARTH_RADIUS_M = 6_371_000;
@@ -6,6 +7,7 @@ function toRadians(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
+/** Calcula distancia entre dos coordenadas en metros. */
 function distanceMeters(
   lat1: number,
   lng1: number,

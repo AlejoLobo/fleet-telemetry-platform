@@ -1,3 +1,4 @@
+/** Ajuste de coordenadas GPS a vías con OSRM. */
 type SnapResult = { lat: number; lng: number };
 
 const snapCache = new Map<string, SnapResult>();
@@ -35,6 +36,7 @@ export async function snapToNearestRoad(lat: number, lng: number): Promise<SnapR
   return { lat, lng };
 }
 
+/** Ajusta todos los vehículos a la calle más cercana. */
 export async function snapVehiclesToRoads<
   T extends { vehicleId: string; lastLatitude: number | null; lastLongitude: number | null },
 >(vehicles: T[]): Promise<T[]> {

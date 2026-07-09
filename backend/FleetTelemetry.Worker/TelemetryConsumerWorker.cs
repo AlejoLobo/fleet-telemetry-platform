@@ -11,8 +11,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 
+// Worker en segundo plano que consume telemetría desde Kafka.
 namespace FleetTelemetry.Worker;
 
+// Procesa mensajes de Kafka y persiste en TimescaleDB.
 public class TelemetryConsumerWorker : BackgroundService
 {
     private static readonly TimeSpan CircuitOpenBackoff = TimeSpan.FromSeconds(5);
@@ -34,8 +36,10 @@ public class TelemetryConsumerWorker : BackgroundService
         _logger = logger;
     }
 
+    // Bucle principal: consume, procesa y confirma offsets.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Inicializa esquema de base de datos al arrancar.
         using (var initScope = _scopeFactory.CreateScope())
         {
             await DatabaseInitializer.InitializeAsync(initScope.ServiceProvider, stoppingToken);
@@ -89,6 +93,7 @@ public class TelemetryConsumerWorker : BackgroundService
             }
             catch (BrokenCircuitException ex)
             {
+                // No confirma offset si la base de datos no está disponible.
                 _logger.LogWarning(
                     ex,
                     "TimescaleDB circuit breaker abierto; offset no confirmado. Reintento en {Seconds}s",

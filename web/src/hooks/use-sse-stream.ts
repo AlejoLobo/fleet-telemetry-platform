@@ -1,3 +1,4 @@
+/** Hook para conexión SSE con actualizaciones de flota y alertas. */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,11 +11,13 @@ type SseHandlers = {
   onAlert?: (alert: FleetAlert) => void;
 };
 
+/** Mantiene conexión SSE con reconexión automática. */
 export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHandlers) {
   const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
   const handlersRef = useRef({ onFleetUpdate, onAlert });
   handlersRef.current = { onFleetUpdate, onAlert };
 
+  /** Abre o reabre la conexión EventSource. */
   const connect = useCallback(() => {
     if (!enabled) {
       setConnectionState("disconnected");

@@ -1,3 +1,4 @@
+/** Panel de chat con el agente IA operativo. */
 "use client";
 
 import { FormEvent, useState } from "react";
@@ -16,6 +17,7 @@ const SUGGESTED_QUESTIONS = [
   "Vehículos por encima de 80 km/h",
 ];
 
+/** Interfaz de chat con sugerencias y fuentes de respuesta. */
 export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: boolean }) {
   const { messages, loading, error, sendMessage } = useAiChat(useDemoResponses);
   const [question, setQuestion] = useState("");

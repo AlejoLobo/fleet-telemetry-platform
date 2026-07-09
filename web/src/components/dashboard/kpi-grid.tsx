@@ -1,8 +1,10 @@
+/** Cuadrícula de indicadores clave (KPIs) del dashboard. */
 import { Gauge, AlertTriangle, Truck, Activity } from "lucide-react";
 import type { AnalyticsSummary } from "@/types/fleet";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { etiquetaFuenteAnalitica } from "@/lib/labels";
 
+/** Renderiza las 4 tarjetas KPI principales. */
 export function KpiGrid({ analytics }: { analytics: AnalyticsSummary }) {
   const onlinePercent =
     analytics.totalVehicles > 0

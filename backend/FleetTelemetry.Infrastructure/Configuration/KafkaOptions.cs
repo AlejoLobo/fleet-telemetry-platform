@@ -1,5 +1,7 @@
+// Opciones de conexión a Kafka.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
+// Bootstrap, tópico y grupo consumidor.
 public class KafkaOptions
 {
     public const string SectionName = "Kafka";

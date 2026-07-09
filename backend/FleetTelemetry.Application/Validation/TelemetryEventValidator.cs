@@ -1,10 +1,13 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Domain.Entities;
 
+// Validación y mapeo de eventos de telemetría entrantes.
 namespace FleetTelemetry.Application.Validation;
 
+// Reglas de negocio para payloads de telemetría.
 public static class TelemetryEventValidator
 {
+    // Valida campos obligatorios y rangos geográficos.
     public static void Validate(TelemetryEventRequest request)
     {
         if (request.EventId == Guid.Empty)
@@ -26,6 +29,7 @@ public static class TelemetryEventValidator
             throw new ArgumentException("SpeedKmh must be >= 0.");
     }
 
+    // Convierte DTO de entrada a entidad de dominio.
     public static TelemetryEvent MapToDomain(TelemetryEventRequest request) => new()
     {
         EventId = request.EventId,

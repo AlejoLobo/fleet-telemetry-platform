@@ -5,8 +5,10 @@ using FleetTelemetry.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+// Consultas operativas de vehículos detenidos.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
+// Detecta detenciones prolongadas con SQL analítico.
 public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryService
 {
     private static readonly TimeSpan LookbackWindow = TimeSpan.FromHours(48);

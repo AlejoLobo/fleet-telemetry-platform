@@ -1,5 +1,7 @@
+// Catálogo de zonas operativas críticas en Bogotá.
 namespace FleetTelemetry.Application.Services;
 
+// Definición de zona con centro y radio en km.
 public record CriticalZoneDefinition(
     string Name,
     double CenterLatitude,
@@ -10,6 +12,7 @@ public record CriticalZoneDefinition(
 /// Zonas operativas de Bogotá marcadas como críticas para monitoreo de flota.
 /// Alineado con las zonas de demo/k6 del frontend.
 /// </summary>
+// Consulta de pertenencia geográfica a zonas críticas.
 public static class CriticalZoneCatalog
 {
     public static IReadOnlyList<CriticalZoneDefinition> All { get; } =
@@ -21,6 +24,7 @@ public static class CriticalZoneCatalog
         new("Engativá", 4.702, -74.108, 1.2),
     ];
 
+    // Busca la zona crítica más cercana que contenga el punto.
     public static CriticalZoneDefinition? FindZoneAt(double latitude, double longitude)
     {
         CriticalZoneDefinition? best = null;
@@ -39,6 +43,7 @@ public static class CriticalZoneCatalog
         return best;
     }
 
+    // Resuelve zona por nombre aproximado.
     public static CriticalZoneDefinition? FindZoneByName(string? zoneName)
     {
         if (string.IsNullOrWhiteSpace(zoneName))
@@ -49,6 +54,7 @@ public static class CriticalZoneCatalog
             || normalized.Contains(Normalize(z.Name), StringComparison.Ordinal));
     }
 
+    // Indica si las coordenadas caen en alguna zona crítica.
     public static bool IsInAnyCriticalZone(double latitude, double longitude) =>
         FindZoneAt(latitude, longitude) is not null;
 

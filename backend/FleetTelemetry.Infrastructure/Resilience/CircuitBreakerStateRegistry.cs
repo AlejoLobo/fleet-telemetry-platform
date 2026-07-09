@@ -1,12 +1,15 @@
 using System.Collections.Concurrent;
 using FleetTelemetry.Application.Interfaces;
 
+// Registro en memoria del estado de circuit breakers.
 namespace FleetTelemetry.Infrastructure.Resilience;
 
+// Implementación thread-safe de ICircuitBreakerStateRegistry.
 public sealed class CircuitBreakerStateRegistry : ICircuitBreakerStateRegistry
 {
     private readonly ConcurrentDictionary<ResilienceDependency, CircuitBreakerSnapshot> _snapshots = new();
 
+    // Inicializa todas las dependencias en estado cerrado.
     public CircuitBreakerStateRegistry()
     {
         foreach (ResilienceDependency dependency in Enum.GetValues<ResilienceDependency>())
@@ -15,6 +18,7 @@ public sealed class CircuitBreakerStateRegistry : ICircuitBreakerStateRegistry
         }
     }
 
+    // Actualiza estado tras transición del circuit breaker.
     public void RecordTransition(ResilienceDependency dependency, CircuitBreakerState state)
     {
         _snapshots.AddOrUpdate(

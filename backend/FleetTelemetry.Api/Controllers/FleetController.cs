@@ -4,6 +4,7 @@ using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 
+// Controlador de consulta de estado de flota.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
@@ -17,6 +18,7 @@ public class FleetController : ControllerBase
         _fleetQueryService = fleetQueryService;
     }
 
+    // Lista último estado de todos los vehículos.
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<VehicleLatestStatusResponse>>> GetAll(
         [FromQuery] bool liveOnly = false,
@@ -26,6 +28,7 @@ public class FleetController : ControllerBase
         return Ok(vehicles);
     }
 
+    // Obtiene estado de un vehículo por identificador.
     [HttpGet("{vehicleId}")]
     public async Task<ActionResult<VehicleLatestStatusResponse>> GetById(
         string vehicleId,

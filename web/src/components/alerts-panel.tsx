@@ -1,3 +1,4 @@
+/** Panel lateral de alertas activas (versión embebida). */
 "use client";
 
 import { AlertTriangle, Bell, CheckCircle2, ShieldAlert } from "lucide-react";
@@ -19,6 +20,7 @@ type AlertsPanelProps = {
   acknowledgingId?: string | null;
 };
 
+/** Lista de alertas con opción de confirmar. */
 export function AlertsPanel({ alerts, onAcknowledge, acknowledgingId }: AlertsPanelProps) {
   const criticalCount = alerts.filter((a) => esSeveridadCritica(a.severity)).length;
 

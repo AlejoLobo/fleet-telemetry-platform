@@ -1,3 +1,4 @@
+// Sincroniza la cola offline con el servidor
 import {
   countPendingEvents,
   getPendingEvents,
@@ -11,12 +12,14 @@ import type { SyncResult, TelemetryEventPayload } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
 
+// Procesa eventos pendientes en lotes hacia la API
 export async function syncPendingQueue(isOnline: boolean): Promise<SyncResult> {
   if (!isOnline) {
     const remaining = await countPendingEvents();
     return { synced: 0, failed: 0, remaining };
   }
 
+  // Reintenta eventos que fallaron antes
   await resetFailedToPending();
 
   let synced = 0;
@@ -38,6 +41,7 @@ export async function syncPendingQueue(isOnline: boolean): Promise<SyncResult> {
       await markEventsSynced(eventIds);
       synced += eventIds.length;
     } catch (error) {
+      // Si falla el lote, intenta uno por uno
       if (error instanceof TelemetryApiError && payloads.length > 1) {
         const partial = await syncOneByOne(payloads);
         synced += partial.synced;
@@ -54,6 +58,7 @@ export async function syncPendingQueue(isOnline: boolean): Promise<SyncResult> {
   return { synced, failed, remaining };
 }
 
+// Sincroniza eventos individualmente como fallback
 async function syncOneByOne(events: TelemetryEventPayload[]): Promise<{ synced: number; failed: number }> {
   let synced = 0;
   let failed = 0;

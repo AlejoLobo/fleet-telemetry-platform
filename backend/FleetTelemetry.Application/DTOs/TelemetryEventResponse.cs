@@ -1,5 +1,7 @@
+// DTO de evento de telemetría para lectura.
 namespace FleetTelemetry.Application.DTOs;
 
+// Representación de un evento almacenado o consultado.
 public record TelemetryEventResponse(
     Guid EventId,
     string VehicleId,

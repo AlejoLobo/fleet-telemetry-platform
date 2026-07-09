@@ -8,8 +8,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 
+// Publicador de eventos de telemetría en Kafka.
 namespace FleetTelemetry.Infrastructure.Kafka;
 
+// Envía eventos al tópico con resiliencia y idempotencia del productor.
 public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposable
 {
     private readonly IProducer<string, string> _producer;
@@ -37,6 +39,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
         _producer = new ProducerBuilder<string, string>(config).Build();
     }
 
+    // Serializa y publica un evento con clave por vehículo.
     public async Task PublishAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken = default)
     {
         var json = TelemetryEventJsonSerializer.Serialize(telemetryEvent);
@@ -68,6 +71,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
         }
     }
 
+    // Publica eventos secuencialmente reutilizando PublishAsync.
     public async Task PublishBatchAsync(IEnumerable<TelemetryEvent> events, CancellationToken cancellationToken = default)
     {
         foreach (var telemetryEvent in events)

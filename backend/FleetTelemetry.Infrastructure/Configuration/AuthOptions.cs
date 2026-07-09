@@ -1,5 +1,7 @@
+// Opciones de autenticación JWT.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
+// Configuración de tokens y credenciales de demo.
 public class AuthOptions
 {
     public const string SectionName = "Auth";

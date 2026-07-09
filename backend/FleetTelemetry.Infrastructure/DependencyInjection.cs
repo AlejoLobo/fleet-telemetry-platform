@@ -13,16 +13,20 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+// Registro de dependencias de infraestructura.
 namespace FleetTelemetry.Infrastructure;
 
+// Perfil de despliegue: API o Worker.
 public enum InfrastructureProfile
 {
     Api,
     Worker
 }
 
+// Configura servicios según perfil Api o Worker.
 public static class DependencyInjection
 {
+    // Registra opciones, resiliencia y repositorios según perfil.
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -40,6 +44,7 @@ public static class DependencyInjection
 
         if (profile == InfrastructureProfile.Api)
         {
+            // Servicios expuestos por la API REST.
             RegisterTimescaleDb(services, configuration);
 
             services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
@@ -64,6 +69,7 @@ public static class DependencyInjection
         }
         else
         {
+            // Servicios del worker consumidor de Kafka.
             RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
@@ -76,6 +82,7 @@ public static class DependencyInjection
         return services;
     }
 
+    // Activa el poller SSE de actualizaciones de flota.
     public static IServiceCollection AddFleetSsePolling(this IServiceCollection services)
     {
         services.AddHostedService<FleetSsePollerHostedService>();
