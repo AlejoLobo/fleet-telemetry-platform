@@ -81,7 +81,7 @@ fleet-telemetry-platform/
 | `PATCH` | `/api/alerts/{id}/acknowledge` | Confirmar alerta |
 | `POST` | `/api/ai/query` | Agente IA (tools internas + OpenAI opcional) |
 
-OpenAPI (solo Development): `http://localhost:5000/openapi/v1.json`
+OpenAPI (solo local): `http://localhost:5000/openapi/v1.json`
 
 ## Infraestructura local (Docker)
 
@@ -262,8 +262,8 @@ tipo(alcance): descripción breve en imperativo
 
 ```
 main          ← rama estable (GitHub)
-develop       ← integración (opcional)
 feature/*     ← trabajo por fase
+fix/*         ← correcciones puntuales
 ```
 
 ### Historial Fase 2 (rama `feature/phase-2-kafka-timescaledb`)
