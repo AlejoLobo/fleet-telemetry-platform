@@ -6,7 +6,6 @@ type KpiCardProps = {
   label: string;
   value: string;
   sublabel?: string;
-  trend?: "up" | "down" | "neutral";
   accent: "sky" | "emerald" | "amber" | "violet";
 };
 

@@ -26,15 +26,6 @@ public class TimescaleAlertRepository : IAlertRepository
         return records.Select(MapToDomain).ToList();
     }
 
-    public async Task<FleetAlert?> GetByIdAsync(Guid alertId, CancellationToken cancellationToken = default)
-    {
-        var record = await _dbContext.FleetAlerts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.AlertId == alertId, cancellationToken);
-
-        return record is null ? null : MapToDomain(record);
-    }
-
     public async Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default)
     {
         var record = await _dbContext.FleetAlerts

@@ -7,23 +7,17 @@ Dashboard Next.js para monitoreo de flotas en tiempo real.
 - Next.js 15 (App Router)
 - React 19 + TypeScript
 - Tailwind CSS
-- Componentes estilo shadcn/ui
+- Leaflet + OpenStreetMap
 
 ## Configuración
 
-Copia `.env.example` a `.env.local`:
-
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_USE_MOCK=false
+cp .env.example .env.local
 ```
 
 | Variable | Descripción |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | URL del backend .NET |
-| `NEXT_PUBLIC_USE_MOCK=true` | Usa datos mock sin backend |
-
-El mapa usa **Leaflet** con tiles de **OpenStreetMap** (sin API key).
+| `NEXT_PUBLIC_API_URL` | URL del backend .NET (default `http://localhost:5000`) |
 
 ## Comandos
 
@@ -35,16 +29,18 @@ npm run dev
 
 Abre http://localhost:3000
 
+## Modos de datos
+
+- **Tiempo real** — consume la API y SSE del backend.
+- **Demo** — genera vehículos aleatorios en el cliente (sin backend).
+
 ## Funcionalidades
 
-- Estado de flota y mapa de coordenadas
-- Alertas en tiempo real vía SSE
-- Tabla de telemetría por vehículo
-- Chat con agente IA operativo
-- Resumen analítico (TimescaleDB / mock Druid)
-- Fallback a mock si el backend no está disponible
+- Mapa de flota con iconos y ajuste a calles (OSRM)
+- KPIs, alertas, telemetría y chat con agente IA
+- Confirmación de alertas (modo API)
 
 ## Requisitos
 
 - Node.js 18+
-- Backend en `http://localhost:5000` (API + Worker + Docker)
+- Backend en `http://localhost:5000` (Docker + API + Worker) para modo tiempo real

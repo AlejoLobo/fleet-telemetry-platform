@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace FleetTelemetry.Infrastructure.Services;
 
 /// <summary>
-/// Agente operativo sin LLM externo: enruta preguntas a tools internas sobre Application Services.
-/// Modo mock/controlado — no envía datasets al LLM.
+/// Agente operativo sin LLM externo: enruta preguntas a herramientas internas.
+/// La capa <see cref="HybridAiAgentService"/> puede pulir la respuesta con OpenAI si está configurado.
 /// </summary>
 public class OperationalAiAgentService : IAiAgentService
 {

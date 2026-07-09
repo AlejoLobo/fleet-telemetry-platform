@@ -8,7 +8,6 @@ type DashboardHeaderProps = {
   loading: boolean;
   dataSource: "api" | "demo" | null;
   connectionState: SseConnectionState;
-  usingMock: boolean;
   onLoadApi: () => void;
   onLoadDemo: () => void;
   onRefresh: () => void;
@@ -18,7 +17,6 @@ export function DashboardHeader({
   loading,
   dataSource,
   connectionState,
-  usingMock,
   onLoadApi,
   onLoadDemo,
   onRefresh,
@@ -48,7 +46,7 @@ export function DashboardHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <ConnectionStatus state={connectionState} usingMock={usingMock} dataSource={dataSource} />
+          <ConnectionStatus state={connectionState} dataSource={dataSource} />
           <div className="hidden h-6 w-px bg-slate-200 sm:block" />
           <Button
             variant={dataSource === "api" ? "default" : "outline"}

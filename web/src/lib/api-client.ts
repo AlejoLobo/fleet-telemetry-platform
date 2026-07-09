@@ -1,11 +1,5 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
-import { getApiBaseUrl, isMockMode } from "@/lib/utils";
-import {
-  generateMockAiResponse,
-  getMockDataset,
-  getMockTelemetry,
-  refreshMockDataset,
-} from "@/mocks/fleet-data";
+import { getApiBaseUrl } from "@/lib/utils";
 
 type ApiVehicle = VehicleStatus & { lastHeadingDegrees?: number | null };
 
@@ -46,42 +40,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** Cliente HTTP del backend .NET. El modo demo usa mocks en hooks, no aquí. */
 export const apiClient = {
-  async getFleet(): Promise<VehicleStatus[]> {
-    if (isMockMode()) return getMockDataset().vehicles;
-    const data = await fetchJson<ApiVehicle[]>("/api/fleet");
-    return data.map(normalizeVehicle);
-  },
-
-  async getAlerts(): Promise<FleetAlert[]> {
-    if (isMockMode()) return getMockDataset().alerts;
-    return fetchJson<FleetAlert[]>("/api/alerts");
-  },
-
-  async getTelemetry(vehicleId: string): Promise<TelemetryEvent[]> {
-    if (isMockMode()) return getMockTelemetry(vehicleId);
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    return fetchJson<TelemetryEvent[]>(
-      `/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
-    );
-  },
-
-  async queryAi(question: string): Promise<AiQueryResponse> {
-    if (isMockMode()) return generateMockAiResponse();
-    return fetchJson<AiQueryResponse>("/api/ai/query", {
-      method: "POST",
-      body: JSON.stringify({ question }),
-    });
-  },
-
   getSseUrl(): string {
     return `${getApiBaseUrl()}/api/events/stream`;
-  },
-
-  /** Regenera datos de demostración (mínimo 6 vehículos por defecto) */
-  refreshMockData(vehicleCount = 6) {
-    refreshMockDataset(vehicleCount);
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
@@ -99,6 +61,13 @@ export const apiClient = {
     return fetchJson<TelemetryEvent[]>(
       `/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
     );
+  },
+
+  async queryAi(question: string): Promise<AiQueryResponse> {
+    return fetchJson<AiQueryResponse>("/api/ai/query", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    });
   },
 
   async acknowledgeAlert(alertId: string): Promise<void> {

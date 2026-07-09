@@ -15,7 +15,6 @@ type FleetDataState = {
   analytics: AnalyticsSummary;
   loading: boolean;
   error: string | null;
-  usingMock: boolean;
   dataSource: FleetDataSource;
 };
 
@@ -53,7 +52,6 @@ export function useFleetData(selectedVehicleId: string | null) {
     analytics: defaultAnalytics,
     loading: true,
     error: null,
-    usingMock: false,
     dataSource: "api",
   });
 
@@ -80,7 +78,6 @@ export function useFleetData(selectedVehicleId: string | null) {
           vehicles.length === 0
             ? "Sin vehículos en vivo. Solo aparecen si enviaron telemetría en los últimos 5 minutos. Usa modo Demo o publica eventos al API."
             : null,
-        usingMock: false,
         dataSource: "api",
       });
       dataSourceRef.current = "api";
@@ -89,7 +86,6 @@ export function useFleetData(selectedVehicleId: string | null) {
         ...prev,
         loading: false,
         error: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
-        usingMock: false,
         dataSource: "api",
       }));
     }
@@ -112,7 +108,6 @@ export function useFleetData(selectedVehicleId: string | null) {
       analytics: computeAnalytics(dataset.vehicles, dataset.alerts, telemetry, "demo"),
       loading: false,
       error: null,
-      usingMock: true,
       dataSource: "demo",
     });
     dataSourceRef.current = "demo";
