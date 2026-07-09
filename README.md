@@ -8,11 +8,11 @@ Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-
 
 MVP diseñado para demostrar una vertical funcional completa: conductores envían telemetría (offline-first en mobile), el backend la ingesta vía Kafka, un worker la persiste en TimescaleDB y genera alertas, y un dashboard en tiempo real expone estado de flota, alertas y un agente IA operativo.
 
-## Estado actual: Fase 1
+## Estado actual: Fase 2
 
-Backend base con **Clean Architecture** en .NET 10 LTS. La API acepta telemetría y la publica mediante mocks; el Worker arranca sin consumir Kafka.
+Pipeline event-driven operativo: la API publica en **Kafka** (`telemetry.raw`), el **Worker** consume, aplica **idempotencia por EventId** y persiste en **TimescaleDB** con alertas básicas.
 
-## Stack de Fase 1
+## Stack de Fase 2
 
 | Componente | Tecnología |
 |---|---|
@@ -20,6 +20,8 @@ Backend base con **Clean Architecture** en .NET 10 LTS. La API acepta telemetrí
 | Runtime | .NET 10 LTS (`net10.0`) |
 | API | ASP.NET Core Web API |
 | Worker | .NET Worker Service |
+| Eventos | Kafka (Redpanda en Docker) |
+| Persistencia | TimescaleDB (PostgreSQL + hypertable) |
 | Arquitectura | Clean Architecture (Domain, Application, Infrastructure) |
 
 ## Estructura del repositorio
@@ -62,6 +64,21 @@ fleet-telemetry-platform/
 | `POST` | `/api/telemetry/batch` | Ingesta un lote de eventos (202 Accepted) |
 
 Swagger UI disponible en Development: `http://localhost:5000/swagger`
+
+## Comandos para levantar infraestructura (Docker)
+
+```bash
+cd C:\projects\fleet-telemetry-platform
+docker compose up -d
+```
+
+Servicios:
+| Servicio | Puerto | Descripción |
+|---|---|---|
+| Redpanda (Kafka) | `19092` | Topic `telemetry.raw` |
+| TimescaleDB | `5432` | Base de datos `fleet` |
+
+> **Nota:** Si `docker` no se reconoce en PowerShell, reinicia la terminal o agrega `C:\Program Files\Docker\Docker\resources\bin` al PATH.
 
 ## Comandos para compilar
 
@@ -118,24 +135,18 @@ En los logs de la API deberías ver:
 
 ## Qué NO está implementado todavía
 
-- Kafka real
-- TimescaleDB real
-- Worker consumidor de eventos
-- Idempotencia por `EventId`
 - Endpoints de lectura (flota, alertas, SSE)
 - Agente IA operativo real con tools internas
 - Dashboard Next.js
 - App móvil React Native Expo
 - Pruebas de carga k6
-- Docker Compose con servicios reales
 - Terraform AWS blueprint
 
-## Qué se implementará en Fase 2
+## Qué se implementará en Fase 3
 
-- **Kafka real** en Docker Compose (topic `telemetry.raw`, key = `VehicleId`)
-- **TimescaleDB real** con hypertables y migraciones
-- **Worker consumidor** que procesa eventos de Kafka
-- **Idempotencia por EventId** para evitar duplicados en reentregas
+- **Endpoints de lectura** (estado de flota, alertas)
+- **SSE** para tiempo real
+- **Agente IA** con tools internas (modo mock o provider configurable)
 
 ## AI Audit
 
