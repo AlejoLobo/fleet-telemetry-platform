@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { Layers, MapPin, Maximize2 } from "lucide-react";
 import type { VehicleStatus } from "@/types/fleet";
+import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea } from "@/lib/labels";
@@ -23,9 +24,16 @@ const LeafletFleetMap = dynamic(
 type FleetMapPanelProps = {
   vehicles: VehicleStatus[];
   selectedVehicleId?: string;
+  focusTarget?: MapFocusTarget | null;
+  autoFit?: boolean;
 };
 
-export function FleetMapPanel({ vehicles, selectedVehicleId }: FleetMapPanelProps) {
+export function FleetMapPanel({
+  vehicles,
+  selectedVehicleId,
+  focusTarget,
+  autoFit = true,
+}: FleetMapPanelProps) {
   const withCoords = vehicles.filter(
     (v) => v.lastLatitude != null && v.lastLongitude != null,
   );
@@ -64,7 +72,12 @@ export function FleetMapPanel({ vehicles, selectedVehicleId }: FleetMapPanelProp
       <CardContent className="p-4">
         <div className="relative h-[min(520px,60vh)] min-h-[400px] overflow-hidden rounded-xl border border-border shadow-inner">
           {withCoords.length > 0 ? (
-            <LeafletFleetMap vehicles={vehicles} selectedVehicleId={selectedVehicleId} />
+            <LeafletFleetMap
+              vehicles={vehicles}
+              selectedVehicleId={selectedVehicleId}
+              focusTarget={focusTarget}
+              autoFit={autoFit}
+            />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-50 to-sky-50">
               <MapPin className="h-10 w-10 text-slate-300" />

@@ -1,13 +1,14 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { computeBearingDegrees, moveByBearing } from "@/lib/geo-bearing";
+import {
+  BOGOTA_ZONES,
+  randomOnlineFlag,
+  randomPointInZone,
+  randomTelemetryTimestamp,
+  zoneForVehicleIndex,
+} from "@/lib/bogota-zones";
 
 /** Datos sintéticos para el modo demostración del dashboard (sin backend). */
-const BOGOTA_BOUNDS = {
-  latMin: 4.55,
-  latMax: 4.75,
-  lngMin: -74.12,
-  lngMax: -74.0,
-};
 
 const VEHICLE_NAMES = [
   "Camión reparto",
@@ -48,10 +49,8 @@ function randomId(): string {
 }
 
 function randomCoord(): { lat: number; lng: number } {
-  return {
-    lat: Math.round(randomBetween(BOGOTA_BOUNDS.latMin, BOGOTA_BOUNDS.latMax) * 1e5) / 1e5,
-    lng: Math.round(randomBetween(BOGOTA_BOUNDS.lngMin, BOGOTA_BOUNDS.lngMax) * 1e5) / 1e5,
-  };
+  const zone = BOGOTA_ZONES[randomInt(0, BOGOTA_ZONES.length - 1)];
+  return randomPointInZone(zone);
 }
 
 function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -66,10 +65,15 @@ function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number):
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function randomDistinctCoords(count: number, minDistanceM = 800): { lat: number; lng: number }[] {
+function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number; lng: number }[] {
   const coords: { lat: number; lng: number }[] = [];
-  let attempts = 0;
 
+  // Primero: una coordenada por zona para garantizar dispersión urbana
+  for (let i = 0; i < Math.min(count, BOGOTA_ZONES.length); i++) {
+    coords.push(randomPointInZone(zoneForVehicleIndex(i)));
+  }
+
+  let attempts = 0;
   while (coords.length < count && attempts < count * 40) {
     attempts += 1;
     const candidate = randomCoord();
@@ -91,8 +95,8 @@ function generateVehicleBundle(
   coord: { lat: number; lng: number },
 ): { vehicle: VehicleStatus; events: TelemetryEvent[] } {
   const id = `VH-${String(index + 1).padStart(3, "0")}`;
-  const online = Math.random() > 0.28;
-  const minutesAgo = randomInt(1, online ? 8 : 45);
+  const zone = zoneForVehicleIndex(index);
+  const online = randomOnlineFlag();
   const travelHeading = randomBetween(0, 360);
   const eventCount = randomInt(6, 14);
   const events: TelemetryEvent[] = [];
@@ -101,20 +105,23 @@ function generateVehicleBundle(
   let lng = coord.lng;
 
   for (let i = 0; i < eventCount; i++) {
-    const minutes = minutesAgo + i * randomInt(2, 12);
+    const isLatest = i === 0;
+    const eventOnline = isLatest ? online : Math.random() > 0.35;
     events.push({
       eventId: randomId(),
       vehicleId: id,
       driverId: `DRV-${id.replace("VH-", "")}`,
-      timestamp: new Date(Date.now() - minutes * 60_000).toISOString(),
+      timestamp: isLatest
+        ? randomTelemetryTimestamp(online)
+        : randomTelemetryTimestamp(eventOnline),
       latitude: lat,
       longitude: lng,
-      speedKmh: Math.round((online ? randomBetween(8, 110) : randomBetween(0, 12)) * 10) / 10,
+      speedKmh: Math.round((eventOnline ? randomBetween(8, 115) : randomBetween(0, 15)) * 10) / 10,
       fuelLevelPercent: Math.round(randomBetween(8, 98) * 10) / 10,
       batteryPercent: Math.round(randomBetween(12, 100) * 10) / 10,
     });
 
-    const previous = moveByBearing(lat, lng, travelHeading + 180, randomBetween(90, 280));
+    const previous = moveByBearing(lat, lng, travelHeading + randomBetween(-35, 35), randomBetween(120, 350));
     lat = previous.lat;
     lng = previous.lng;
   }
@@ -130,7 +137,7 @@ function generateVehicleBundle(
 
   const vehicle: VehicleStatus = {
     vehicleId: id,
-    name: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} ${String(index + 1).padStart(2, "0")}`,
+    name: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
     status: online ? "online" : "offline",
     lastSeenAt: latest.timestamp,
     lastSpeedKmh: latest.speedKmh,
@@ -179,7 +186,7 @@ function generateTelemetryBundles(
 }
 
 export function generateMockFleetDataset(vehicleCount?: number): MockFleetDataset {
-  const count = vehicleCount ?? randomInt(6, 8);
+  const count = vehicleCount ?? randomInt(8, 12);
   const coords = randomDistinctCoords(count);
   const bundles = coords.map((coord, index) => generateVehicleBundle(index, coord));
   const vehicles = bundles.map((b) => b.vehicle);

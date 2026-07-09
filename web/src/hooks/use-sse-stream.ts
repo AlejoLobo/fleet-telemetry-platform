@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { normalizeVehicles } from "@/lib/fleet-normalize";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
-
 type SseHandlers = {
   enabled?: boolean;
   onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
@@ -35,13 +35,14 @@ export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHand
 
       eventSource.addEventListener("fleet-update", (event) => {
         try {
-          const vehicles = JSON.parse(event.data) as VehicleStatus[];
-          handlersRef.current.onFleetUpdate?.(vehicles);
+          const vehicles = normalizeVehicles(JSON.parse(event.data) as VehicleStatus[]);
+          if (vehicles.length > 0) {
+            handlersRef.current.onFleetUpdate?.(vehicles);
+          }
         } catch {
           /* ignorar payload inválido */
         }
       });
-
       eventSource.addEventListener("alert", (event) => {
         try {
           const alert = JSON.parse(event.data) as FleetAlert;
