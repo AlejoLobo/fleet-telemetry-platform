@@ -169,23 +169,72 @@ Referencia adicional en `.env.example` (no se carga automáticamente; usar conve
 - SSE para tiempo real
 - Agente IA con tools internas
 
-## Git — ramas y commits de Fase 2
+## Git y convención de commits
 
-Rama de trabajo: `feature/phase-2-kafka-timescaledb`
+**Idioma:** todos los mensajes de commit y de merge en **español**.
 
-| Commit | Tipo | Descripción |
-|---|---|---|
-| `978b0c0` | chore | Excluir `bin/`/`obj/` del repositorio |
-| `f65bd76` | chore | Docker Compose: Redpanda + TimescaleDB |
-| `01ffc29` | feat | Kafka publisher, Worker consumer, TimescaleDB, idempotencia, alertas |
-| *(pendiente)* | docs | README alineado con Fase 2 |
-| *(pendiente)* | chore | Carpetas placeholder + limpieza código muerto |
+### Formato
 
-Para publicar:
+```
+tipo(alcance): descripción breve en imperativo
+```
+
+| Tipo | Cuándo usarlo | Ejemplo |
+|------|---------------|---------|
+| `feat` | Funcionalidad nueva | `feat(telemetria): implementar consumidor Kafka` |
+| `fix` | Corrección de bug | `fix(worker): omitir payloads inválidos en Kafka` |
+| `chore` | Mantenimiento, limpieza, config | `chore(infra): agregar Redpanda y TimescaleDB` |
+| `docs` | Solo documentación | `docs(readme): documentar convención de commits` |
+| `refactor` | Cambio interno sin nueva feature | `refactor(infra): separar perfiles Api y Worker` |
+| `test` | Pruebas | `test(carga): agregar simulación k6 de telemetría` |
+
+**Reglas:**
+- Descripción en minúsculas después de los dos puntos.
+- Imperativo: "agregar", "implementar", "corregir" (no "agregado" ni "agrega").
+- Commits pequeños y atómicos: un cambio lógico por commit.
+- Ramas: `feature/nombre-fase`, `fix/descripcion-corta`.
+
+### Flujo de ramas
+
+```
+main          ← rama estable (GitHub)
+develop       ← integración (opcional)
+feature/*     ← trabajo por fase
+```
+
+### Historial Fase 2 (rama `feature/phase-2-kafka-timescaledb`)
+
+| Commit | Mensaje |
+|--------|---------|
+| `978b0c0` | `chore(project): excluir artefactos de compilación del repositorio` |
+| `f65bd76` | `chore(infra): agregar Redpanda y TimescaleDB para ejecución local` |
+| `01ffc29` | `feat(telemetria): implementar procesamiento Kafka y persistencia de eventos` |
+| *(local)* | `chore(phase-2): cerrar correcciones de documentación y limpieza` |
+
+### Publicar y fusionar PR
 
 ```bash
+# 1. Subir rama
 git push -u origin feature/phase-2-kafka-timescaledb
-# Abrir PR hacia main en GitHub
+
+# 2. En GitHub: Pull request → base: main, compare: feature/phase-2-kafka-timescaledb
+# 3. Fusionar con "Merge pull request" (conserva historial de commits)
+```
+
+**Mensaje sugerido al fusionar el PR** (antes de *Confirm merge*):
+
+```
+Merge pull request #N: Fase 2 — pipeline Kafka + TimescaleDB
+```
+
+Si usas **Squash and merge** (un solo commit en `main`):
+
+```
+feat(backend): Fase 2 — pipeline event-driven con Kafka y TimescaleDB
+
+- Docker Compose con Redpanda y TimescaleDB
+- API publica en el topic telemetry.raw
+- Worker consume, aplica idempotencia por EventId y genera alertas básicas
 ```
 
 ## AI Audit
