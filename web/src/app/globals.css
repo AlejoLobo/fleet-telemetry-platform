@@ -95,3 +95,36 @@ body {
 .animate-fade-up {
   animation: fade-up 0.4s ease-out forwards;
 }
+
+@keyframes alert-ping {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  70% { transform: scale(1.15); opacity: 0; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+
+.animate-alert-ping {
+  animation: alert-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(2deg); }
+}
+
+.animate-bell-shake {
+  animation: bell-shake 0.8s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+@keyframes alert-attention {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0); }
+}
+
+.animate-alert-attention {
+  animation: alert-attention 1.5s ease-out infinite;
+}

@@ -2,7 +2,7 @@
 
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { VehicleStatus } from "@/types/fleet";
 import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-config";
 import { createCarMarkerIcon } from "@/lib/vehicle-car-marker";
@@ -10,15 +10,31 @@ import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
 import { etiquetaEstadoVehiculo } from "@/lib/labels";
 import "leaflet/dist/leaflet.css";
 
+export type MapFocusTarget = {
+  vehicleId: string;
+  tick: number;
+};
+
 type LeafletFleetMapProps = {
   vehicles: VehicleStatus[];
   selectedVehicleId?: string;
+  focusTarget?: MapFocusTarget | null;
+  autoFit?: boolean;
 };
 
-function FitBounds({ vehicles }: { vehicles: VehicleStatus[] }) {
+function FitBounds({
+  vehicles,
+  enabled,
+}: {
+  vehicles: VehicleStatus[];
+  enabled: boolean;
+}) {
   const map = useMap();
+  const hasFittedRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const coords = vehicles
       .filter((v) => v.lastLatitude != null && v.lastLongitude != null)
       .map((v) => [v.lastLatitude!, v.lastLongitude!] as [number, number]);
@@ -27,16 +43,53 @@ function FitBounds({ vehicles }: { vehicles: VehicleStatus[] }) {
 
     if (coords.length === 1) {
       map.setView(coords[0], 15);
+      hasFittedRef.current = true;
       return;
     }
 
-    map.fitBounds(L.latLngBounds(coords), { padding: [48, 48], maxZoom: 15 });
-  }, [map, vehicles]);
+    if (!hasFittedRef.current || enabled) {
+      map.fitBounds(L.latLngBounds(coords), { padding: [48, 48], maxZoom: 15 });
+      hasFittedRef.current = true;
+    }
+  }, [map, vehicles, enabled]);
+
+  useEffect(() => {
+    if (enabled) hasFittedRef.current = false;
+  }, [enabled]);
 
   return null;
 }
 
-export function LeafletFleetMap({ vehicles, selectedVehicleId }: LeafletFleetMapProps) {
+function FocusVehicle({
+  focusTarget,
+  vehicles,
+}: {
+  focusTarget?: MapFocusTarget | null;
+  vehicles: VehicleStatus[];
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!focusTarget) return;
+
+    const vehicle = vehicles.find((v) => v.vehicleId === focusTarget.vehicleId);
+    if (vehicle?.lastLatitude == null || vehicle.lastLongitude == null) return;
+
+    map.flyTo([vehicle.lastLatitude, vehicle.lastLongitude], 17, {
+      duration: 0.85,
+      easeLinearity: 0.25,
+    });
+  }, [focusTarget, map, vehicles]);
+
+  return null;
+}
+
+export function LeafletFleetMap({
+  vehicles,
+  selectedVehicleId,
+  focusTarget,
+  autoFit = true,
+}: LeafletFleetMapProps) {
   const { vehicles: snappedVehicles, snapping } = useSnappedVehicles(vehicles);
   const positioned = snappedVehicles.filter(
     (v) => v.lastLatitude != null && v.lastLongitude != null,
@@ -57,7 +110,8 @@ export function LeafletFleetMap({ vehicles, selectedVehicleId }: LeafletFleetMap
         scrollWheelZoom
       >
         <TileLayer url={OSM_TILE_URL} attribution={OSM_TILE_ATTRIBUTION} />
-        <FitBounds vehicles={snappedVehicles} />
+        <FitBounds vehicles={snappedVehicles} enabled={autoFit} />
+        <FocusVehicle focusTarget={focusTarget} vehicles={snappedVehicles} />
         {positioned.map((vehicle) => (
           <Marker
             key={vehicle.vehicleId}

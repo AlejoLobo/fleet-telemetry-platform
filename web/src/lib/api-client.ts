@@ -1,7 +1,6 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
-
-type ApiVehicle = VehicleStatus & { lastHeadingDegrees?: number | null };
+import { normalizeVehicles } from "@/lib/fleet-normalize";
 
 type LoginResponse = {
   token: string;
@@ -11,13 +10,6 @@ type LoginResponse = {
 type AuthStatusResponse = {
   enabled: boolean;
 };
-
-function normalizeVehicle(vehicle: ApiVehicle): VehicleStatus {
-  return {
-    ...vehicle,
-    headingDegrees: vehicle.headingDegrees ?? vehicle.lastHeadingDegrees ?? null,
-  };
-}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -78,10 +70,11 @@ export const apiClient = {
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
-    const data = await fetchJson<ApiVehicle[]>("/api/fleet?liveOnly=true");
-    return data.map(normalizeVehicle);
+    // Todos los vehículos con última telemetría (no solo "online" últimos 5 min).
+    // liveOnly=true dejaba mapa/flota vacíos si los eventos eran más antiguos.
+    const data = await fetchJson<VehicleStatus[]>("/api/fleet");
+    return normalizeVehicles(data);
   },
-
   async fetchAlertsLive(): Promise<FleetAlert[]> {
     return fetchJson<FleetAlert[]>("/api/alerts");
   },
