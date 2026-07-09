@@ -2,6 +2,8 @@
 
 Simula ingesta concurrente contra `POST /api/telemetry` con **caos controlado**: cientos de vehículos, duplicados y payloads inválidos.
 
+Cada vehículo (`VH-001` … `VH-N`) se ubica en una **zona distinta de Bogotá** (Chapinero, Suba, Kennedy, etc.) con coordenadas aleatorias dentro de la zona. Aproximadamente **62% online** (timestamp reciente) y **38% offline** (timestamp antiguo).
+
 ## Requisitos
 
 - [k6](https://k6.io/docs/get-started/installation/) instalado
