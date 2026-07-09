@@ -16,7 +16,7 @@ Pipeline event-driven operativo + lectura, SSE, agente IA, **dashboard Next.js**
 POST /api/telemetry → Kafka → Worker → TimescaleDB + alertas
 GET  /api/fleet, /api/alerts, /api/telemetry/{id}
 GET  /api/events/stream (SSE)
-POST /api/ai/query (tools internas, sin LLM externo)
+POST /api/ai/query (tools internas + OpenAI opcional)
 POST /api/telemetry/batch (sync mobile)
 Dashboard Next.js → http://localhost:3000 (web/)
 ```
@@ -222,8 +222,23 @@ Cola SQLite offline, `EventId` en cliente, sync batch al reconectar. Ver `mobile
 
 ## Qué NO está implementado todavía
 
-- Despliegue ECS/MSK completo en AWS (blueprint Terraform base listo)
-- Login visual en el dashboard (JWT vía `POST /api/auth/login` o token en localStorage)
+Limitaciones conscientes del MVP (defendibles en sustentación):
+
+- **No hay despliegue productivo ECS/MSK completo.** El Terraform en `infra/terraform/` es un **blueprint** (VPC, RDS PostgreSQL, ECS cluster, security groups), no una plataforma cloud lista para producción. Faltan MSK/Kafka gestionado, task definitions, ALB y despliegue del dashboard.
+- **Druid real no está implementado.** Existe el contrato intercambiable `IAnalyticsQueryService`; hoy se usa `TimescaleAnalyticsQueryService`. Ver `docs/analytics-druid-mock.md`.
+- **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck TypeScript; **no despliega** a App Store ni Play Store.
+- **OpenAI es opcional.** El agente operativo funciona sin LLM externo vía tools internas; OpenAI solo pule redacción si hay API key.
+- **JWT parcial en API:** con `Auth:Enabled=true` protege ingesta y ack de alertas; lectura de flota/SSE/IA permanece abierta en el MVP.
+- **Circuit breaker y retry** aplican a dependencias externas (Kafka publish, OpenAI HTTP), no a microservicios HTTP internos (no existen en este MVP).
+
+## Resiliencia (dependencias externas)
+
+| Dependencia | Política | Archivo |
+|-------------|----------|---------|
+| Kafka `ProduceAsync` | Retry corto con backoff exponencial (3 intentos) | `Infrastructure/Kafka/KafkaTelemetryEventPublisher.cs` |
+| OpenAI HTTP | Timeout 20 s, retry (2), circuit breaker | `Infrastructure/Services/OpenAiPolishService.cs`, `Infrastructure/Resilience/ExternalDependencyResilience.cs` |
+
+Si OpenAI falla o el circuit breaker está abierto, el agente devuelve la respuesta operativa sin pulir (`HybridAiAgentService`).
 
 ## Fase 6 ✅
 
@@ -305,11 +320,40 @@ feat(backend): Fase 2 — pipeline event-driven con Kafka y TimescaleDB
 
 ## AI Audit
 
-| Área | Estado Fase 2 |
+Auditoría de propuestas deficientes de la IA durante el desarrollo y las correcciones aplicadas con criterio senior.
+
+### Caso 1 — Persistir telemetría desde el controller
+
+| | |
 |---|---|
-| Clean Architecture | ✅ Capas separadas, DI por interfaces |
-| Ingesta desacoplada | ✅ API → Kafka; Worker → TimescaleDB |
-| Idempotencia | ✅ `processed_events` con `ON CONFLICT DO NOTHING` |
-| Event-driven | ✅ Redpanda + topic `telemetry.raw` |
-| Tests automatizados | ✅ xUnit en Application |
-| Seguridad | ✅ JWT opcional (`Auth:Enabled`) |
+| **Propuesta deficiente** | Guardar eventos de telemetría directamente en TimescaleDB desde `TelemetryController` tras recibir el `POST`. |
+| **Riesgo técnico** | Acopla ingesta HTTP a la base de datos; bloquea la API en latencia de escritura; impide escalar ingesta y procesamiento de forma independiente; viola Clean Architecture (controller con lógica de persistencia). |
+| **Decisión senior aplicada** | La API solo valida y publica en Kafka (`202 Accepted`). Un Worker dedicado consume `telemetry.raw`, aplica idempotencia y persiste en TimescaleDB. |
+| **Archivos relacionados** | `FleetTelemetry.Api/Controllers/TelemetryController.cs`, `Application/UseCases/IngestTelemetryEventUseCase.cs`, `Infrastructure/Kafka/KafkaTelemetryEventPublisher.cs`, `Worker/TelemetryConsumerWorker.cs`, `Application/UseCases/ProcessTelemetryEventUseCase.cs` |
+
+### Caso 2 — Enviar datasets completos al LLM
+
+| | |
+|---|---|
+| **Propuesta deficiente** | Enviar el historial de telemetría o el estado completo de la flota al LLM para que “responda con contexto”. |
+| **Riesgo técnico** | Fuga de datos operativos, costos impredecibles, latencia alta, alucinaciones sobre datos no verificados y pérdida de trazabilidad de la fuente de cada afirmación. |
+| **Decisión senior aplicada** | Agente con **tools internas controladas** (`GetStoppedVehicles`, `GetVehiclesWithCriticalAlerts`, etc.) que consultan Application/Infrastructure. OpenAI es **opcional** y solo pule redacción de la respuesta ya calculada. |
+| **Archivos relacionados** | `Application/Services/AiOperationalTools.cs`, `Infrastructure/Services/OperationalAiAgentService.cs`, `Infrastructure/Services/HybridAiAgentService.cs`, `Infrastructure/Services/OpenAiPolishService.cs` |
+
+### Caso 3 — Dashboard dependiente siempre del backend
+
+| | |
+|---|---|
+| **Propuesta deficiente** | Dashboard que solo funciona con backend levantado; sin datos si la API no responde. |
+| **Riesgo técnico** | Demo y sustentación bloqueadas por infraestructura; mala UX en desarrollo; imposible evaluar UI/UX de forma aislada. |
+| **Decisión senior aplicada** | Modo **Demo** con mocks en cliente (`web/src/mocks/fleet-data.ts`) activable desde el header. El modo tiempo real consume API/SSE cuando el backend está disponible. |
+| **Archivos relacionados** | `web/src/hooks/use-fleet-data.ts`, `web/src/mocks/fleet-data.ts`, `web/src/components/dashboard/dashboard-header.tsx`, `web/src/hooks/use-ai-chat.ts` |
+
+### Caso 4 — Idempotencia sin transacción (corrección Fase 6)
+
+| | |
+|---|---|
+| **Propuesta deficiente** | Marcar `processed_events` antes de persistir telemetría y alertas en operaciones separadas. |
+| **Riesgo técnico** | Si falla la escritura posterior, el evento queda marcado como procesado y se pierde para siempre (pérdida de datos silenciosa). |
+| **Decisión senior aplicada** | `ITelemetryProcessingUnitOfWork` con transacción EF Core: idempotencia + telemetría + alertas en un solo commit. |
+| **Archivos relacionados** | `Application/Interfaces/ITelemetryProcessingUnitOfWork.cs`, `Infrastructure/Repositories/TimescaleTelemetryProcessingUnitOfWork.cs`, `Worker/TelemetryConsumerWorker.cs` (commit manual de offset solo tras éxito o duplicado) |
