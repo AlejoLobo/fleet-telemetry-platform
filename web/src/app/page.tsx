@@ -11,7 +11,8 @@ import { FleetMapPanel } from "@/components/fleet-map-panel";
 import { AlertsPanel } from "@/components/alerts-panel";
 import { TelemetryTable } from "@/components/telemetry-table";
 import { AiChatPanel } from "@/components/ai-chat-panel";
-import { apiClient } from "@/lib/api-client";
+import { LoginPanel } from "@/components/auth/login-panel";
+import { apiClient, ApiError } from "@/lib/api-client";
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 
 export default function DashboardPage() {
@@ -19,6 +20,23 @@ export default function DashboardPage() {
   const [liveVehicles, setLiveVehicles] = useState<VehicleStatus[] | null>(null);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+
+  const refreshAuthState = async () => {
+    try {
+      const status = await apiClient.fetchAuthStatus();
+      setAuthEnabled(status.enabled);
+      setHasToken(apiClient.hasAuthToken());
+    } catch {
+      setAuthEnabled(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshAuthState();
+  }, []);
 
   const {
     vehicles,
@@ -48,12 +66,14 @@ export default function DashboardPage() {
   const handleLoadApi = async () => {
     setLiveVehicles(null);
     setLiveAlerts([]);
+    setAuthNotice(null);
     await loadFromApi();
   };
 
   const handleLoadDemo = async () => {
     setLiveVehicles(null);
     setLiveAlerts([]);
+    setAuthNotice(null);
     await loadDemoData();
   };
 
@@ -72,10 +92,17 @@ export default function DashboardPage() {
   const handleAcknowledgeAlert = async (alertId: string) => {
     if (dataSource === "demo") return;
     setAcknowledgingId(alertId);
+    setAuthNotice(null);
     try {
       await apiClient.acknowledgeAlert(alertId);
       setLiveAlerts((prev) => prev.filter((a) => a.alertId !== alertId));
       await refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAuthNotice("Sesión expirada o sin permisos. Inicia sesión para confirmar alertas.");
+      } else {
+        setAuthNotice(err instanceof Error ? err.message : "No se pudo confirmar la alerta");
+      }
     } finally {
       setAcknowledgingId(null);
     }
@@ -93,10 +120,22 @@ export default function DashboardPage() {
       />
 
       <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 md:px-6">
-        {error && (
+        {authEnabled && dataSource === "api" && (
+          <section className="animate-fade-up">
+            <LoginPanel
+              hasToken={hasToken}
+              onAuthChange={() => {
+                setHasToken(apiClient.hasAuthToken());
+                setAuthNotice(null);
+              }}
+            />
+          </section>
+        )}
+
+        {(error || authNotice) && (
           <div className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3.5 text-sm text-amber-900 shadow-soft animate-fade-up">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            <p>{error}</p>
+            <p>{authNotice ?? error}</p>
           </div>
         )}
 

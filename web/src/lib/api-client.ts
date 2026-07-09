@@ -3,6 +3,15 @@ import { getApiBaseUrl } from "@/lib/utils";
 
 type ApiVehicle = VehicleStatus & { lastHeadingDegrees?: number | null };
 
+type LoginResponse = {
+  token: string;
+  expiresInMinutes: number;
+};
+
+type AuthStatusResponse = {
+  enabled: boolean;
+};
+
 function normalizeVehicle(vehicle: ApiVehicle): VehicleStatus {
   return {
     ...vehicle,
@@ -10,10 +19,13 @@ function normalizeVehicle(vehicle: ApiVehicle): VehicleStatus {
   };
 }
 
-class ApiError extends Error {
-  constructor(message: string) {
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -34,7 +46,14 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new ApiError(`Error ${response.status} en ${path}`);
+    let detail = `Error ${response.status} en ${path}`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) detail = body.error;
+    } catch {
+      // respuesta no JSON
+    }
+    throw new ApiError(detail, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -44,6 +63,18 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const apiClient = {
   getSseUrl(): string {
     return `${getApiBaseUrl()}/api/events/stream`;
+  },
+
+  async fetchAuthStatus(): Promise<AuthStatusResponse> {
+    return fetchJson<AuthStatusResponse>("/api/auth/status");
+  },
+
+  async login(username: string, password: string): Promise<void> {
+    const response = await fetchJson<LoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    apiClient.setAuthToken(response.token);
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
@@ -81,6 +112,9 @@ export const apiClient = {
     if (token) localStorage.setItem("fleet_api_token", token);
     else localStorage.removeItem("fleet_api_token");
   },
-};
 
-export { ApiError };
+  hasAuthToken(): boolean {
+    if (typeof window === "undefined") return false;
+    return Boolean(localStorage.getItem("fleet_api_token"));
+  },
+};
