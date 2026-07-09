@@ -243,6 +243,54 @@ Configuración en `Resilience` dentro de `appsettings.json`. Estado en `GET /hea
 
 Si Kafka está en circuit breaker abierto, la ingesta responde `503` con `Retry-After`. Si OpenAI falla o el circuit breaker está abierto, el agente devuelve la respuesta operativa sin pulir (`HybridAiAgentService`). Si TimescaleDB está abierto, el Worker no confirma offsets y reintenta tras backoff.
 
+## DLQ (Dead Letter Queue)
+
+Mensajes inválidos o fallidos persistentemente se publican en `telemetry.dlq`:
+
+| Caso | Comportamiento |
+|------|----------------|
+| JSON/payload inválido | DLQ inmediato + offset confirmado |
+| Error de procesamiento (≥ `MaxProcessingAttempts`) | DLQ + offset confirmado |
+| Circuit breaker DB abierto | Sin DLQ; reintento sin confirmar offset |
+
+```bash
+docker exec fleet-redpanda rpk topic consume telemetry.dlq -n 5
+```
+
+## Variables de entorno
+
+Ver `.env.example`. En producción usar convención `Section__Key`:
+
+| Variable | Ejemplo |
+|----------|---------|
+| `TimescaleDb__ConnectionString` | Connection string PostgreSQL |
+| `Auth__JwtSecret` | Secreto JWT (obligatorio si Auth habilitado) |
+| `OpenAI__ApiKey` | API key OpenAI (opcional) |
+| `Kafka__DlqTopic` | `telemetry.dlq` |
+| `Sse__ActivePollIntervalSeconds` | `3` |
+| `Sse__IdlePollIntervalSeconds` | `10` |
+
+`ConfigurationValidator` rechaza secretos por defecto fuera de Development.
+
+## SSE — decisión de polling
+
+El dashboard usa SSE alimentado por un poller (`FleetSsePollerHostedService`):
+
+- **Activo (3s):** cuando la flota cambió en el último ciclo.
+- **Idle (10s):** cuando no hay cambios (reduce carga en DB).
+
+En MVP no hay push directo Kafka→SSE; el polling con hash evita broadcasts redundantes. Para escalar: CDC o evento post-procesamiento en Worker.
+
+## Tests
+
+```bash
+cd backend
+dotnet test --configuration Release
+```
+
+- Unitarios: `FleetTelemetry.Application.Tests`
+- Integración (Testcontainers + TimescaleDB): `FleetTelemetry.Integration.Tests`
+
 ## Fase 6 ✅
 
 - Pruebas de carga **k6** (`load-tests/`)
