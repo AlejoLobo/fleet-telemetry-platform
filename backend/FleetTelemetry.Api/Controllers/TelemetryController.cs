@@ -6,7 +6,7 @@ namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
 [Route("api/telemetry")]
-public class TelemetryController : ControllerBase
+public partial class TelemetryController : ControllerBase
 {
     private readonly IngestTelemetryEventUseCase _ingestEventUseCase;
     private readonly IngestTelemetryBatchUseCase _ingestBatchUseCase;
