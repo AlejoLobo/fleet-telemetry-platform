@@ -7,6 +7,7 @@ using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Realtime;
 using FleetTelemetry.Infrastructure.Repositories;
+using FleetTelemetry.Infrastructure.Resilience;
 using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -29,9 +30,12 @@ public static class DependencyInjection
     {
         services.Configure<KafkaOptions>(configuration.GetSection(KafkaOptions.SectionName));
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
+        services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
+        services.AddSingleton<ICircuitBreakerStateRegistry, CircuitBreakerStateRegistry>();
+        services.AddSingleton<ResiliencePipelineFactory>();
         services.AddSingleton<JwtTokenService>();
 
         if (profile == InfrastructureProfile.Api)

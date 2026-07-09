@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Api.Filters;
 using Microsoft.AspNetCore.Mvc;
@@ -31,6 +32,10 @@ public partial class TelemetryController : ControllerBase
             await _ingestEventUseCase.ExecuteAsync(request, cancellationToken);
             return Accepted(new { message = "Telemetry event accepted for processing." });
         }
+        catch (DependencyCircuitOpenException ex)
+        {
+            return ServiceUnavailable(ex);
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
@@ -48,9 +53,26 @@ public partial class TelemetryController : ControllerBase
             await _ingestBatchUseCase.ExecuteAsync(request, cancellationToken);
             return Accepted(new { message = "Telemetry batch accepted for processing." });
         }
+        catch (DependencyCircuitOpenException ex)
+        {
+            return ServiceUnavailable(ex);
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    private ObjectResult ServiceUnavailable(DependencyCircuitOpenException ex)
+    {
+        if (ex.RetryAfter is { } retryAfter)
+            Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+
+        return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+        {
+            error = ex.Message,
+            dependency = ex.Dependency,
+            circuitBreaker = "open"
+        });
     }
 }
