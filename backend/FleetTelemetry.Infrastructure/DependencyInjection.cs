@@ -47,6 +47,7 @@ public static class DependencyInjection
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
+            services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
             services.AddScoped<AiOperationalTools>();
