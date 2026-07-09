@@ -9,7 +9,20 @@ const VEHICLE_COUNT = Number(__ENV.VEHICLES || 300);
 const DUPLICATE_RATE = Number(__ENV.DUPLICATE_RATE || 0.1);
 const ERROR_RATE = Number(__ENV.ERROR_RATE || 0.05);
 
-// Métricas separadas para caos controlado vs errores reales inesperados
+// Zonas de Bogotá: cada VH-NNN tiene ancla en una zona distinta
+const BOGOTA_ZONES = [
+  { lat: 4.648, lng: -74.063, spread: 0.018 },
+  { lat: 4.711, lng: -74.032, spread: 0.015 },
+  { lat: 4.737, lng: -74.082, spread: 0.02 },
+  { lat: 4.628, lng: -74.152, spread: 0.022 },
+  { lat: 4.598, lng: -74.075, spread: 0.012 },
+  { lat: 4.702, lng: -74.108, spread: 0.016 },
+  { lat: 4.628, lng: -74.09, spread: 0.014 },
+  { lat: 4.669, lng: -74.145, spread: 0.015 },
+  { lat: 4.568, lng: -74.085, spread: 0.018 },
+  { lat: 4.612, lng: -74.195, spread: 0.02 },
+];
+
 const acceptedEvents = new Counter("telemetry_accepted");
 const duplicateEvents = new Counter("telemetry_duplicate_sent");
 const intentionalInvalid = new Counter("telemetry_intentional_invalid");
@@ -17,7 +30,6 @@ const unexpectedFailures = new Counter("telemetry_unexpected_failure");
 const intentionalErrorRate = new Rate("telemetry_intentional_error_rate");
 const validRequestDuration = new Trend("telemetry_valid_request_duration", true);
 
-// Pool de eventIds para reutilizar en duplicados (10% por defecto)
 const duplicateEventIds = Array.from({ length: 50 }, () => uuidv4());
 
 export const options = {
@@ -29,7 +41,6 @@ export const options = {
     },
   },
   thresholds: {
-  // Solo fallos no intencionales deben contar para el umbral global
     http_req_failed: ["rate<0.05"],
     http_req_duration: ["p(95)<800"],
     telemetry_unexpected_failure: ["count<50"],
@@ -47,17 +58,50 @@ function vehicleId() {
   return `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
 }
 
+function vehicleNumber(vehicle) {
+  const match = /VH-(\d+)/.exec(vehicle);
+  return match ? Number.parseInt(match[1], 10) : 1;
+}
+
+function randomPointInZone(zone) {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = Math.random() * zone.spread;
+  return {
+    lat: Math.round((zone.lat + Math.cos(angle) * radius) * 1e5) / 1e5,
+    lng: Math.round((zone.lng + Math.sin(angle) * radius) * 1e5) / 1e5,
+  };
+}
+
+function locationForVehicle(vehicle) {
+  const num = vehicleNumber(vehicle);
+  const zone = BOGOTA_ZONES[num % BOGOTA_ZONES.length];
+  return randomPointInZone(zone);
+}
+
+/** ~62% online (timestamp reciente), resto offline. */
+function randomTimestamp() {
+  const online = Math.random() < 0.62;
+  if (online) {
+    const secondsAgo = randomIntBetween(0, 240);
+    return new Date(Date.now() - secondsAgo * 1000).toISOString();
+  }
+  const minutesAgo = randomIntBetween(8, 55);
+  return new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+}
+
 function buildValidPayload(eventId, vehicle) {
+  const { lat, lng } = locationForVehicle(vehicle);
+  const online = Math.random() < 0.62;
   return JSON.stringify({
     eventId,
     vehicleId: vehicle,
-    driverId: "DRV-LOAD",
-    timestamp: new Date().toISOString(),
-    latitude: 4.65 + Math.random() * 0.05,
-    longitude: -74.08 - Math.random() * 0.05,
-    speedKmh: randomIntBetween(20, 130),
+    driverId: `DRV-${vehicle.replace("VH-", "")}`,
+    timestamp: randomTimestamp(),
+    latitude: lat,
+    longitude: lng,
+    speedKmh: online ? randomIntBetween(15, 130) : randomIntBetween(0, 12),
     fuelLevelPercent: randomIntBetween(5, 95),
-    batteryPercent: randomIntBetween(40, 100),
+    batteryPercent: randomIntBetween(25, 100),
   });
 }
 
