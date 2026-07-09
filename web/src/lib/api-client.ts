@@ -23,11 +23,18 @@ class ApiError extends Error {
   }
 }
 
+function authHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("fleet_api_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
       ...init?.headers,
     },
   });
@@ -92,6 +99,18 @@ export const apiClient = {
     return fetchJson<TelemetryEvent[]>(
       `/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
     );
+  },
+
+  async acknowledgeAlert(alertId: string): Promise<void> {
+    await fetchJson(`/api/alerts/${encodeURIComponent(alertId)}/acknowledge`, {
+      method: "PATCH",
+    });
+  },
+
+  setAuthToken(token: string | null) {
+    if (typeof window === "undefined") return;
+    if (token) localStorage.setItem("fleet_api_token", token);
+    else localStorage.removeItem("fleet_api_token");
   },
 };
 

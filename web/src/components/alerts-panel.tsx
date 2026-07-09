@@ -1,7 +1,10 @@
-import { AlertTriangle, Bell, ShieldAlert } from "lucide-react";
+"use client";
+
+import { AlertTriangle, Bell, CheckCircle2, ShieldAlert } from "lucide-react";
 import type { FleetAlert } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   esSeveridadCritica,
   etiquetaSeveridad,
@@ -10,7 +13,13 @@ import {
 } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
-export function AlertsPanel({ alerts }: { alerts: FleetAlert[] }) {
+type AlertsPanelProps = {
+  alerts: FleetAlert[];
+  onAcknowledge?: (alertId: string) => Promise<void>;
+  acknowledgingId?: string | null;
+};
+
+export function AlertsPanel({ alerts, onAcknowledge, acknowledgingId }: AlertsPanelProps) {
   const criticalCount = alerts.filter((a) => esSeveridadCritica(a.severity)).length;
 
   return (
@@ -71,10 +80,25 @@ export function AlertsPanel({ alerts }: { alerts: FleetAlert[] }) {
                 <p className="text-sm leading-relaxed text-slate-700">
                   {traducirMensajeAlerta(alert)}
                 </p>
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
-                  <AlertTriangle className="h-3 w-3" />
-                  {new Date(alert.createdAt).toLocaleString("es-CO")}
-                </p>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <AlertTriangle className="h-3 w-3" />
+                    {new Date(alert.createdAt).toLocaleString("es-CO")}
+                  </p>
+                  {onAcknowledge && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={acknowledgingId === alert.alertId}
+                      onClick={() => onAcknowledge(alert.alertId)}
+                      className="h-7 gap-1 text-xs"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {acknowledgingId === alert.alertId ? "..." : "Confirmar"}
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}

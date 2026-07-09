@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Api.Filters;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Controllers;
@@ -20,6 +21,7 @@ public partial class TelemetryController : ControllerBase
     }
 
     [HttpPost]
+    [AuthorizeWhenEnabled]
     public async Task<IActionResult> IngestSingle(
         [FromBody] TelemetryEventRequest request,
         CancellationToken cancellationToken)
@@ -36,6 +38,7 @@ public partial class TelemetryController : ControllerBase
     }
 
     [HttpPost("batch")]
+    [AuthorizeWhenEnabled]
     public async Task<IActionResult> IngestBatch(
         [FromBody] TelemetryBatchRequest request,
         CancellationToken cancellationToken)

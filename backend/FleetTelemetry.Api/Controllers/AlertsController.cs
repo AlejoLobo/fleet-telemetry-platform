@@ -1,5 +1,7 @@
+using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.UseCases;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Controllers;
@@ -9,10 +11,14 @@ namespace FleetTelemetry.Api.Controllers;
 public class AlertsController : ControllerBase
 {
     private readonly IAlertRepository _alertRepository;
+    private readonly AcknowledgeAlertUseCase _acknowledgeAlertUseCase;
 
-    public AlertsController(IAlertRepository alertRepository)
+    public AlertsController(
+        IAlertRepository alertRepository,
+        AcknowledgeAlertUseCase acknowledgeAlertUseCase)
     {
         _alertRepository = alertRepository;
+        _acknowledgeAlertUseCase = acknowledgeAlertUseCase;
     }
 
     [HttpGet]
@@ -31,5 +37,16 @@ public class AlertsController : ControllerBase
             a.IsAcknowledged)).ToList();
 
         return Ok(response);
+    }
+
+    [HttpPatch("{alertId:guid}/acknowledge")]
+    [AuthorizeWhenEnabled]
+    public async Task<IActionResult> Acknowledge(Guid alertId, CancellationToken cancellationToken)
+    {
+        var acknowledged = await _acknowledgeAlertUseCase.ExecuteAsync(alertId, cancellationToken);
+        if (!acknowledged)
+            return NotFound(new { error = $"Alerta '{alertId}' no encontrada o ya confirmada." });
+
+        return Ok(new { message = "Alerta confirmada.", alertId });
     }
 }

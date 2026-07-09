@@ -41,5 +41,52 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fleet-api
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Kafka__BootstrapServers: redpanda:9092
+      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet
+      Auth__Enabled: "false"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: fleet-worker
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      Kafka__BootstrapServers: redpanda:9092
+      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:5000
+    container_name: fleet-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   timescale_data:

@@ -8,7 +8,7 @@ Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-
 
 MVP diseñado para demostrar una vertical funcional completa: conductores envían telemetría (offline-first en mobile), el backend la ingesta vía Kafka, un worker la persiste en TimescaleDB y genera alertas, y un dashboard en tiempo real expone estado de flota, alertas y un agente IA operativo.
 
-## Estado actual: Fases 4 y 5 ✅
+## Estado actual: Fases 4–6 ✅
 
 Pipeline event-driven operativo + lectura, SSE, agente IA, **dashboard Next.js** y **app móvil Expo** offline-first.
 
@@ -219,15 +219,18 @@ Cola SQLite offline, `EventId` en cliente, sync batch al reconectar. Ver `mobile
 
 ## Qué NO está implementado todavía
 
-- Pruebas de carga k6
-- Terraform AWS blueprint
-- LLM externo (agente usa tools internas + reglas, sin API key)
+- Despliegue ECS/MSK completo en AWS (blueprint Terraform base listo)
+- Login visual en el dashboard (JWT vía `POST /api/auth/login` o token en localStorage)
 
-## Fase 6 (siguiente)
+## Fase 6 ✅
 
-- k6 load tests
-- Terraform AWS blueprint
-- Docker Compose completo
+- Pruebas de carga **k6** (`load-tests/`)
+- **Terraform** AWS blueprint (`infra/terraform/`)
+- **Docker Compose** con API, Worker y Web
+- **JWT** opcional (`Auth:Enabled`)
+- **Tests** xUnit en `FleetTelemetry.Application.Tests`
+- **Ack alertas** `PATCH /api/alerts/{id}/acknowledge`
+- **LLM opcional** OpenAI para pulir respuestas del agente IA
 
 ## Git y convención de commits
 
