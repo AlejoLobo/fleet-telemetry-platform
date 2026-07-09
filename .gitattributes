@@ -1,0 +1,23 @@
+# Normalizar finales de línea para código fuente
+* text=auto
+
+# C# y archivos de proyecto .NET
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Scripts Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Archivos binarios
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
