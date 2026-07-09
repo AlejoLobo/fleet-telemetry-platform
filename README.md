@@ -8,11 +8,16 @@ Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-
 
 MVP diseñado para demostrar una vertical funcional completa: conductores envían telemetría (offline-first en mobile), el backend la ingesta vía Kafka, un worker la persiste en TimescaleDB y genera alertas, y un dashboard en tiempo real expone estado de flota, alertas y un agente IA operativo.
 
-## Estado actual: Fase 1
+## Estado actual: Fase 2 ✅
 
-Backend base con **Clean Architecture** en .NET 10 LTS. La API acepta telemetría y la publica mediante mocks; el Worker arranca sin consumir Kafka.
+Pipeline event-driven operativo:
 
-## Stack de Fase 1
+```
+POST /api/telemetry → Kafka (telemetry.raw) → Worker → TimescaleDB + alertas
+                              ↑ idempotencia por EventId (processed_events)
+```
+
+## Stack de Fase 2
 
 | Componente | Tecnología |
 |---|---|
@@ -20,6 +25,8 @@ Backend base con **Clean Architecture** en .NET 10 LTS. La API acepta telemetrí
 | Runtime | .NET 10 LTS (`net10.0`) |
 | API | ASP.NET Core Web API |
 | Worker | .NET Worker Service |
+| Eventos | Kafka (Redpanda en Docker, puerto `19092`) |
+| Persistencia | TimescaleDB (PostgreSQL + hypertable) |
 | Arquitectura | Clean Architecture (Domain, Application, Infrastructure) |
 
 ## Estructura del repositorio
@@ -29,11 +36,11 @@ fleet-telemetry-platform/
 ├── .cursorrules
 ├── backend/
 │   ├── FleetTelemetry.sln
-│   ├── FleetTelemetry.Api/
+│   ├── FleetTelemetry.Api/           # HTTP ingest + health
+│   ├── FleetTelemetry.Worker/        # Consumidor Kafka
 │   ├── FleetTelemetry.Domain/
 │   ├── FleetTelemetry.Application/
-│   ├── FleetTelemetry.Infrastructure/
-│   └── FleetTelemetry.Worker/
+│   └── FleetTelemetry.Infrastructure/
 ├── web/                              # (Fase 4) Dashboard Next.js
 ├── mobile/                           # (Fase 5) App React Native Expo
 ├── load-tests/                       # (Fase 6) k6
@@ -44,49 +51,59 @@ fleet-telemetry-platform/
 └── README.md
 ```
 
-## Decisiones técnicas (Fase 1)
+## Decisiones técnicas
 
-- **Una sola API** (`FleetTelemetry.Api`) y **un solo Worker** (`FleetTelemetry.Worker`).
-- **Ingesta desacoplada:** HTTP publica eventos vía `ITelemetryEventPublisher`; no persiste en controller ni use case.
-- **Mocks en Infrastructure** para Kafka, TimescaleDB, Druid (`IAnalyticsQueryService`) e IA (`IAiAgentService`).
+- **Una sola API** y **un solo Worker** (ver `.cursorrules`).
+- **Ingesta desacoplada:** HTTP publica en Kafka; no persiste en controller ni use case.
+- **DI por perfil:** `InfrastructureProfile.Api` vs `Worker` en `DependencyInjection.cs`.
+- **Fase 2 real:** Kafka publisher + TimescaleDB en Worker.
+- **Mocks restantes (API):** flota, alertas lectura, analytics (Druid), IA — hasta Fase 3/4.
 - **`DateTimeOffset`** para todas las fechas de telemetría.
 - **Validación centralizada** en `TelemetryEventValidator`.
-- Sin Redis, sin Testcontainers, sin múltiples APIs.
 
-## Endpoints disponibles
+## Endpoints disponibles (Fase 2)
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `POST` | `/api/telemetry` | Ingesta un evento de telemetría (202 Accepted) |
-| `POST` | `/api/telemetry/batch` | Ingesta un lote de eventos (202 Accepted) |
+| `POST` | `/api/telemetry` | Ingesta un evento → publica en Kafka (202 Accepted) |
+| `POST` | `/api/telemetry/batch` | Ingesta un lote → publica en Kafka (202 Accepted) |
 
-Swagger UI disponible en Development: `http://localhost:5000/swagger`
+OpenAPI (solo Development): `http://localhost:5000/openapi/v1.json`
 
-## Comandos para compilar
+## Infraestructura local (Docker)
+
+```bash
+cd C:\projects\fleet-telemetry-platform
+docker compose up -d
+```
+
+| Servicio | Puerto | Descripción |
+|---|---|---|
+| Redpanda (Kafka) | `19092` | Topic `telemetry.raw` |
+| TimescaleDB | `5432` | DB/user/pass: `fleet` |
+
+> Si `docker` no se reconoce en PowerShell, reinicia la terminal o agrega Docker al PATH.
+
+## Comandos backend
 
 ```bash
 cd C:\projects\fleet-telemetry-platform\backend
+
+# Compilar (detener API/Worker antes si están corriendo)
 dotnet build
-```
 
-## Comandos para correr la API
-
-```bash
-cd C:\projects\fleet-telemetry-platform\backend
+# Terminal 1 — API
 dotnet run --project FleetTelemetry.Api
-```
 
-## Comandos para correr el Worker
-
-```bash
-cd C:\projects\fleet-telemetry-platform\backend
+# Terminal 2 — Worker
 dotnet run --project FleetTelemetry.Worker
 ```
 
-## Ejemplo: POST /api/telemetry
+## Ejemplo end-to-end
 
 ```bash
+# 1. Ingestar telemetría (genera alertas: speed=130, fuel=10)
 curl -X POST http://localhost:5000/api/telemetry \
   -H "Content-Type: application/json" \
   -d "{
@@ -96,91 +113,89 @@ curl -X POST http://localhost:5000/api/telemetry \
     \"timestamp\": \"2026-07-08T22:00:00Z\",
     \"latitude\": 4.6533,
     \"longitude\": -74.0836,
-    \"speedKmh\": 45.5,
-    \"fuelLevelPercent\": 72.0,
+    \"speedKmh\": 130.0,
+    \"fuelLevelPercent\": 10.0,
     \"batteryPercent\": 95.0
   }"
 ```
 
-Respuesta esperada (`202 Accepted`):
+Respuesta (`202 Accepted`):
 
 ```json
-{
-  "message": "Telemetry event accepted for processing."
-}
+{ "message": "Telemetry event accepted for processing." }
 ```
 
-En los logs de la API deberías ver:
+Log esperado en API:
 
 ```
-[MOCK] Published telemetry event 11111111-1111-1111-1111-111111111111 for vehicle VH-001
+Published telemetry event 11111111-... for vehicle VH-001 to telemetry.raw partition 0
 ```
+
+Log esperado en Worker (tras ~1-2 s):
+
+```
+Telemetry event processed: 11111111-... vehicle VH-001
+Alert generated: overspeed (critical) for vehicle VH-001
+Alert generated: low_fuel (warning) for vehicle VH-001
+```
+
+## Reglas de alerta (Worker)
+
+| Tipo | Condición | Severidad |
+|---|---|---|
+| `overspeed` | speedKmh > 120 | critical |
+| `low_fuel` | fuelLevelPercent < 15 | warning |
+| `low_battery` | batteryPercent < 20 | warning |
+
+## Configuración
+
+Valores en `backend/FleetTelemetry.Api/appsettings.json` y `backend/FleetTelemetry.Worker/appsettings.json`.
+Referencia adicional en `.env.example` (no se carga automáticamente; usar convención `Kafka__BootstrapServers` si se prefiere variables de entorno).
 
 ## Qué NO está implementado todavía
 
-- Kafka real
-- TimescaleDB real
-- Worker consumidor de eventos
-- Idempotencia por `EventId`
-- Endpoints de lectura (flota, alertas, SSE)
-- Agente IA operativo real con tools internas
+- Endpoints de lectura (`GET /api/fleet`, `GET /api/alerts`)
+- SSE tiempo real
+- Agente IA operativo con tools internas
 - Dashboard Next.js
 - App móvil React Native Expo
 - Pruebas de carga k6
-- Docker Compose con servicios reales
 - Terraform AWS blueprint
+- Druid (solo `MockAnalyticsQueryService`)
 
-## Qué se implementará en Fase 2
+## Fase 3 (siguiente)
 
-- **Kafka real** en Docker Compose (topic `telemetry.raw`, key = `VehicleId`)
-- **TimescaleDB real** con hypertables y migraciones
-- **Worker consumidor** que procesa eventos de Kafka
-- **Idempotencia por EventId** para evitar duplicados en reentregas
+- Endpoints de lectura (flota, alertas) con TimescaleDB real
+- SSE para tiempo real
+- Agente IA con tools internas
+
+## Git — ramas y commits de Fase 2
+
+Rama de trabajo: `feature/phase-2-kafka-timescaledb`
+
+| Commit | Tipo | Descripción |
+|---|---|---|
+| `978b0c0` | chore | Excluir `bin/`/`obj/` del repositorio |
+| `f65bd76` | chore | Docker Compose: Redpanda + TimescaleDB |
+| `01ffc29` | feat | Kafka publisher, Worker consumer, TimescaleDB, idempotencia, alertas |
+| *(pendiente)* | docs | README alineado con Fase 2 |
+| *(pendiente)* | chore | Carpetas placeholder + limpieza código muerto |
+
+Para publicar:
+
+```bash
+git push -u origin feature/phase-2-kafka-timescaledb
+# Abrir PR hacia main en GitHub
+```
 
 ## AI Audit
 
-Auditoría de decisiones donde la IA inicialmente podría haber tomado atajos incorrectos, y la corrección aplicada con criterio senior.
-
-### 1. Persistencia directa desde controllers
-
-| | |
+| Área | Estado Fase 2 |
 |---|---|
-| **Riesgo IA** | Guardar telemetría directamente en TimescaleDB desde `TelemetryController`, acoplando HTTP con persistencia. |
-| **Corrección** | Controller → `IngestTelemetryEventUseCase` → `ITelemetryEventPublisher.PublishAsync`. La persistencia queda para el Worker en Fase 2 vía Kafka. |
-| **Estado** | ✅ Alineado con `.cursorrules` |
-
-### 2. Envío de datasets completos al LLM
-
-| | |
-|---|---|
-| **Riesgo IA** | Enviar historial completo de telemetría al LLM para responder preguntas operativas. |
-| **Corrección** | `IAiAgentService` con `MockAiAgentService` en Fase 1. En fases posteriores, el agente usará tools internas (`GetLatestVehicleStatus`, `GetVehiclesAboveSpeed`, etc.) que consultan Application Services, no datasets crudos. |
-| **Estado** | ✅ Mock implementado; tools reales en Fase 3 |
-
-### 3. Dependencia exclusiva del backend real (sin modo mock)
-
-| | |
-|---|---|
-| **Riesgo IA** | Dashboard y servicios acoplados al backend real desde el inicio, bloqueando desarrollo paralelo. |
-| **Corrección** | Todos los servicios de Infrastructure son mocks registrados en `DependencyInjection.cs` con etiqueta `[MOCK]`. El dashboard (Fase 4) tendrá modo mock vía variable de entorno. |
-| **Estado** | ✅ Backend con mocks; frontend mock planificado Fase 4 |
-
-### 4. Sobredimensionamiento arquitectónico
-
-| | |
-|---|---|
-| **Riesgo IA** | Plan inicial de 21 días con múltiples APIs, Redis, Testcontainers, Druid como servicio separado. |
-| **Corrección** | MVP acotado a 8–12 h: una API, un Worker, mocks internos, sin Redis ni Testcontainers. Druid vía `MockAnalyticsQueryService` dentro de Infrastructure. |
-| **Estado** | ✅ Alineado con `.cursorrules` |
-
-### 5. Validación y contratos HTTP
-
-| | |
-|---|---|
-| **Riesgo IA** | Validación dispersa o ausente; respuestas HTTP inconsistentes. |
-| **Corrección** | `TelemetryEventValidator` centralizado. Ingesta exitosa → `202 Accepted`. Error de validación → `400 Bad Request`. `DateTimeOffset` en todas las entidades y DTOs. |
-| **Estado** | ✅ Implementado |
-
----
-
-*No avanzar a Fase 2 sin confirmación explícita.*
+| Clean Architecture | ✅ Capas separadas, DI por interfaces |
+| Ingesta desacoplada | ✅ API → Kafka; Worker → TimescaleDB |
+| Idempotencia | ✅ `processed_events` con `ON CONFLICT DO NOTHING` |
+| Event-driven | ✅ Redpanda + topic `telemetry.raw` |
+| Mocks acotados | ✅ Solo lectura/analytics/IA en perfil Api |
+| Tests automatizados | ❌ Pendiente |
+| Seguridad | ❌ Sin autenticación (post-MVP) |
