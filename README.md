@@ -8,13 +8,15 @@ Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-
 
 MVP diseñado para demostrar una vertical funcional completa: conductores envían telemetría (offline-first en mobile), el backend la ingesta vía Kafka, un worker la persiste en TimescaleDB y genera alertas, y un dashboard en tiempo real expone estado de flota, alertas y un agente IA operativo.
 
-## Estado actual: Fase 2 ✅
+## Estado actual: Fase 3 ✅
 
-Pipeline event-driven operativo:
+Pipeline event-driven operativo + **lectura**, **SSE** y **agente IA operativo** con tools internas.
 
 ```
-POST /api/telemetry → Kafka (telemetry.raw) → Worker → TimescaleDB + alertas
-                              ↑ idempotencia por EventId (processed_events)
+POST /api/telemetry → Kafka → Worker → TimescaleDB + alertas
+GET  /api/fleet, /api/alerts, /api/telemetry/{id}
+GET  /api/events/stream (SSE)
+POST /api/ai/query (tools internas, sin LLM externo)
 ```
 
 ## Stack de Fase 2
@@ -61,13 +63,19 @@ fleet-telemetry-platform/
 - **`DateTimeOffset`** para todas las fechas de telemetría.
 - **Validación centralizada** en `TelemetryEventValidator`.
 
-## Endpoints disponibles (Fase 2)
+## Endpoints disponibles (Fase 3)
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/health` | Health check |
 | `POST` | `/api/telemetry` | Ingesta un evento → publica en Kafka (202 Accepted) |
 | `POST` | `/api/telemetry/batch` | Ingesta un lote → publica en Kafka (202 Accepted) |
+| `GET` | `/api/telemetry/{vehicleId}` | Historial de telemetría (`?from=&to=`) |
+| `GET` | `/api/fleet` | Estado actual de todos los vehículos |
+| `GET` | `/api/fleet/{vehicleId}` | Estado de un vehículo |
+| `GET` | `/api/alerts` | Alertas abiertas |
+| `GET` | `/api/events/stream` | SSE tiempo real (fleet-update, alert, heartbeat) |
+| `POST` | `/api/ai/query` | Agente IA operativo con tools internas |
 
 OpenAPI (solo Development): `http://localhost:5000/openapi/v1.json`
 
@@ -139,6 +147,32 @@ Alert generated: overspeed (critical) for vehicle VH-001
 Alert generated: low_fuel (warning) for vehicle VH-001
 ```
 
+### Consultar flota y alertas (Fase 3)
+
+```bash
+curl http://localhost:5000/api/fleet
+curl http://localhost:5000/api/alerts
+curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z"
+```
+
+### SSE tiempo real
+
+```bash
+curl -N http://localhost:5000/api/events/stream
+```
+
+Eventos: `connected`, `fleet-update`, `alert`, `heartbeat`.
+
+### Agente IA operativo
+
+```bash
+curl -X POST http://localhost:5000/api/ai/query \
+  -H "Content-Type: application/json" \
+  -d "{\"question\": \"¿Qué vehículos tienen alertas críticas?\"}"
+```
+
+Preguntas soportadas: alertas críticas, vehículos detenidos, exceso de velocidad, estado de `VH-001`, resumen analítico.
+
 ## Reglas de alerta (Worker)
 
 | Tipo | Condición | Severidad |
@@ -154,20 +188,16 @@ Referencia adicional en `.env.example` (no se carga automáticamente; usar conve
 
 ## Qué NO está implementado todavía
 
-- Endpoints de lectura (`GET /api/fleet`, `GET /api/alerts`)
-- SSE tiempo real
-- Agente IA operativo con tools internas
 - Dashboard Next.js
 - App móvil React Native Expo
 - Pruebas de carga k6
 - Terraform AWS blueprint
-- Druid (solo `MockAnalyticsQueryService`)
+- LLM externo (agente usa tools internas + reglas, sin API key)
 
-## Fase 3 (siguiente)
+## Fase 4 (siguiente)
 
-- Endpoints de lectura (flota, alertas) con TimescaleDB real
-- SSE para tiempo real
-- Agente IA con tools internas
+- Dashboard Next.js con mapa, alertas, SSE, chat IA
+- App móvil offline-first
 
 ## Git y convención de commits
 
