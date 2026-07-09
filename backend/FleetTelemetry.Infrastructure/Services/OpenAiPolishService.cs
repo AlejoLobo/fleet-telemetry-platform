@@ -1,8 +1,10 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
@@ -11,6 +13,7 @@ public class OpenAiPolishService
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly ILogger<OpenAiPolishService> _logger;
+    private readonly ResiliencePipeline<HttpResponseMessage> _httpPipeline;
 
     public OpenAiPolishService(
         HttpClient httpClient,
@@ -20,6 +23,7 @@ public class OpenAiPolishService
         _httpClient = httpClient;
         _options = options.Value;
         _logger = logger;
+        _httpPipeline = ExternalDependencyResilience.CreateOpenAiHttpPipeline();
     }
 
     public async Task<string> PolishAsync(
@@ -30,7 +34,31 @@ public class OpenAiPolishService
         if (!_options.Enabled)
             return operationalAnswer;
 
-        var request = new
+        var response = await _httpPipeline.ExecuteAsync(
+            async token =>
+            {
+                using var request = CreateChatRequest(question, operationalAnswer);
+                return await _httpClient.SendAsync(request, token);
+            },
+            cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<OpenAiChatResponse>(cancellationToken);
+        var content = payload?.Choices?.FirstOrDefault()?.Message?.Content?.Trim();
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            _logger.LogWarning("OpenAI devolvió contenido vacío");
+            return operationalAnswer;
+        }
+
+        return content;
+    }
+
+    private HttpRequestMessage CreateChatRequest(string question, string operationalAnswer)
+    {
+        var body = new
         {
             model = _options.Model,
             temperature = 0.2,
@@ -50,24 +78,11 @@ public class OpenAiPolishService
             },
         };
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.BaseUrl.TrimEnd('/')}/chat/completions");
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.BaseUrl.TrimEnd('/')}/chat/completions");
         httpRequest.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiKey);
-        httpRequest.Content = JsonContent.Create(request);
-
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var payload = await response.Content.ReadFromJsonAsync<OpenAiChatResponse>(cancellationToken);
-        var content = payload?.Choices?.FirstOrDefault()?.Message?.Content?.Trim();
-
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            _logger.LogWarning("OpenAI devolvió contenido vacío");
-            return operationalAnswer;
-        }
-
-        return content;
+        httpRequest.Content = JsonContent.Create(body);
+        return httpRequest;
     }
 
     private sealed class OpenAiChatResponse

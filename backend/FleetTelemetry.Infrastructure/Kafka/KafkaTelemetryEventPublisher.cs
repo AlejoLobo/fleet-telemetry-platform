@@ -2,8 +2,10 @@ using Confluent.Kafka;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
 
 namespace FleetTelemetry.Infrastructure.Kafka;
 
@@ -12,17 +14,20 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
     private readonly IProducer<string, string> _producer;
     private readonly KafkaOptions _options;
     private readonly ILogger<KafkaTelemetryEventPublisher> _logger;
+    private readonly ResiliencePipeline _publishPipeline;
 
     public KafkaTelemetryEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaTelemetryEventPublisher> logger)
     {
         _options = options.Value;
         _logger = logger;
+        _publishPipeline = ExternalDependencyResilience.CreateKafkaPublishPipeline();
 
         var config = new ProducerConfig
         {
             BootstrapServers = _options.BootstrapServers,
             Acks = Acks.All,
-            EnableIdempotence = true
+            EnableIdempotence = true,
+            MessageTimeoutMs = 10_000
         };
 
         _producer = new ProducerBuilder<string, string>(config).Build();
@@ -37,7 +42,9 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
             Value = json
         };
 
-        var result = await _producer.ProduceAsync(_options.TelemetryTopic, message, cancellationToken);
+        var result = await _publishPipeline.ExecuteAsync(
+            async token => await _producer.ProduceAsync(_options.TelemetryTopic, message, token),
+            cancellationToken);
 
         _logger.LogInformation(
             "Published telemetry event {EventId} for vehicle {VehicleId} to {Topic} partition {Partition}",
