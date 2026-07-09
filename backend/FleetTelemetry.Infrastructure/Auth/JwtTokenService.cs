@@ -5,8 +5,10 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
+// Servicio de generación de tokens JWT.
 namespace FleetTelemetry.Infrastructure.Auth;
 
+// Emite tokens firmados para operadores de flota.
 public class JwtTokenService
 {
     private readonly AuthOptions _options;
@@ -16,6 +18,7 @@ public class JwtTokenService
         _options = options.Value;
     }
 
+    // Genera token JWT con rol operator.
     public string GenerateToken(string username)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.JwtSecret));

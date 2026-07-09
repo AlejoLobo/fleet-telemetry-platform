@@ -5,8 +5,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+// Servicio en segundo plano que alimenta el broker SSE.
 namespace FleetTelemetry.Infrastructure.Realtime;
 
+// Consulta flota y alertas periódicamente y publica actualizaciones.
 public class FleetSsePollerHostedService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
@@ -29,6 +31,7 @@ public class FleetSsePollerHostedService : BackgroundService
         _logger = logger;
     }
 
+    // Bucle de sondeo mientras hay suscriptores SSE.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -62,6 +65,7 @@ public class FleetSsePollerHostedService : BackgroundService
         }
     }
 
+    // Publica actualización solo si el hash de flota difiere.
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
         var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(liveOnly: false, cancellationToken);

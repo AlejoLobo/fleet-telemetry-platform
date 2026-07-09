@@ -5,11 +5,13 @@ using FleetTelemetry.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+// Agente IA híbrido: operativo + pulido opcional con LLM.
 namespace FleetTelemetry.Infrastructure.Services;
 
 /// <summary>
 /// Agente híbrido: consulta tools operativas y opcionalmente pule la respuesta con OpenAI.
 /// </summary>
+// Delega al agente operativo y opcionalmente mejora el texto con OpenAI.
 public class HybridAiAgentService : IAiAgentService
 {
     private readonly OperationalAiAgentService _operational;
@@ -29,6 +31,7 @@ public class HybridAiAgentService : IAiAgentService
         _logger = logger;
     }
 
+    // Obtiene respuesta operativa y la pule si OpenAI está habilitado.
     public async Task<AiQueryResponse> QueryAsync(
         AiQueryRequest request,
         CancellationToken cancellationToken = default)

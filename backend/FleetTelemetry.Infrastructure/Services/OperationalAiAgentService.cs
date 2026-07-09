@@ -3,12 +3,14 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using Microsoft.Extensions.Logging;
 
+// Agente IA operativo sin dependencia de LLM externo.
 namespace FleetTelemetry.Infrastructure.Services;
 
 /// <summary>
 /// Agente operativo sin LLM externo: interpreta intención y enruta a herramientas internas.
 /// La capa <see cref="HybridAiAgentService"/> puede pulir la respuesta con OpenAI si está configurado.
 /// </summary>
+// Parsea intención y delega a AiOperationalTools.
 public class OperationalAiAgentService : IAiAgentService
 {
     private readonly AiOperationalTools _tools;
@@ -20,6 +22,7 @@ public class OperationalAiAgentService : IAiAgentService
         _logger = logger;
     }
 
+    // Interpreta pregunta y enruta a la herramienta correspondiente.
     public async Task<AiQueryResponse> QueryAsync(AiQueryRequest request, CancellationToken cancellationToken = default)
     {
         var question = request.Question.Trim();

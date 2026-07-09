@@ -1,5 +1,5 @@
-# Genera y envía telemetría masiva a la API sin requerir k6.
-# Vehículos dispersos en zonas de Bogotá con mezcla online/offline.
+# Script PowerShell: genera y envía telemetría masiva a la API sin k6
+# Vehículos dispersos en zonas de Bogotá con mezcla online/offline
 # Uso:
 #   .\seed-telemetry.ps1
 #   .\seed-telemetry.ps1 -TotalEvents 5000 -BatchSize 100 -VehicleCount 500
@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Zonas geográficas de Bogotá para distribuir vehículos
 $Zones = @(
     @{ Lat = 4.648; Lng = -74.063; Spread = 0.018; Name = "Chapinero" },
     @{ Lat = 4.711; Lng = -74.032; Spread = 0.015; Name = "Usaquen" },
@@ -27,6 +28,7 @@ $Zones = @(
     @{ Lat = 4.612; Lng = -74.195; Spread = 0.020; Name = "Bosa" }
 )
 
+# Genera coordenadas aleatorias dentro de una zona
 function Get-RandomPointInZone {
     param($Zone)
     $angle = (Get-Random -Minimum 0 -Maximum 6283) / 1000.0
@@ -36,6 +38,7 @@ function Get-RandomPointInZone {
     return @{ Lat = $lat; Lng = $lng }
 }
 
+# Genera timestamp reciente (online) o antiguo (offline)
 function Get-RandomTimestamp {
     param([bool]$Online)
     if ($Online) {
@@ -46,6 +49,7 @@ function Get-RandomTimestamp {
     return (Get-Date).ToUniversalTime().AddMinutes(-$minutesAgo).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 }
 
+# Crea un evento de telemetría simulado
 function New-TelemetryEvent {
     param([int]$VehicleIndex)
     $vehicleNum = Get-Random -Minimum 1 -Maximum ($VehicleCount + 1)
@@ -67,6 +71,7 @@ function New-TelemetryEvent {
     }
 }
 
+# Headers HTTP con token opcional
 $headers = @{ "Content-Type" = "application/json" }
 if ($AuthToken) {
     $headers["Authorization"] = "Bearer $AuthToken"
@@ -78,6 +83,7 @@ $sent = 0
 $failed = 0
 $batch = @()
 
+# Acumula eventos y los envía en lotes
 for ($i = 1; $i -le $TotalEvents; $i++) {
     $batch += New-TelemetryEvent -VehicleIndex $i
 

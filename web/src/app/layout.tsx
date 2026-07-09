@@ -1,3 +1,4 @@
+/** Layout raíz: fuente, metadatos y estructura HTML. */
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
   description: "Plataforma de monitoreo y telemetría de flotas en tiempo real",
 };
 
+/** Envuelve todas las páginas con estilos globales. */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">

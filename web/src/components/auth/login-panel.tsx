@@ -1,3 +1,4 @@
+/** Formulario de inicio de sesión JWT contra el backend. */
 "use client";
 
 import { useState } from "react";
@@ -12,12 +13,14 @@ type LoginPanelProps = {
   onAuthChange: () => void;
 };
 
+/** Panel de autenticación con login y logout. */
 export function LoginPanel({ hasToken, onAuthChange }: LoginPanelProps) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Inicia sesión con credenciales JWT. */
   const handleLogin = async () => {
     setLoading(true);
     setError(null);
@@ -31,6 +34,7 @@ export function LoginPanel({ hasToken, onAuthChange }: LoginPanelProps) {
     }
   };
 
+  /** Cierra sesión y elimina el token. */
   const handleLogout = () => {
     apiClient.setAuthToken(null);
     onAuthChange();

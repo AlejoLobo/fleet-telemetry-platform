@@ -1,5 +1,7 @@
+// Opciones de conexión a TimescaleDB/PostgreSQL.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
+// Cadena de conexión a la base de datos.
 public class TimescaleDbOptions
 {
     public const string SectionName = "TimescaleDb";

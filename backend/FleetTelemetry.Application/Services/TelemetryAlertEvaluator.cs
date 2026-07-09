@@ -1,13 +1,16 @@
 using FleetTelemetry.Domain.Entities;
 
+// Evaluación de reglas de alerta sobre telemetría.
 namespace FleetTelemetry.Application.Services;
 
+// Genera alertas por exceso de velocidad, combustible o batería bajos.
 public static class TelemetryAlertEvaluator
 {
     private const double CriticalSpeedKmh = 120;
     private const double LowFuelPercent = 15;
     private const double LowBatteryPercent = 20;
 
+    // Evalúa umbrales y devuelve alertas detectadas.
     public static IReadOnlyList<FleetAlert> Evaluate(TelemetryEvent telemetryEvent)
     {
         var alerts = new List<FleetAlert>();
@@ -42,6 +45,7 @@ public static class TelemetryAlertEvaluator
         return alerts;
     }
 
+    // Construye entidad de alerta con valores por defecto.
     private static FleetAlert CreateAlert(
         string vehicleId,
         string alertType,

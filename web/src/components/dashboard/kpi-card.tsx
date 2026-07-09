@@ -1,3 +1,4 @@
+/** Tarjeta individual de indicador KPI. */
 import type { ElementType } from "react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,7 @@ const accentStyles = {
   },
 };
 
+/** Muestra un valor métrico con icono y color de acento. */
 export function KpiCard({ icon: Icon, label, value, sublabel, accent }: KpiCardProps) {
   const styles = accentStyles[accent];
 

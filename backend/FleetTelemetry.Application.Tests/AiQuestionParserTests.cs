@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.Services;
 
+// Pruebas del parser de intención en preguntas IA.
 namespace FleetTelemetry.Application.Tests;
 
 public class AiQuestionParserTests

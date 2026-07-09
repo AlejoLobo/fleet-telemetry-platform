@@ -3,12 +3,14 @@ using FleetTelemetry.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+// Consultas analíticas sobre TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
 /// <summary>
 /// Implementación local de analítica sobre TimescaleDB.
 /// En producción se reemplazaría por Apache Druid vía IAnalyticsQueryService.
 /// </summary>
+// Calcula métricas agregadas desde telemetría almacenada.
 public class TimescaleAnalyticsQueryService : IAnalyticsQueryService
 {
     private readonly FleetDbContext _dbContext;

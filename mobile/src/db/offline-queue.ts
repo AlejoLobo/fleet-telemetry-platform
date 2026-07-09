@@ -1,8 +1,10 @@
+// Cola offline SQLite para eventos de telemetría pendientes
 import * as SQLite from "expo-sqlite";
 import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/telemetry";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+// Abre la base de datos y crea la tabla si no existe
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync("fleet_offline.db");
@@ -27,6 +29,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return db;
 }
 
+// Convierte una fila SQL al tipo de la aplicación
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
   return {
     localId: row.local_id as number,
@@ -44,6 +47,7 @@ function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
   };
 }
 
+// Inserta un evento nuevo en la cola
 export async function enqueueEvent(event: TelemetryEventPayload): Promise<number> {
   const db = await getDb();
   const result = await db.runAsync(
@@ -66,6 +70,7 @@ export async function enqueueEvent(event: TelemetryEventPayload): Promise<number
   return result.lastInsertRowId;
 }
 
+// Obtiene eventos pendientes de sincronizar
 export async function getPendingEvents(limit = 50): Promise<QueuedTelemetryEvent[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<Record<string, unknown>>(
@@ -75,6 +80,7 @@ export async function getPendingEvents(limit = 50): Promise<QueuedTelemetryEvent
   return rows.map(mapRow);
 }
 
+// Marca eventos como sincronizados exitosamente
 export async function markEventsSynced(eventIds: string[]): Promise<void> {
   if (eventIds.length === 0) return;
   const db = await getDb();
@@ -85,6 +91,7 @@ export async function markEventsSynced(eventIds: string[]): Promise<void> {
   );
 }
 
+// Marca eventos que fallaron al sincronizar
 export async function markEventsFailed(eventIds: string[]): Promise<void> {
   if (eventIds.length === 0) return;
   const db = await getDb();
@@ -95,6 +102,7 @@ export async function markEventsFailed(eventIds: string[]): Promise<void> {
   );
 }
 
+// Cuenta cuántos eventos quedan pendientes
 export async function countPendingEvents(): Promise<number> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ count: number }>(
@@ -103,11 +111,13 @@ export async function countPendingEvents(): Promise<number> {
   return row?.count ?? 0;
 }
 
+// Reintenta eventos fallidos moviéndolos a pendiente
 export async function resetFailedToPending(): Promise<void> {
   const db = await getDb();
   await db.runAsync(`UPDATE telemetry_queue SET status = 'pending' WHERE status = 'failed'`);
 }
 
+// Convierte un evento en cola al payload de la API
 export function toPayload(event: QueuedTelemetryEvent): TelemetryEventPayload {
   return {
     eventId: event.eventId,

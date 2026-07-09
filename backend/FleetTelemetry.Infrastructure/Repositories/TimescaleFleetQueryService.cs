@@ -6,8 +6,10 @@ using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+// Consultas de último estado de vehículos.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
+// Obtiene telemetría reciente y calcula estado online/offline.
 public class TimescaleFleetQueryService : IFleetQueryService
 {
     /// <summary>Ventana para considerar un vehículo "en línea" en el dashboard.</summary>
@@ -22,6 +24,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         _logger = logger;
     }
 
+    // Obtiene último evento por vehículo con DISTINCT ON.
     public async Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
         bool liveOnly = false,
         CancellationToken cancellationToken = default)

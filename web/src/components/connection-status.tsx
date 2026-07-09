@@ -1,3 +1,4 @@
+/** Indicador visual del estado de conexión SSE. */
 import type { SseConnectionState } from "@/types/fleet";
 import { cn } from "@/lib/utils";
 import { Wifi, WifiOff, Loader2 } from "lucide-react";
@@ -13,6 +14,7 @@ type ConnectionStatusProps = {
   dataSource?: "api" | "demo" | null;
 };
 
+/** Badge que muestra en vivo, reconectando o demo. */
 export function ConnectionStatus({ state, dataSource }: ConnectionStatusProps) {
   const isLive = state === "connected" && dataSource === "api";
 

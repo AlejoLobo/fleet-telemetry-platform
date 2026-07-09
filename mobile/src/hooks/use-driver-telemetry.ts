@@ -1,3 +1,4 @@
+// Hook principal: captura, encola y sincroniza telemetría del conductor
 import { useCallback, useEffect, useRef, useState } from "react";
 import { enqueueEvent, countPendingEvents } from "@/db/offline-queue";
 import { getCurrentReading, watchReading } from "@/services/location-provider";
@@ -28,11 +29,13 @@ export function useDriverTelemetry(vehicleId: string, driverId: string) {
     error: null,
   });
 
+  // Actualiza el contador de eventos pendientes en cola
   const refreshPendingCount = useCallback(async () => {
     const pendingCount = await countPendingEvents();
     setState((prev) => ({ ...prev, pendingCount }));
   }, []);
 
+  // Crea y encola un evento a partir de una lectura de ubicación
   const captureEvent = useCallback(
     async (reading: LocationReading) => {
       const event = {
@@ -60,6 +63,7 @@ export function useDriverTelemetry(vehicleId: string, driverId: string) {
     [vehicleId, driverId, refreshPendingCount],
   );
 
+  // Sincroniza la cola pendiente con el servidor
   const syncNow = useCallback(async () => {
     try {
       const result = await syncPendingQueue(isOnline);
@@ -73,12 +77,14 @@ export function useDriverTelemetry(vehicleId: string, driverId: string) {
     }
   }, [isOnline, refreshPendingCount]);
 
+  // Detiene el seguimiento periódico de ubicación
   const stopTracking = useCallback(() => {
     stopWatchRef.current?.();
     stopWatchRef.current = null;
     setState((prev) => ({ ...prev, tracking: false }));
   }, []);
 
+  // Inicia captura periódica y sync automático si hay red
   const startTracking = useCallback(async () => {
     if (stopWatchRef.current) return;
 
@@ -93,6 +99,7 @@ export function useDriverTelemetry(vehicleId: string, driverId: string) {
     setState((prev) => ({ ...prev, tracking: true, error: null }));
   }, [captureEvent, isOnline, syncNow]);
 
+  // Captura una sola lectura manualmente
   const captureOnce = useCallback(async () => {
     const reading = await getCurrentReading();
     await captureEvent(reading);
@@ -101,16 +108,19 @@ export function useDriverTelemetry(vehicleId: string, driverId: string) {
     }
   }, [captureEvent, isOnline, syncNow]);
 
+  // Carga el contador inicial al montar
   useEffect(() => {
     refreshPendingCount();
   }, [refreshPendingCount]);
 
+  // Sincroniza automáticamente al recuperar conexión
   useEffect(() => {
     if (isOnline) {
       syncNow().catch(() => undefined);
     }
   }, [isOnline, syncNow]);
 
+  // Limpia el observador al desmontar
   useEffect(() => {
     return () => {
       stopWatchRef.current?.();

@@ -1,3 +1,4 @@
+/** Mapa Leaflet con marcadores de vehículos y ajuste a calles. */
 "use client";
 
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
@@ -22,6 +23,7 @@ type LeafletFleetMapProps = {
   autoFit?: boolean;
 };
 
+/** Ajusta el zoom para mostrar todos los vehículos. */
 function FitBounds({
   vehicles,
   enabled,
@@ -60,6 +62,7 @@ function FitBounds({
   return null;
 }
 
+/** Vuela al vehículo seleccionado en el mapa. */
 function FocusVehicle({
   focusTarget,
   vehicles,
@@ -84,6 +87,7 @@ function FocusVehicle({
   return null;
 }
 
+/** Mapa interactivo con marcadores de flota. */
 export function LeafletFleetMap({
   vehicles,
   selectedVehicleId,

@@ -1,3 +1,4 @@
+/** Crea icono SVG de auto para marcadores del mapa. */
 import L from "leaflet";
 import type { VehicleStatus } from "@/types/fleet";
 import { esVehiculoEnLinea } from "@/lib/labels";

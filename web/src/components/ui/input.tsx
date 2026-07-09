@@ -1,6 +1,8 @@
+/** Componentes UI reutilizables: campo de texto. */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Input estilizado con Tailwind. */
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input

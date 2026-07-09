@@ -4,8 +4,10 @@ using FleetTelemetry.Infrastructure.Persistence.Entities;
 using FleetTelemetry.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
+// Repositorio de telemetría en TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
+// Lectura y escritura de eventos históricos.
 public class TimescaleTelemetryRepository : ITelemetryRepository
 {
     private readonly FleetDbContext _dbContext;
