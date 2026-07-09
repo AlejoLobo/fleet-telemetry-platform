@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FleetTelemetry.Api", "Fleet
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FleetTelemetry.Worker", "FleetTelemetry.Worker\FleetTelemetry.Worker.csproj", "{A5AF1E4B-EBEC-4A39-8C01-E9BB47C19D9A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FleetTelemetry.Application.Tests", "FleetTelemetry.Application.Tests\FleetTelemetry.Application.Tests.csproj", "{B243FF34-3541-4980-8AB8-C0470D7C639A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{A5AF1E4B-EBEC-4A39-8C01-E9BB47C19D9A}.Release|x64.Build.0 = Release|Any CPU
 		{A5AF1E4B-EBEC-4A39-8C01-E9BB47C19D9A}.Release|x86.ActiveCfg = Release|Any CPU
 		{A5AF1E4B-EBEC-4A39-8C01-E9BB47C19D9A}.Release|x86.Build.0 = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|x64.Build.0 = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Debug|x86.Build.0 = Debug|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|x64.ActiveCfg = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|x64.Build.0 = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|x86.ActiveCfg = Release|Any CPU
+		{B243FF34-3541-4980-8AB8-C0470D7C639A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

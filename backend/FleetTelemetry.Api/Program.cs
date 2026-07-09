@@ -1,4 +1,8 @@
+using System.Text;
 using FleetTelemetry.Infrastructure;
+using FleetTelemetry.Infrastructure.Configuration;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,12 +18,41 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
+builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.SectionName));
+
+var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
+if (authOptions.Enabled)
+{
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = authOptions.JwtIssuer,
+                ValidAudience = authOptions.JwtAudience,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.JwtSecret)),
+            };
+        });
+    builder.Services.AddAuthorization();
+}
+
 builder.Services.AddInfrastructure(builder.Configuration, InfrastructureProfile.Api);
 builder.Services.AddFleetSsePolling();
 
 var app = builder.Build();
 
 app.UseCors();
+
+if (authOptions.Enabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 
 if (app.Environment.IsDevelopment())
 {

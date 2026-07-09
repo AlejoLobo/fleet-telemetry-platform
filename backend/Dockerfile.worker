@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY FleetTelemetry.sln ./
+COPY FleetTelemetry.Domain/ FleetTelemetry.Domain/
+COPY FleetTelemetry.Application/ FleetTelemetry.Application/
+COPY FleetTelemetry.Infrastructure/ FleetTelemetry.Infrastructure/
+COPY FleetTelemetry.Worker/ FleetTelemetry.Worker/
+RUN dotnet restore FleetTelemetry.Worker/FleetTelemetry.Worker.csproj
+RUN dotnet publish FleetTelemetry.Worker/FleetTelemetry.Worker.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "FleetTelemetry.Worker.dll"]

@@ -1,6 +1,7 @@
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Mocks;
@@ -30,6 +31,10 @@ public static class DependencyInjection
         services.Configure<KafkaOptions>(configuration.GetSection(KafkaOptions.SectionName));
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
 
+        services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+        services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
+        services.AddSingleton<JwtTokenService>();
+
         if (profile == InfrastructureProfile.Api)
         {
             RegisterTimescaleDb(services, configuration);
@@ -42,10 +47,13 @@ public static class DependencyInjection
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
             services.AddScoped<AiOperationalTools>();
-            services.AddScoped<IAiAgentService, OperationalAiAgentService>();
+            services.AddScoped<OperationalAiAgentService>();
+            services.AddHttpClient<OpenAiPolishService>();
+            services.AddScoped<IAiAgentService, HybridAiAgentService>();
 
             services.AddScoped<IngestTelemetryEventUseCase>();
             services.AddScoped<IngestTelemetryBatchUseCase>();
+            services.AddScoped<AcknowledgeAlertUseCase>();
         }
         else
         {
