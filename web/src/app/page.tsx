@@ -27,7 +27,6 @@ export default function DashboardPage() {
     analytics,
     loading,
     error,
-    usingMock,
     dataSource,
     refresh,
     loadFromApi,
@@ -88,7 +87,6 @@ export default function DashboardPage() {
         loading={loading}
         dataSource={dataSource}
         connectionState={connectionState}
-        usingMock={usingMock}
         onLoadApi={handleLoadApi}
         onLoadDemo={handleLoadDemo}
         onRefresh={refresh}

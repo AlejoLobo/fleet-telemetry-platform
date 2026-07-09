@@ -4,7 +4,6 @@ using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
-using FleetTelemetry.Infrastructure.Mocks;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Realtime;
 using FleetTelemetry.Infrastructure.Repositories;

@@ -1,6 +1,7 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { computeBearingDegrees, moveByBearing } from "@/lib/geo-bearing";
 
+/** Datos sintéticos para el modo demostración del dashboard (sin backend). */
 const BOGOTA_BOUNDS = {
   latMin: 4.55,
   latMax: 4.75,

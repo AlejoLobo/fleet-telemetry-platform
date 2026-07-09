@@ -1,31 +1,28 @@
-# Analítica — Mock de Druid (MVP)
+# Analítica operativa
 
-En el MVP, `IAnalyticsQueryService` está implementado por **`TimescaleAnalyticsQueryService`**, que calcula agregaciones simples (velocidad promedio) directamente sobre TimescaleDB.
+## Estado actual
 
-## Por qué no hay Druid real
+Las consultas analíticas del MVP usan **TimescaleDB** (`TimescaleAnalyticsQueryService`).
 
-Apache Druid es un sistema OLAP distribuido pensado para agregaciones masivas en producción. Para esta prueba técnica:
-
-- **Fase 2–3:** consultas analíticas básicas vía TimescaleDB (suficiente para demo).
-- **Producción:** reemplazar `TimescaleAnalyticsQueryService` por `DruidAnalyticsQueryService` que consulte un cluster Druid vía SQL/JSON API.
+- Velocidad promedio por vehículo y rango de fechas
+- KPIs del dashboard calculados en el cliente o vía API de flota/telemetría
 
 ## Contrato estable
 
-La capa Application solo depende de `IAnalyticsQueryService`:
+Application solo depende de `IAnalyticsQueryService`:
 
 ```csharp
 Task<double> GetAverageSpeedAsync(string vehicleId, DateTimeOffset from, DateTimeOffset to, ...);
 ```
 
-El dashboard y el agente IA consumen esta interfaz — el origen de datos es intercambiable.
+El dashboard y el agente IA consumen esta interfaz; el origen de datos es intercambiable.
 
-## Identificación en logs
+## Druid (futuro)
 
-Las respuestas del agente IA indican: *"Fuente: TimescaleDB (mock de Druid en MVP)"*.
+Apache Druid quedó planificado para agregaciones OLAP a gran escala. No hay implementación activa.
 
-## Migración a Druid (blueprint)
+Pasos para integrarlo:
 
-1. Desplegar Druid en Docker Compose o AWS (ver `infra/` Fase 6).
-2. Crear datasource `telemetry_events` con dimensiones `vehicleId`, métrica `speedKmh`.
-3. Implementar `DruidAnalyticsQueryService : IAnalyticsQueryService`.
-4. Registrar en `DependencyInjection.cs` (perfil Api) en lugar de `TimescaleAnalyticsQueryService`.
+1. Desplegar Druid (Docker Compose o servicio gestionado)
+2. Implementar `DruidAnalyticsQueryService : IAnalyticsQueryService`
+3. Registrar en `DependencyInjection.cs` en lugar de `TimescaleAnalyticsQueryService`

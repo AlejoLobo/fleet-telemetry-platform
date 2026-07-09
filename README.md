@@ -60,8 +60,7 @@ fleet-telemetry-platform/
 - **Una sola API** y **un solo Worker** (ver ``).
 - **Ingesta desacoplada:** HTTP publica en Kafka; no persiste en controller ni use case.
 - **DI por perfil:** `InfrastructureProfile.Api` vs `Worker` en `DependencyInjection.cs`.
-- **Fase 2 real:** Kafka publisher + TimescaleDB en Worker.
-- **Mocks restantes (API):** flota, alertas lectura, analytics (Druid), IA — hasta Fase 3/4.
+- **Persistencia real:** Kafka + TimescaleDB; sin mocks en backend.
 - **`DateTimeOffset`** para todas las fechas de telemetría.
 - **Validación centralizada** en `TelemetryEventValidator`.
 
@@ -73,11 +72,14 @@ fleet-telemetry-platform/
 | `POST` | `/api/telemetry` | Ingesta un evento → publica en Kafka (202 Accepted) |
 | `POST` | `/api/telemetry/batch` | Ingesta un lote → publica en Kafka (202 Accepted) |
 | `GET` | `/api/telemetry/{vehicleId}` | Historial de telemetría (`?from=&to=`) |
-| `GET` | `/api/fleet` | Estado actual de todos los vehículos |
+| `GET` | `/api/fleet?liveOnly=true` | Vehículos con telemetría reciente (últimos 5 min) |
+| `GET` | `/api/fleet` | Todos los vehículos con última telemetría |
 | `GET` | `/api/fleet/{vehicleId}` | Estado de un vehículo |
 | `GET` | `/api/alerts` | Alertas abiertas |
 | `GET` | `/api/events/stream` | SSE tiempo real (fleet-update, alert, heartbeat) |
-| `POST` | `/api/ai/query` | Agente IA operativo con tools internas |
+| `POST` | `/api/auth/login` | JWT (si `Auth:Enabled=true`) |
+| `PATCH` | `/api/alerts/{id}/acknowledge` | Confirmar alerta |
+| `POST` | `/api/ai/query` | Agente IA (tools internas + OpenAI opcional) |
 
 OpenAPI (solo Development): `http://localhost:5000/openapi/v1.json`
 
@@ -200,9 +202,8 @@ npm run dev
 | Variable | Descripción |
 |----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Backend .NET (default `http://localhost:5000`) |
-| `NEXT_PUBLIC_USE_MOCK=true` | Datos mock sin backend |
 
-Incluye: mapa de flota, alertas, telemetría, SSE en vivo, chat IA y resumen analítico. Fallback automático a mock si el backend no responde.
+Incluye: mapa de flota, KPIs, alertas, telemetría, SSE en vivo, chat IA y modo demostración.
 
 Ver `web/README.md` para detalles.
 
@@ -308,6 +309,5 @@ feat(backend): Fase 2 — pipeline event-driven con Kafka y TimescaleDB
 | Ingesta desacoplada | ✅ API → Kafka; Worker → TimescaleDB |
 | Idempotencia | ✅ `processed_events` con `ON CONFLICT DO NOTHING` |
 | Event-driven | ✅ Redpanda + topic `telemetry.raw` |
-| Mocks acotados | ✅ Solo lectura/analytics/IA en perfil Api |
-| Tests automatizados | ❌ Pendiente |
-| Seguridad | ❌ Sin autenticación (post-MVP) |
+| Tests automatizados | ✅ xUnit en Application |
+| Seguridad | ✅ JWT opcional (`Auth:Enabled`) |
