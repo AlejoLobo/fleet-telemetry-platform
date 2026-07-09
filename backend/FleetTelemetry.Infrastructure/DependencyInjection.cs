@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.Configure<KafkaOptions>(configuration.GetSection(KafkaOptions.SectionName));
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
+        services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
@@ -77,6 +78,7 @@ public static class DependencyInjection
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
+            services.AddSingleton<IKafkaDeadLetterPublisher, KafkaDeadLetterPublisher>();
         }
 
         return services;

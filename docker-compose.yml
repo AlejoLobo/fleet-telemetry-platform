@@ -30,6 +30,20 @@ services:
       timeout: 5s
       retries: 5
 
+  kafka-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: fleet-kafka-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rpk topic create telemetry.raw --brokers redpanda:9092 || true
+        rpk topic create telemetry.dlq --brokers redpanda:9092 || true
+        echo "Kafka topics ready"
+    restart: "no"
+
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: fleet-timescaledb

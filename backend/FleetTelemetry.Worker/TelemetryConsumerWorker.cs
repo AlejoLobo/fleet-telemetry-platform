@@ -1,6 +1,8 @@
 using Confluent.Kafka;
+using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
@@ -11,7 +13,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 
-// Worker en segundo plano que consume telemetría desde Kafka.
 namespace FleetTelemetry.Worker;
 
 // Procesa mensajes de Kafka y persiste en TimescaleDB.
@@ -22,24 +23,26 @@ public class TelemetryConsumerWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly KafkaOptions _kafkaOptions;
     private readonly ResiliencePipelineFactory _resilience;
+    private readonly IKafkaDeadLetterPublisher _deadLetterPublisher;
     private readonly ILogger<TelemetryConsumerWorker> _logger;
+    private readonly Dictionary<string, int> _processingAttempts = new();
 
     public TelemetryConsumerWorker(
         IServiceScopeFactory scopeFactory,
         IOptions<KafkaOptions> kafkaOptions,
         ResiliencePipelineFactory resilience,
+        IKafkaDeadLetterPublisher deadLetterPublisher,
         ILogger<TelemetryConsumerWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _kafkaOptions = kafkaOptions.Value;
         _resilience = resilience;
+        _deadLetterPublisher = deadLetterPublisher;
         _logger = logger;
     }
 
-    // Bucle principal: consume, procesa y confirma offsets.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Inicializa esquema de base de datos al arrancar.
         using (var initScope = _scopeFactory.CreateScope())
         {
             await DatabaseInitializer.InitializeAsync(initScope.ServiceProvider, stoppingToken);
@@ -57,10 +60,10 @@ public class TelemetryConsumerWorker : BackgroundService
         consumer.Subscribe(_kafkaOptions.TelemetryTopic);
 
         _logger.LogInformation(
-            "Telemetry consumer started. Topic={Topic}, Group={Group}, Bootstrap={Bootstrap}",
+            "Telemetry consumer started. Topic={Topic}, Dlq={Dlq}, Group={Group}",
             _kafkaOptions.TelemetryTopic,
-            _kafkaOptions.ConsumerGroup,
-            _kafkaOptions.BootstrapServers);
+            _kafkaOptions.DlqTopic,
+            _kafkaOptions.ConsumerGroup);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -72,7 +75,24 @@ public class TelemetryConsumerWorker : BackgroundService
                 if (consumeResult?.Message?.Value is null)
                     continue;
 
-                var telemetryEvent = TelemetryEventJsonSerializer.Deserialize(consumeResult.Message.Value);
+                var messageKey = BuildMessageKey(consumeResult);
+                TelemetryEvent? telemetryEvent = null;
+
+                try
+                {
+                    telemetryEvent = TelemetryEventJsonSerializer.Deserialize(consumeResult.Message.Value);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    await SendToDlqAndCommitAsync(
+                        consumer,
+                        consumeResult,
+                        failureReason: ex.Message,
+                        failureType: "deserialization",
+                        attemptCount: 1,
+                        stoppingToken);
+                    continue;
+                }
 
                 using var scope = _scopeFactory.CreateScope();
                 var processUseCase = scope.ServiceProvider.GetRequiredService<ProcessTelemetryEventUseCase>();
@@ -82,6 +102,7 @@ public class TelemetryConsumerWorker : BackgroundService
                     stoppingToken);
 
                 consumer.Commit(consumeResult);
+                _processingAttempts.Remove(messageKey);
 
                 if (outcome == ProcessTelemetryOutcome.Processed)
                 {
@@ -93,7 +114,6 @@ public class TelemetryConsumerWorker : BackgroundService
             }
             catch (BrokenCircuitException ex)
             {
-                // No confirma offset si la base de datos no está disponible.
                 _logger.LogWarning(
                     ex,
                     "TimescaleDB circuit breaker abierto; offset no confirmado. Reintento en {Seconds}s",
@@ -106,9 +126,16 @@ public class TelemetryConsumerWorker : BackgroundService
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogWarning(ex, "Skipping message with invalid telemetry payload");
                 if (consumeResult is not null)
-                    consumer.Commit(consumeResult);
+                {
+                    await SendToDlqAndCommitAsync(
+                        consumer,
+                        consumeResult,
+                        failureReason: ex.Message,
+                        failureType: "validation",
+                        attemptCount: 1,
+                        stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -116,11 +143,73 @@ public class TelemetryConsumerWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error processing telemetry message; offset not committed");
+                if (consumeResult is null)
+                {
+                    _logger.LogError(ex, "Unexpected error without consume result");
+                    continue;
+                }
+
+                var messageKey = BuildMessageKey(consumeResult);
+                var attempts = _processingAttempts.TryGetValue(messageKey, out var count) ? count + 1 : 1;
+                _processingAttempts[messageKey] = attempts;
+
+                if (attempts >= _kafkaOptions.MaxProcessingAttempts)
+                {
+                    await SendToDlqAndCommitAsync(
+                        consumer,
+                        consumeResult,
+                        failureReason: ex.Message,
+                        failureType: "processing",
+                        attemptCount: attempts,
+                        stoppingToken);
+                    _processingAttempts.Remove(messageKey);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Error procesando mensaje {Key}; intento {Attempt}/{Max}. Offset no confirmado",
+                        messageKey,
+                        attempts,
+                        _kafkaOptions.MaxProcessingAttempts);
+                }
             }
         }
 
         consumer.Close();
         _logger.LogInformation("Telemetry consumer stopped.");
     }
+
+    private async Task SendToDlqAndCommitAsync(
+        IConsumer<string, string> consumer,
+        ConsumeResult<string, string> consumeResult,
+        string failureReason,
+        string failureType,
+        int attemptCount,
+        CancellationToken cancellationToken)
+    {
+        var dlqMessage = new DeadLetterMessage(
+            SourceTopic: consumeResult.Topic,
+            Partition: consumeResult.Partition.Value,
+            Offset: consumeResult.Offset.Value,
+            OriginalKey: consumeResult.Message.Key,
+            OriginalPayload: consumeResult.Message.Value,
+            FailureReason: failureReason,
+            FailureType: failureType,
+            AttemptCount: attemptCount,
+            FailedAt: DateTimeOffset.UtcNow);
+
+        await _deadLetterPublisher.PublishAsync(dlqMessage, cancellationToken);
+        consumer.Commit(consumeResult);
+
+        _logger.LogWarning(
+            "Mensaje enviado a DLQ y offset confirmado: topic={Topic} partition={Partition} offset={Offset} type={Type}",
+            consumeResult.Topic,
+            consumeResult.Partition.Value,
+            consumeResult.Offset.Value,
+            failureType);
+    }
+
+    private static string BuildMessageKey(ConsumeResult<string, string> result) =>
+        $"{result.Topic}:{result.Partition.Value}:{result.Offset.Value}";
 }
