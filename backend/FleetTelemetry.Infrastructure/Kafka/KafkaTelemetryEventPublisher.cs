@@ -1,11 +1,12 @@
 using Confluent.Kafka;
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Polly;
+using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Infrastructure.Kafka;
 
@@ -14,13 +15,16 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
     private readonly IProducer<string, string> _producer;
     private readonly KafkaOptions _options;
     private readonly ILogger<KafkaTelemetryEventPublisher> _logger;
-    private readonly ResiliencePipeline _publishPipeline;
+    private readonly ResiliencePipelineFactory _resilience;
 
-    public KafkaTelemetryEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaTelemetryEventPublisher> logger)
+    public KafkaTelemetryEventPublisher(
+        IOptions<KafkaOptions> options,
+        ResiliencePipelineFactory resilience,
+        ILogger<KafkaTelemetryEventPublisher> logger)
     {
         _options = options.Value;
+        _resilience = resilience;
         _logger = logger;
-        _publishPipeline = ExternalDependencyResilience.CreateKafkaPublishPipeline();
 
         var config = new ProducerConfig
         {
@@ -42,16 +46,26 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
             Value = json
         };
 
-        var result = await _publishPipeline.ExecuteAsync(
-            async token => await _producer.ProduceAsync(_options.TelemetryTopic, message, token),
-            cancellationToken);
+        try
+        {
+            var result = await _resilience.KafkaPublishPipeline.ExecuteAsync(
+                async token => await _producer.ProduceAsync(_options.TelemetryTopic, message, token),
+                cancellationToken);
 
-        _logger.LogInformation(
-            "Published telemetry event {EventId} for vehicle {VehicleId} to {Topic} partition {Partition}",
-            telemetryEvent.EventId,
-            telemetryEvent.VehicleId,
-            result.Topic,
-            result.Partition.Value);
+            _logger.LogInformation(
+                "Published telemetry event {EventId} for vehicle {VehicleId} to {Topic} partition {Partition}",
+                telemetryEvent.EventId,
+                telemetryEvent.VehicleId,
+                result.Topic,
+                result.Partition.Value);
+        }
+        catch (BrokenCircuitException ex)
+        {
+            _logger.LogError(ex, "Kafka publish bloqueado: circuit breaker abierto");
+            throw new DependencyCircuitOpenException(
+                ResilienceDependency.Kafka.ToString(),
+                retryAfter: TimeSpan.FromSeconds(30));
+        }
     }
 
     public async Task PublishBatchAsync(IEnumerable<TelemetryEvent> events, CancellationToken cancellationToken = default)

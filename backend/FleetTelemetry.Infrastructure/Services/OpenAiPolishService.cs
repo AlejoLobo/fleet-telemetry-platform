@@ -1,10 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Polly;
+using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
@@ -13,17 +14,18 @@ public class OpenAiPolishService
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly ILogger<OpenAiPolishService> _logger;
-    private readonly ResiliencePipeline<HttpResponseMessage> _httpPipeline;
+    private readonly ResiliencePipelineFactory _resilience;
 
     public OpenAiPolishService(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
+        ResiliencePipelineFactory resilience,
         ILogger<OpenAiPolishService> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _resilience = resilience;
         _logger = logger;
-        _httpPipeline = ExternalDependencyResilience.CreateOpenAiHttpPipeline();
     }
 
     public async Task<string> PolishAsync(
@@ -34,26 +36,34 @@ public class OpenAiPolishService
         if (!_options.Enabled)
             return operationalAnswer;
 
-        var response = await _httpPipeline.ExecuteAsync(
-            async token =>
-            {
-                using var request = CreateChatRequest(question, operationalAnswer);
-                return await _httpClient.SendAsync(request, token);
-            },
-            cancellationToken);
-
-        response.EnsureSuccessStatusCode();
-
-        var payload = await response.Content.ReadFromJsonAsync<OpenAiChatResponse>(cancellationToken);
-        var content = payload?.Choices?.FirstOrDefault()?.Message?.Content?.Trim();
-
-        if (string.IsNullOrWhiteSpace(content))
+        try
         {
-            _logger.LogWarning("OpenAI devolvió contenido vacío");
+            var response = await _resilience.OpenAiHttpPipeline.ExecuteAsync(
+                async token =>
+                {
+                    using var request = CreateChatRequest(question, operationalAnswer);
+                    return await _httpClient.SendAsync(request, token);
+                },
+                cancellationToken);
+
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<OpenAiChatResponse>(cancellationToken);
+            var content = payload?.Choices?.FirstOrDefault()?.Message?.Content?.Trim();
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                _logger.LogWarning("OpenAI devolvió contenido vacío");
+                return operationalAnswer;
+            }
+
+            return content;
+        }
+        catch (BrokenCircuitException ex)
+        {
+            _logger.LogWarning(ex, "OpenAI bloqueado por circuit breaker; se usa respuesta operativa sin pulir");
             return operationalAnswer;
         }
-
-        return content;
     }
 
     private HttpRequestMessage CreateChatRequest(string question, string operationalAnswer)

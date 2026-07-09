@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FleetTelemetry.Application\FleetTelemetry.Application.csproj" />
+    <ProjectReference Include="..\FleetTelemetry.Infrastructure\FleetTelemetry.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
