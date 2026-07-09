@@ -10,6 +10,7 @@ namespace FleetTelemetry.Infrastructure.Repositories;
 
 public class TimescaleFleetQueryService : IFleetQueryService
 {
+    /// <summary>Ventana para considerar un vehículo "en línea" en el dashboard.</summary>
     private static readonly TimeSpan OnlineThreshold = TimeSpan.FromMinutes(5);
 
     private readonly FleetDbContext _dbContext;
