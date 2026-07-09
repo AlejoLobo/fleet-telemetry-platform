@@ -26,21 +26,21 @@ public class TimescaleFleetQueryService : IFleetQueryService
         bool liveOnly = false,
         CancellationToken cancellationToken = default)
     {
-        var records = await _dbContext.TelemetryEvents
+        // DISTINCT ON evita cargar toda la hypertable en memoria (crítico tras pruebas k6).
+        var latestRecords = await _dbContext.TelemetryEvents
+            .FromSqlRaw(
+                """
+                SELECT DISTINCT ON ("VehicleId")
+                    "EventId", "VehicleId", "DriverId", "Timestamp", "Latitude", "Longitude",
+                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt"
+                FROM telemetry_events
+                ORDER BY "VehicleId", "Timestamp" DESC
+                """)
             .AsNoTracking()
-            .OrderByDescending(e => e.Timestamp)
             .ToListAsync(cancellationToken);
 
-        var latest = records
-            .GroupBy(e => e.VehicleId)
-            .Select(g =>
-            {
-                var ordered = g.OrderByDescending(e => e.Timestamp).Take(2).ToList();
-                var current = ordered[0];
-                var previous = ordered.Count > 1 ? ordered[1] : null;
-                var heading = GeoBearing.ComputeHeadingDegrees(previous, current);
-                return MapToStatus(current, heading);
-            })
+        var latest = latestRecords
+            .Select(record => MapToStatus(record, headingDegrees: null))
             .OrderBy(v => v.VehicleId)
             .ToList();
 
