@@ -21,6 +21,12 @@ public class MockAlertRepository : IAlertRepository
         return Task.FromResult(result);
     }
 
+    public Task<FleetAlert?> GetByIdAsync(Guid alertId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<FleetAlert?>(null);
+
+    public Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
     public Task SaveAsync(FleetAlert alert, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(

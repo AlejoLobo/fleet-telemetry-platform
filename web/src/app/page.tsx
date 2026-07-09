@@ -11,12 +11,14 @@ import { FleetMapPanel } from "@/components/fleet-map-panel";
 import { AlertsPanel } from "@/components/alerts-panel";
 import { TelemetryTable } from "@/components/telemetry-table";
 import { AiChatPanel } from "@/components/ai-chat-panel";
+import { apiClient } from "@/lib/api-client";
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 
 export default function DashboardPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("VH-001");
   const [liveVehicles, setLiveVehicles] = useState<VehicleStatus[] | null>(null);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
+  const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
 
   const {
     vehicles,
@@ -68,6 +70,18 @@ export default function DashboardPage() {
     });
   }, [alerts, liveAlerts, dataSource]);
 
+  const handleAcknowledgeAlert = async (alertId: string) => {
+    if (dataSource === "demo") return;
+    setAcknowledgingId(alertId);
+    try {
+      await apiClient.acknowledgeAlert(alertId);
+      setLiveAlerts((prev) => prev.filter((a) => a.alertId !== alertId));
+      await refresh();
+    } finally {
+      setAcknowledgingId(null);
+    }
+  };
+
   return (
     <div className="dashboard-grid-bg min-h-screen">
       <DashboardHeader
@@ -105,7 +119,11 @@ export default function DashboardPage() {
               selectedVehicleId={selectedVehicleId}
               onSelectVehicle={setSelectedVehicleId}
             />
-            <AlertsPanel alerts={displayAlerts} />
+            <AlertsPanel
+              alerts={displayAlerts}
+              onAcknowledge={dataSource === "api" ? handleAcknowledgeAlert : undefined}
+              acknowledgingId={acknowledgingId}
+            />
           </div>
         </section>
 
