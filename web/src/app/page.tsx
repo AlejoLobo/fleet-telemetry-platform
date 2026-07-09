@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
-import { ConnectionStatus } from "@/components/connection-status";
+import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { FleetStatusPanel } from "@/components/fleet-status-panel";
 import { FleetMapPanel } from "@/components/fleet-map-panel";
 import { AlertsPanel } from "@/components/alerts-panel";
 import { TelemetryTable } from "@/components/telemetry-table";
-import { AnalyticsSummaryPanel } from "@/components/analytics-summary-panel";
 import { AiChatPanel } from "@/components/ai-chat-panel";
-import { Button } from "@/components/ui/button";
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 
 export default function DashboardPage() {
@@ -18,16 +18,47 @@ export default function DashboardPage() {
   const [liveVehicles, setLiveVehicles] = useState<VehicleStatus[] | null>(null);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
 
-  const { vehicles, alerts, telemetry, analytics, loading, error, usingMock, refresh } =
-    useFleetData(selectedVehicleId);
+  const {
+    vehicles,
+    alerts,
+    telemetry,
+    analytics,
+    loading,
+    error,
+    usingMock,
+    dataSource,
+    refresh,
+    loadFromApi,
+    loadDemoData,
+  } = useFleetData(selectedVehicleId);
 
   const { connectionState } = useSseStream({
+    enabled: dataSource === "api",
     onFleetUpdate: setLiveVehicles,
     onAlert: (alert) => setLiveAlerts((prev) => [alert, ...prev]),
   });
 
-  const displayVehicles = liveVehicles ?? vehicles;
+  useEffect(() => {
+    if (vehicles.length > 0 && !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
+      setSelectedVehicleId(vehicles[0].vehicleId);
+    }
+  }, [vehicles, selectedVehicleId]);
+
+  const handleLoadApi = async () => {
+    setLiveVehicles(null);
+    setLiveAlerts([]);
+    await loadFromApi();
+  };
+
+  const handleLoadDemo = async () => {
+    setLiveVehicles(null);
+    setLiveAlerts([]);
+    await loadDemoData();
+  };
+
+  const displayVehicles = dataSource === "api" ? (liveVehicles ?? vehicles) : vehicles;
   const displayAlerts = useMemo(() => {
+    if (dataSource === "demo") return alerts;
     const merged = [...liveAlerts, ...alerts];
     const seen = new Set<string>();
     return merged.filter((a) => {
@@ -35,66 +66,58 @@ export default function DashboardPage() {
       seen.add(a.alertId);
       return true;
     });
-  }, [alerts, liveAlerts]);
+  }, [alerts, liveAlerts, dataSource]);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-border bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <div>
-            <h1 className="text-xl font-bold">Fleet Telemetry Platform</h1>
-            <p className="text-sm text-muted-foreground">Dashboard operativo — Fase 4</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <ConnectionStatus state={connectionState} usingMock={usingMock} />
-            <Button variant="outline" onClick={refresh} disabled={loading}>
-              Actualizar
-            </Button>
-          </div>
-        </div>
-      </header>
+    <div className="dashboard-grid-bg min-h-screen">
+      <DashboardHeader
+        loading={loading}
+        dataSource={dataSource}
+        connectionState={connectionState}
+        usingMock={usingMock}
+        onLoadApi={handleLoadApi}
+        onLoadDemo={handleLoadDemo}
+        onRefresh={refresh}
+      />
 
-      <div className="mx-auto max-w-7xl space-y-4 p-4">
+      <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 md:px-6">
         {error && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {error}
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/90 px-4 py-3.5 text-sm text-amber-900 shadow-soft animate-fade-up">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p>{error}</p>
           </div>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-1">
-            <AnalyticsSummaryPanel analytics={analytics} />
+        <section className="animate-fade-up">
+          <KpiGrid analytics={analytics} />
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-12">
+          <div className="xl:col-span-8">
+            <FleetMapPanel
+              vehicles={displayVehicles}
+              selectedVehicleId={selectedVehicleId}
+            />
           </div>
-          <div className="lg:col-span-2">
-            <FleetMapPanel vehicles={displayVehicles} />
+          <div className="flex flex-col gap-6 xl:col-span-4">
+            <FleetStatusPanel
+              vehicles={displayVehicles}
+              selectedVehicleId={selectedVehicleId}
+              onSelectVehicle={setSelectedVehicleId}
+            />
+            <AlertsPanel alerts={displayAlerts} />
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <FleetStatusPanel vehicles={displayVehicles} />
-          <AlertsPanel alerts={displayAlerts} />
-        </div>
+        <section className="grid gap-6 lg:grid-cols-2">
+          <TelemetryTable events={telemetry} vehicleId={selectedVehicleId} />
+          <AiChatPanel useDemoResponses={dataSource === "demo"} />
+        </section>
+      </main>
 
-        <div className="flex flex-wrap gap-2">
-          {displayVehicles.map((v) => (
-            <Button
-              key={v.vehicleId}
-              variant={selectedVehicleId === v.vehicleId ? "default" : "outline"}
-              onClick={() => setSelectedVehicleId(v.vehicleId)}
-            >
-              {v.vehicleId}
-            </Button>
-          ))}
-        </div>
-
-        <TelemetryTable events={telemetry} vehicleId={selectedVehicleId} />
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="lg:col-span-1">
-            <AiChatPanel />
-          </div>
-        </div>
-      </div>
-    </main>
+      <footer className="border-t border-border bg-white py-4 text-center text-xs text-slate-500">
+        Fleet Telemetry Platform · Monitoreo operativo en tiempo real
+      </footer>
+    </div>
   );
 }

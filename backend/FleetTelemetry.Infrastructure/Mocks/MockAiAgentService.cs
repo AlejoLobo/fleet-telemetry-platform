@@ -18,7 +18,7 @@ public class MockAiAgentService : IAiAgentService
         _logger.LogInformation("[MOCK] AiAgent QueryAsync called with question: {Question}", request.Question);
 
         var response = new AiQueryResponse(
-            Answer: "Mock AI agent response. The operational AI agent with internal tools will be implemented in a later phase.",
+            Answer: "Respuesta simulada del agente IA. El agente operativo con herramientas internas está activo en modo de demostración.",
             Sources: ["mock-ai-agent", "phase-1-stub"]);
 
         return Task.FromResult(response);

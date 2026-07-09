@@ -3,21 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
-import { isMockMode } from "@/lib/utils";
 
 type SseHandlers = {
+  enabled?: boolean;
   onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
   onAlert?: (alert: FleetAlert) => void;
 };
 
-export function useSseStream(handlers: SseHandlers) {
+export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHandlers) {
   const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
-  const handlersRef = useRef(handlers);
-  handlersRef.current = handlers;
+  const handlersRef = useRef({ onFleetUpdate, onAlert });
+  handlersRef.current = { onFleetUpdate, onAlert };
 
   const connect = useCallback(() => {
-    if (isMockMode()) {
-      setConnectionState("connected");
+    if (!enabled) {
+      setConnectionState("disconnected");
       return () => setConnectionState("disconnected");
     }
 
@@ -72,7 +72,7 @@ export function useSseStream(handlers: SseHandlers) {
       eventSource?.close();
       setConnectionState("disconnected");
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => connect(), [connect]);
 

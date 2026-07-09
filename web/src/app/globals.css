@@ -3,26 +3,95 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  --background: 220 20% 96%;
+  --foreground: 224 47% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --primary: 221.2 83.2% 53.3%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 221.2 83.2% 53.3%;
-  --radius: 0.5rem;
+  --card-foreground: 224 47% 11%;
+  --primary: 217 91% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 18% 92%;
+  --secondary-foreground: 224 47% 11%;
+  --muted: 220 16% 93%;
+  --muted-foreground: 220 9% 40%;
+  --accent: 262 75% 52%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 14% 78%;
+  --input: 220 14% 78%;
+  --ring: 217 91% 50%;
+  --radius: 1rem;
+  --success: 152 69% 36%;
+  --warning: 38 92% 45%;
 }
 
 body {
   @apply bg-background text-foreground antialiased;
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply border border-border bg-white shadow-[0_4px_20px_rgba(15,23,42,0.08)] backdrop-blur-md;
+  }
+
+  .glass-card {
+    @apply rounded-2xl border border-border bg-card shadow-[0_2px_12px_rgba(15,23,42,0.07)];
+  }
+
+  .dashboard-grid-bg {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(59, 130, 246, 0.12), transparent 42%),
+      radial-gradient(circle at 80% 10%, rgba(139, 92, 246, 0.1), transparent 38%),
+      linear-gradient(to bottom, #eef2f7, #e2e8f0);
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent;
+  }
+}
+
+/* Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-300;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
+}
+
+/* Leaflet */
+.leaflet-container {
+  font-family: inherit;
+  background: #dbeafe;
+  border-radius: 0.875rem;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin: 8px !important;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out forwards;
 }

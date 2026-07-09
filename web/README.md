@@ -23,6 +23,8 @@ NEXT_PUBLIC_USE_MOCK=false
 | `NEXT_PUBLIC_API_URL` | URL del backend .NET |
 | `NEXT_PUBLIC_USE_MOCK=true` | Usa datos mock sin backend |
 
+El mapa usa **Leaflet** con tiles de **OpenStreetMap** (sin API key).
+
 ## Comandos
 
 ```bash

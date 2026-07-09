@@ -64,7 +64,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
-        var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(cancellationToken);
+        var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(liveOnly: true, cancellationToken);
         var hash = string.Join('|', vehicles.Select(v =>
             $"{v.VehicleId}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}"));
 

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { generateMockAiResponse } from "@/mocks/fleet-data";
 import type { AiQueryResponse } from "@/types/fleet";
+import { localizarRespuestaIa } from "@/lib/labels";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -10,7 +12,7 @@ type ChatMessage = {
   sources?: string[];
 };
 
-export function useAiChat() {
+export function useAiChat(useDemoResponses = false) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,10 +25,17 @@ export function useAiChat() {
     setError(null);
 
     try {
-      const response: AiQueryResponse = await apiClient.queryAi(question.trim());
+      const response: AiQueryResponse = useDemoResponses
+        ? generateMockAiResponse()
+        : await apiClient.queryAi(question.trim());
+
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: response.answer, sources: response.sources },
+        {
+          role: "assistant",
+          content: localizarRespuestaIa(response.answer),
+          sources: response.sources,
+        },
       ]);
     } catch {
       setError("No se pudo consultar al agente IA.");
