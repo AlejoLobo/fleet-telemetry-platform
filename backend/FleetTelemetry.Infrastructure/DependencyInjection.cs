@@ -1,10 +1,13 @@
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Services;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
-using FleetTelemetry.Infrastructure.Persistence;
-using FleetTelemetry.Infrastructure.Repositories;
 using FleetTelemetry.Infrastructure.Mocks;
+using FleetTelemetry.Infrastructure.Persistence;
+using FleetTelemetry.Infrastructure.Realtime;
+using FleetTelemetry.Infrastructure.Repositories;
+using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,24 +32,24 @@ public static class DependencyInjection
 
         if (profile == InfrastructureProfile.Api)
         {
+            RegisterTimescaleDb(services, configuration);
+
             services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
-            services.AddSingleton<ITelemetryRepository, MockTelemetryRepository>();
-            services.AddSingleton<IFleetQueryService, MockFleetQueryService>();
-            services.AddSingleton<IAlertRepository, MockAlertRepository>();
-            services.AddSingleton<IAnalyticsQueryService, MockAnalyticsQueryService>();
-            services.AddSingleton<IAiAgentService, MockAiAgentService>();
+            services.AddSingleton<FleetSseBroker>();
+
+            services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
+            services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
+            services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
+            services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
+            services.AddScoped<AiOperationalTools>();
+            services.AddScoped<IAiAgentService, OperationalAiAgentService>();
 
             services.AddScoped<IngestTelemetryEventUseCase>();
             services.AddScoped<IngestTelemetryBatchUseCase>();
         }
         else
         {
-            var connectionString = configuration.GetSection(TimescaleDbOptions.SectionName)
-                .Get<TimescaleDbOptions>()?.ConnectionString
-                ?? throw new InvalidOperationException("TimescaleDb connection string is required for Worker profile.");
-
-            services.AddDbContext<FleetDbContext>(options =>
-                options.UseNpgsql(connectionString));
+            RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
@@ -55,5 +58,21 @@ public static class DependencyInjection
         }
 
         return services;
+    }
+
+    public static IServiceCollection AddFleetSsePolling(this IServiceCollection services)
+    {
+        services.AddHostedService<FleetSsePollerHostedService>();
+        return services;
+    }
+
+    private static void RegisterTimescaleDb(IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetSection(TimescaleDbOptions.SectionName)
+            .Get<TimescaleDbOptions>()?.ConnectionString
+            ?? throw new InvalidOperationException("TimescaleDb connection string is required.");
+
+        services.AddDbContext<FleetDbContext>(options =>
+            options.UseNpgsql(connectionString));
     }
 }
