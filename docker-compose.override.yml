@@ -1,0 +1,6 @@
+# Override para VMs sin límites de cgroup (p. ej. Cursor Cloud).
+# timescaledb-tune falla al leer /sys/fs/cgroup/memory.max; se omite el autotuning.
+services:
+  timescaledb:
+    environment:
+      NO_TS_TUNE: "true"
