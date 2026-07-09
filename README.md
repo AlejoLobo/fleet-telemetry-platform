@@ -95,6 +95,8 @@ docker compose up -d
 | Redpanda (Kafka) | `19092` | Topic `telemetry.raw` |
 | TimescaleDB | `5432` | DB/user/pass: `fleet` |
 
+> Si TimescaleDB no arranca en una VM sin cgroups (p. ej. Cursor Cloud), el repo incluye `docker-compose.override.yml` con `NO_TS_TUNE=true`. Ver `AGENTS.md`.
+
 > Si `docker` no se reconoce en PowerShell, reinicia la terminal o agrega Docker al PATH.
 
 ## Comandos backend
