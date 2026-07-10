@@ -1,5 +1,7 @@
 # Fleet Telemetry Platform
 
+[![CI](https://github.com/AlejoLobo/fleet-telemetry-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/AlejoLobo/fleet-telemetry-platform/actions/workflows/ci.yml)
+
 Portal corporativo para monitoreo de flotas con telemetría, arquitectura event-driven, IA operativa, dashboard web, app móvil offline-first, pruebas de carga, Docker Compose e infraestructura como código.
 
 **Ruta del proyecto:** `C:\projects\fleet-telemetry-platform`
@@ -226,7 +228,7 @@ Limitaciones conscientes del MVP (defendibles en sustentación):
 
 - **No hay despliegue productivo ECS/MSK completo.** El Terraform en `infra/terraform/` es un **blueprint** (VPC, RDS PostgreSQL, ECS cluster, security groups), no una plataforma cloud lista para producción. Faltan MSK/Kafka gestionado, task definitions, ALB y despliegue del dashboard.
 - **Druid real no está implementado.** Existe el contrato intercambiable `IAnalyticsQueryService`; hoy se usa `TimescaleAnalyticsQueryService`. Ver `docs/analytics-druid-mock.md`.
-- **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck TypeScript; **no despliega** a App Store ni Play Store.
+- **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck en cambios de `mobile/`; el workflow principal `ci.yml` también ejecuta mobile en cada push/PR.
 - **OpenAI es opcional.** El agente operativo funciona sin LLM externo vía tools internas; OpenAI solo pule redacción si hay API key.
 - **JWT parcial en API:** con `Auth:Enabled=true` protege ingesta y ack de alertas; lectura de flota/SSE/IA permanece abierta en el MVP.
 - **Circuit breaker y retry** aplican a Kafka, TimescaleDB (Worker) y OpenAI, con estado observable en `/health`.
@@ -271,18 +273,41 @@ curl -X POST http://localhost:5000/api/telemetry \
 
 ## Variables de entorno
 
-Ver `.env.example`. En producción usar convención `Section__Key`:
+Ver `.env.example`. En producción usar convención `Section__Key`. **No commitear secretos reales**; `appsettings.json` deja campos sensibles vacíos.
 
-| Variable | Ejemplo |
-|----------|---------|
-| `TimescaleDb__ConnectionString` | Connection string PostgreSQL |
-| `Auth__JwtSecret` | Secreto JWT (obligatorio si Auth habilitado) |
-| `OpenAI__ApiKey` | API key OpenAI (opcional) |
-| `Kafka__DeadLetterTopic` | `telemetry.dead-letter` |
-| `Sse__ActivePollIntervalSeconds` | `3` |
-| `Sse__IdlePollIntervalSeconds` | `10` |
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `TimescaleDb__ConnectionString` | Connection string PostgreSQL/TimescaleDB | `Host=localhost;Port=5432;...` |
+| `Auth__Enabled` | Habilita JWT en la API | `false` |
+| `Auth__JwtSecret` | Secreto de firma JWT (≥ 32 caracteres si Auth habilitado) | Ver `.env.example` |
+| `Auth__DemoUsername` | Usuario de login demo | `admin` |
+| `Auth__DemoPassword` | Contraseña de login demo (obligatoria si Auth habilitado) | Ver `.env.example` |
+| `OpenAI__ApiKey` | API key OpenAI (opcional; vacío = sin pulido LLM) | `sk-...` |
+| `Kafka__DeadLetterTopic` | Tópico DLQ del Worker | `telemetry.dead-letter` |
+| `Sse__ActivePollIntervalSeconds` | Polling SSE activo | `3` |
+| `Sse__IdlePollIntervalSeconds` | Polling SSE en idle | `10` |
 
-`ConfigurationValidator` rechaza secretos por defecto fuera de Development.
+### Validación al arrancar
+
+`ConfigurationValidator` se ejecuta en API y Worker al iniciar:
+
+| Condición | Validación |
+|-----------|------------|
+| `Auth__Enabled=false` | Sin requisitos de secretos Auth (modo MVP por defecto) |
+| `Auth__Enabled=true` | `Auth__JwtSecret` ≥ 32 caracteres y `Auth__DemoPassword` no vacío |
+| Producción (no Development) | `TimescaleDb__ConnectionString` sin credenciales por defecto |
+| OpenAI con API key configurada | `OpenAI__ApiKey` no vacía |
+
+Ejemplo local con Auth habilitado:
+
+```bash
+# PowerShell
+$env:Auth__Enabled="true"
+$env:Auth__JwtSecret="change-me-use-a-secret-with-at-least-32-characters"
+$env:Auth__DemoUsername="admin"
+$env:Auth__DemoPassword="demo-password-change-me"
+dotnet run --project backend/FleetTelemetry.Api
+```
 
 ## SSE — decisión de polling
 
@@ -292,6 +317,30 @@ El dashboard usa SSE alimentado por un poller (`FleetSsePollerHostedService`):
 - **Idle (10s):** cuando no hay cambios (reduce carga en DB).
 
 En MVP no hay push directo Kafka→SSE; el polling con hash evita broadcasts redundantes. Para escalar: CDC o evento post-procesamiento en Worker.
+
+## CI (GitHub Actions)
+
+Workflow principal: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — badge arriba.
+
+| Job | Pasos |
+|-----|-------|
+| **Backend** | `dotnet restore` → `build Release` → `dotnet test` (unitarios + integración) → auditoría de paquetes vulnerables |
+| **Web** | `npm ci` → `npm run build` |
+| **Mobile** | `npm ci` → `npm run typecheck` |
+
+Workflow adicional para cambios en mobile: [`.github/workflows/mobile-ci.yml`](.github/workflows/mobile-ci.yml).
+
+**Sin despliegue productivo** en CI (no ECS, no EAS build, no App Store/Play Store).
+
+### .NET 10 en CI
+
+El proyecto usa `net10.0`. CI configura `actions/setup-dotnet@v4` con `dotnet-version: 10.0.x` e `include-prerelease: true`. `global.json` en la raíz fija SDK 10 con `rollForward: latestFeature`.
+
+Si el runner aún no tiene .NET 10 GA, el flag `include-prerelease` permite instalar previews sin bajar a .NET 8.
+
+### package-lock.json
+
+`web/package-lock.json` y `mobile/package-lock.json` están versionados. CI usa `npm ci` (no `npm install`) para builds reproducibles; cada job verifica que el lockfile exista antes de instalar.
 
 ## Tests
 
@@ -311,7 +360,7 @@ dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
 
 ### Base de datos para integración
 
-Por defecto los tests levantan **Testcontainers** con imagen `timescale/timescaledb:latest-pg16` (requiere Docker). En CI corre en el job `integration`.
+Por defecto los tests levantan **Testcontainers** con imagen `timescale/timescaledb:latest-pg16` (requiere Docker). En CI corre dentro del job **Backend**.
 
 **Alternativa local (sin Testcontainers):** usar TimescaleDB de Docker Compose:
 
