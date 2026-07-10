@@ -1,74 +1,50 @@
-# Pruebas de carga k6 (Fase 6)
+# Pruebas de carga k6 — ingesta de telemetría
 
-Simula ingesta concurrente contra `POST /api/telemetry` con **caos controlado**: cientos de vehículos, duplicados y payloads inválidos.
+## Distribución (una sola variable aleatoria)
 
-Cada vehículo (`VH-001` … `VH-N`) se ubica en una **zona distinta de Bogotá** (Chapinero, Suba, Kennedy, etc.) con coordenadas aleatorias dentro de la zona. Aproximadamente **62% online** (timestamp reciente) y **38% offline** (timestamp antiguo).
+| Rango | Porcentaje | Comportamiento |
+|-------|------------|----------------|
+| `[0.00, 0.05)` | 5 % | Payload inválido intencional → espera **400** |
+| `[0.05, 0.15)` | 10 % | Duplicado: **mismo payload completo** del pool → espera **202** |
+| `[0.15, 1.00)` | 85 % | Evento nuevo válido → espera **202** |
+
+Los duplicados reutilizan EventId, vehículo, timestamp, coordenadas y métricas (pool de payloads completos).
 
 ## Requisitos
 
 - [k6](https://k6.io/docs/get-started/installation/) instalado
-- API + Worker + Docker (Kafka, TimescaleDB) en ejecución
-
-## Variables de entorno
-
-| Variable | Default | Descripción |
-|----------|---------|-------------|
-| `API_URL` | `http://localhost:5000` | URL base de la API |
-| `VUS` | `10` | Usuarios virtuales concurrentes |
-| `DURATION` | `30s` | Duración del escenario |
-| `VEHICLES` | `300` | Rango de vehículos simulados (`VH-001` … `VH-300`) |
-| `DUPLICATE_RATE` | `0.1` | Fracción de requests con `eventId` reutilizado (10%) |
-| `ERROR_RATE` | `0.05` | Fracción de payloads inválidos intencionales (5%) |
-| `AUTH_TOKEN` | *(vacío)* | JWT si `Auth:Enabled=true` |
+- API en ejecución (`http://localhost:5000` por defecto)
 
 ## Ejecución
 
 ```bash
 cd load-tests
-
-# Carga básica con defaults (300 vehículos, 10% duplicados, 5% errores)
 k6 run telemetry-ingest.js
+```
 
-# Carga personalizada
+Con variables:
+
+```bash
 k6 run \
   -e API_URL=http://localhost:5000 \
-  -e VUS=25 \
-  -e DURATION=1m \
-  -e VEHICLES=500 \
-  -e DUPLICATE_RATE=0.1 \
-  -e ERROR_RATE=0.05 \
+  -e VUS=10 \
+  -e DURATION=30s \
+  -e VEHICLES=300 \
   telemetry-ingest.js
+```
 
-# Con JWT (Auth:Enabled=true)
+Con auth:
+
+```bash
 k6 run -e AUTH_TOKEN=<jwt> telemetry-ingest.js
 ```
 
-## Caos controlado
+## Thresholds
 
-### Duplicados (10% por defecto)
+- `telemetry_unexpected_failure_rate` < 1 %
+- `http_req_duration` p95 < 800 ms, p99 < 1500 ms
+- `telemetry_valid_request_duration` p95/p99
+- `telemetry_valid_accepted_rate` > 95 %
+- `telemetry_invalid_rejected_rate` > 95 %
 
-El script reutiliza `eventId` de un pool fijo. La API acepta todos con `202`, pero el Worker debe **omitir duplicados** gracias a `processed_events` + idempotencia transaccional.
-
-Métrica k6: `telemetry_duplicate_sent`.
-
-### Errores intencionales (5% por defecto)
-
-Se envían payloads inválidos (vehículo vacío, coordenadas fuera de rango, velocidad negativa). La API debe responder `400`.
-
-Métrica k6: `telemetry_intentional_invalid` y `telemetry_intentional_error_rate`.
-
-Estos errores **no deben** confundirse con fallos reales: el umbral `http_req_failed` excluye los 400 esperados del caos; los fallos inesperados se rastrean en `telemetry_unexpected_failure`.
-
-## Umbrales
-
-- Menos del 5% de requests fallidos (global)
-- p95 de latencia menor a 800 ms
-- p95 de `telemetry_valid_request_duration` menor a 800 ms
-
-## Verificación post-carga
-
-```bash
-# Duplicados no deben duplicar filas en telemetría
-curl http://localhost:5000/api/fleet
-curl http://localhost:5000/api/alerts
-```
+Los 400 intencionales se registran como respuestas esperadas (`http.expectedStatuses(202, 400)`), no como fallos HTTP globales.

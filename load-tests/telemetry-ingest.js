@@ -1,4 +1,4 @@
-// Prueba de carga k6: ingesta de telemetría con escenarios online/offline
+// Prueba de carga k6: ingesta de telemetría (5% inválidos, 10% duplicados, 85% nuevos).
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
@@ -7,10 +7,10 @@ import { randomIntBetween, uuidv4 } from "https://jslib.k6.io/k6-utils/1.4.0/ind
 const API_URL = __ENV.API_URL || "http://localhost:5000";
 const AUTH_TOKEN = __ENV.AUTH_TOKEN || "";
 const VEHICLE_COUNT = Number(__ENV.VEHICLES || 300);
-const DUPLICATE_RATE = Number(__ENV.DUPLICATE_RATE || 0.1);
-const ERROR_RATE = Number(__ENV.ERROR_RATE || 0.05);
 
-// Zonas de Bogotá: cada VH-NNN tiene ancla en una zona distinta
+// 400 intencionales no cuentan como http_req_failed.
+http.setResponseCallback(http.expectedStatuses(202, 400));
+
 const BOGOTA_ZONES = [
   { lat: 4.648, lng: -74.063, spread: 0.018 },
   { lat: 4.711, lng: -74.032, spread: 0.015 },
@@ -24,16 +24,31 @@ const BOGOTA_ZONES = [
   { lat: 4.612, lng: -74.195, spread: 0.02 },
 ];
 
-// Métricas personalizadas de la prueba
 const acceptedEvents = new Counter("telemetry_accepted");
 const duplicateEvents = new Counter("telemetry_duplicate_sent");
 const intentionalInvalid = new Counter("telemetry_intentional_invalid");
-const unexpectedFailures = new Counter("telemetry_unexpected_failure");
-const intentionalErrorRate = new Rate("telemetry_intentional_error_rate");
+const unexpectedFailureRate = new Rate("telemetry_unexpected_failure_rate");
+const validAcceptedRate = new Rate("telemetry_valid_accepted_rate");
+const invalidRejectedRate = new Rate("telemetry_invalid_rejected_rate");
 const validRequestDuration = new Trend("telemetry_valid_request_duration", true);
 
-// IDs reutilizados para simular eventos duplicados
-const duplicateEventIds = Array.from({ length: 50 }, () => uuidv4());
+// Pool de payloads completos reutilizables (mismo EventId + cuerpo).
+const duplicatePayloadPool = Array.from({ length: 50 }, () => {
+  const eventId = uuidv4();
+  const vehicle = `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
+  const zone = BOGOTA_ZONES[Number.parseInt(vehicle.replace("VH-", ""), 10) % BOGOTA_ZONES.length];
+  return JSON.stringify({
+    eventId,
+    vehicleId: vehicle,
+    driverId: `DRV-${vehicle.replace("VH-", "")}`,
+    timestamp: new Date(Date.now() - 60_000).toISOString(),
+    latitude: zone.lat,
+    longitude: zone.lng,
+    speedKmh: 42,
+    fuelLevelPercent: 55,
+    batteryPercent: 70,
+  });
+});
 
 export const options = {
   scenarios: {
@@ -44,32 +59,29 @@ export const options = {
     },
   },
   thresholds: {
-    http_req_failed: ["rate<0.05"],
-    http_req_duration: ["p(95)<800"],
-    telemetry_unexpected_failure: ["count<50"],
-    telemetry_valid_request_duration: ["p(95)<800"],
+    telemetry_unexpected_failure_rate: ["rate<0.01"],
+    http_req_duration: ["p(95)<800", "p(99)<1500"],
+    telemetry_valid_request_duration: ["p(95)<800", "p(99)<1500"],
+    telemetry_valid_accepted_rate: ["rate>0.95"],
+    telemetry_invalid_rejected_rate: ["rate>0.95"],
   },
 };
 
-// Construye headers con token opcional
 function headers() {
   const h = { "Content-Type": "application/json" };
   if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
   return h;
 }
 
-// Genera un ID de vehículo aleatorio
 function vehicleId() {
   return `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
 }
 
-// Extrae el número del ID de vehículo
 function vehicleNumber(vehicle) {
   const match = /VH-(\d+)/.exec(vehicle);
   return match ? Number.parseInt(match[1], 10) : 1;
 }
 
-// Punto aleatorio dentro de una zona geográfica
 function randomPointInZone(zone) {
   const angle = Math.random() * Math.PI * 2;
   const radius = Math.random() * zone.spread;
@@ -79,14 +91,12 @@ function randomPointInZone(zone) {
   };
 }
 
-// Asigna ubicación según la zona del vehículo
 function locationForVehicle(vehicle) {
   const num = vehicleNumber(vehicle);
   const zone = BOGOTA_ZONES[num % BOGOTA_ZONES.length];
   return randomPointInZone(zone);
 }
 
-// ~62% online (timestamp reciente), resto offline
 function randomTimestamp() {
   const online = Math.random() < 0.62;
   if (online) {
@@ -97,7 +107,6 @@ function randomTimestamp() {
   return new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
 }
 
-// Construye un payload válido de telemetría
 function buildValidPayload(eventId, vehicle) {
   const { lat, lng } = locationForVehicle(vehicle);
   const online = Math.random() < 0.62;
@@ -114,7 +123,6 @@ function buildValidPayload(eventId, vehicle) {
   });
 }
 
-// Construye un payload inválido para probar errores 400
 function buildInvalidPayload() {
   return JSON.stringify({
     eventId: uuidv4(),
@@ -129,53 +137,51 @@ function buildInvalidPayload() {
   });
 }
 
-// Función principal ejecutada por cada VU
 export default function () {
+  // Una sola variable aleatoria: [0,0.05) inválido, [0.05,0.15) duplicado, [0.15,1) nuevo.
   const roll = Math.random();
-  const vehicle = vehicleId();
 
-  // Envía payload inválido según tasa de error configurada
-  if (roll < ERROR_RATE) {
+  if (roll < 0.05) {
     const res = http.post(`${API_URL}/api/telemetry`, buildInvalidPayload(), { headers: headers() });
     intentionalInvalid.add(1);
-    intentionalErrorRate.add(1);
-    check(res, {
-      "error intencional (400)": (r) => r.status === 400,
-    });
-    if (res.status !== 400) {
-      unexpectedFailures.add(1);
-    }
+    const ok = res.status === 400;
+    invalidRejectedRate.add(ok);
+    unexpectedFailureRate.add(!ok);
+    check(res, { "error intencional (400)": (r) => r.status === 400 });
     sleep(0.15);
     return;
   }
 
-  // Decide si reutilizar un eventId duplicado
-  const isDuplicate = roll < ERROR_RATE + DUPLICATE_RATE;
-  const eventId = isDuplicate
-    ? duplicateEventIds[randomIntBetween(0, duplicateEventIds.length - 1)]
-    : uuidv4();
-
-  if (isDuplicate) {
+  if (roll < 0.15) {
+    const payload = duplicatePayloadPool[randomIntBetween(0, duplicatePayloadPool.length - 1)];
     duplicateEvents.add(1);
+    const start = Date.now();
+    const res = http.post(`${API_URL}/api/telemetry`, payload, { headers: headers() });
+    const duration = Date.now() - start;
+    const ok = res.status === 202;
+    validAcceptedRate.add(ok);
+    unexpectedFailureRate.add(!ok);
+    if (ok) {
+      acceptedEvents.add(1);
+      validRequestDuration.add(duration);
+    }
+    check(res, { "duplicado aceptado (202)": (r) => r.status === 202 });
+    sleep(0.15);
+    return;
   }
 
-  const payload = buildValidPayload(eventId, vehicle);
+  const vehicle = vehicleId();
+  const payload = buildValidPayload(uuidv4(), vehicle);
   const start = Date.now();
   const res = http.post(`${API_URL}/api/telemetry`, payload, { headers: headers() });
   const duration = Date.now() - start;
-
-  intentionalErrorRate.add(0);
-
-  const ok = check(res, {
-    "aceptado (202)": (r) => r.status === 202,
-  });
-
+  const ok = res.status === 202;
+  validAcceptedRate.add(ok);
+  unexpectedFailureRate.add(!ok);
   if (ok) {
     acceptedEvents.add(1);
     validRequestDuration.add(duration);
-  } else {
-    unexpectedFailures.add(1);
   }
-
+  check(res, { "aceptado (202)": (r) => r.status === 202 });
   sleep(0.15);
 }
