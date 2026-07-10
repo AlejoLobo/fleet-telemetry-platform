@@ -29,14 +29,36 @@ jobs:
       - name: Build
         run: dotnet build backend/FleetTelemetry.sln --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test backend/FleetTelemetry.sln --configuration Release --no-build --verbosity normal
+      - name: Unit tests Application
+        run: dotnet test backend/FleetTelemetry.Application.Tests --configuration Release --no-build --verbosity normal
+
+      - name: Unit tests Worker
+        run: dotnet test backend/FleetTelemetry.Worker.Tests --configuration Release --no-build --verbosity normal
+
+      - name: Integration tests (TimescaleDB + Kafka)
+        run: dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build --verbosity normal
 
       - name: Vulnerable packages audit
         run: |
-          OUTPUT=$(dotnet list backend/FleetTelemetry.Api/FleetTelemetry.Api.csproj package --vulnerable --include-transitive)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -qi "high\|critical" && exit 1 || true
+          set -euo pipefail
+          projects=(
+            backend/FleetTelemetry.Api/FleetTelemetry.Api.csproj
+            backend/FleetTelemetry.Worker/FleetTelemetry.Worker.csproj
+            backend/FleetTelemetry.Infrastructure/FleetTelemetry.Infrastructure.csproj
+            backend/FleetTelemetry.Application/FleetTelemetry.Application.csproj
+          )
+          failed=0
+          for proj in "${projects[@]}"; do
+            echo "::group::Audit $proj"
+            output=$(dotnet list "$proj" package --vulnerable --include-transitive --format json 2>/dev/null || dotnet list "$proj" package --vulnerable --include-transitive)
+            echo "$output"
+            if echo "$output" | grep -Eiq '"severity":\s*"(High|Critical)"|Severity[[:space:]]+(High|Critical)|>\s*(High|Critical)\s*<'; then
+              echo "Vulnerable High/Critical packages found in $proj"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
 
   web:
     name: Web (Next.js)
@@ -66,6 +88,10 @@ jobs:
     defaults:
       run:
         working-directory: mobile
+    env:
+      EXPO_PUBLIC_API_URL: http://localhost:5000
+      EXPO_PUBLIC_VEHICLE_ID: VH-001
+      EXPO_PUBLIC_DRIVER_ID: DRV-001
     steps:
       - uses: actions/checkout@v4
 
@@ -84,3 +110,6 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Export Android bundle
+        run: npm run export
