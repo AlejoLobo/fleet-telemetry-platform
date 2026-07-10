@@ -83,7 +83,7 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | k6/JMeter | `load-tests/` (k6) | Cumple |
 | Docker Compose | Infra + profile `app` (API/Worker/Web) | Cumple |
 | Terraform/AWS CDK | Blueprint Terraform en `infra/terraform/` | Cumple (blueprint) |
-| AI Audit | Auditoría de paquetes vulnerables en CI (`dotnet list … --vulnerable`) | Cumple |
+| AI Audit | Casos documentados: no persistir desde controller, no enviar datasets completos al LLM, modo demo frontend e idempotencia transaccional | Cumple |
 
 ## 7. Limitaciones conscientes
 
