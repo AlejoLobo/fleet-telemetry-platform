@@ -104,6 +104,25 @@ docker compose up -d
 
 > Si `docker` no se reconoce en PowerShell, reinicia la terminal o agrega Docker al PATH.
 
+## Smoke test end-to-end
+
+Valida el flujo real **API → Kafka → Worker → TimescaleDB → consulta**, más **DLQ** (`telemetry.dead-letter` / `invalid_payload`). No inserta datos directo en la DB ni duplica seeds.
+
+```bash
+# 1. Levantar stack completo
+docker compose --profile app up -d --build
+
+# 2. Smoke test (PowerShell)
+./scripts/smoke-test.ps1
+
+# 2. Smoke test (Bash)
+bash scripts/smoke-test.sh
+```
+
+Resumen esperado: API disponible, evento válido enviado, evento procesado, DLQ validada → **PASSED**.
+
+Opcional: `FLEET_API_URL=http://localhost:5000` si la API no está en el puerto por defecto.
+
 ## Comandos backend
 
 ```bash
