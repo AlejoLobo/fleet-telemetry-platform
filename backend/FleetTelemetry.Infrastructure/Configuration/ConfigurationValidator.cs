@@ -74,5 +74,17 @@ public static class ConfigurationValidator
             throw new InvalidOperationException(
                 "Kafka:RetryMaxDelayMilliseconds debe ser mayor o igual a Kafka:RetryInitialDelayMilliseconds.");
         }
+
+        if (kafka.MaxDeadLetterPublishAttempts < 1)
+        {
+            throw new InvalidOperationException(
+                "Kafka:MaxDeadLetterPublishAttempts debe ser mayor o igual a 1.");
+        }
+
+        if (kafka.MaxPollIntervalMilliseconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Kafka:MaxPollIntervalMilliseconds debe ser mayor que 0.");
+        }
     }
 }
