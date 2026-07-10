@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
@@ -121,10 +122,18 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
                 $"Expected deserialization failure, got {exception.GetType().Name}");
         }
 
-        // JSON parcial deserializa pero no es un evento válido (EventId vacío).
-        var partialEvent = TelemetryEventJsonSerializer.Deserialize("""{"vehicleId":"VH-001"}""");
+        // JSON parcial deserializa, pero falla validación de dominio (Worker → reason invalid_payload).
+        const string partialJson = """{"vehicleId":"VH-001"}""";
+        const string invalidPayloadReason = "invalid_payload";
+        var partialEvent = TelemetryEventJsonSerializer.Deserialize(partialJson);
         Assert.Equal(Guid.Empty, partialEvent.EventId);
 
+        var validationError = Assert.Throws<ArgumentException>(() =>
+            TelemetryDomainEventValidator.Validate(partialEvent));
+        Assert.Contains("EventId", validationError.Message);
+        Assert.Equal("invalid_payload", invalidPayloadReason);
+
+        // El Worker no llama a ProcessAsync cuando Validate falla; no se persiste nada.
         Assert.Equal(telemetryBefore, await db.TelemetryEvents.CountAsync());
         Assert.Equal(processedBefore, await db.ProcessedEvents.CountAsync());
         Assert.Equal(alertsBefore, await db.FleetAlerts.CountAsync());
