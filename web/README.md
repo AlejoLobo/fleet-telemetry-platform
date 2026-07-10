@@ -1,6 +1,8 @@
-# Fleet Telemetry Dashboard (Fase 4)
+# Fleet Telemetry Dashboard
 
 Dashboard Next.js para monitoreo de flotas en tiempo real.
+
+Quickstart global del monorepo: [../docs/getting-started.md](../docs/getting-started.md) · [../README.md](../README.md).
 
 ## Stack
 
@@ -17,7 +19,7 @@ cp .env.example .env.local
 
 | Variable | Descripción |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | URL del backend .NET (default `http://localhost:5000`) |
+| `NEXT_PUBLIC_API_URL` | Backend .NET (default `http://localhost:5000`) |
 
 ## Comandos
 
@@ -39,6 +41,8 @@ Abre http://localhost:3000
 - Mapa de flota con iconos y ajuste a calles (OSRM)
 - KPIs, alertas, telemetría y chat con agente IA
 - Confirmación de alertas (modo API)
+
+SSE: decisión de polling documentada en [../docs/realtime-sse.md](../docs/realtime-sse.md).
 
 ## Requisitos
 
