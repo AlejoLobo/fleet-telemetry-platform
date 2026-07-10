@@ -12,13 +12,12 @@ using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Worker;
 
-// Lógica testeable de deserialización, validación, procesamiento y DLQ.
+// Lógica testeable de deserialización, validación, procesamiento y DLQ (sin estado de reintentos).
 public class TelemetryMessageProcessor
 {
     private readonly IDeadLetterPublisher _deadLetterPublisher;
     private readonly KafkaOptions _kafkaOptions;
     private readonly ILogger<TelemetryMessageProcessor> _logger;
-    private readonly Dictionary<string, int> _processingAttempts = new();
 
     public TelemetryMessageProcessor(
         IDeadLetterPublisher deadLetterPublisher,
@@ -32,13 +31,15 @@ public class TelemetryMessageProcessor
 
     public async Task<TelemetryMessageProcessingResult> ProcessAsync(
         KafkaConsumedMessage message,
+        int currentAttempt,
         Func<TelemetryEvent, CancellationToken, Task<ProcessTelemetryOutcome>> processEvent,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(message.Payload))
             return TelemetryMessageProcessingResult.IgnoreWithoutCommit;
 
-        var messageKey = BuildMessageKey(message);
+        if (currentAttempt < 1)
+            throw new ArgumentOutOfRangeException(nameof(currentAttempt), currentAttempt, "currentAttempt debe ser >= 1.");
 
         TelemetryEvent telemetryEvent;
         try
@@ -59,71 +60,85 @@ public class TelemetryMessageProcessor
         try
         {
             var outcome = await processEvent(telemetryEvent, cancellationToken);
-            _processingAttempts.Remove(messageKey);
 
             if (outcome == ProcessTelemetryOutcome.Processed)
             {
                 _logger.LogInformation(
-                    "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset}",
+                    "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
                     telemetryEvent.VehicleId,
                     message.Partition,
-                    message.Offset);
+                    message.Offset,
+                    currentAttempt);
             }
 
             return TelemetryMessageProcessingResult.ProcessedAndCommit;
-        }
-        catch (BrokenCircuitException ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "TimescaleDB circuit breaker open; offset not committed. Topic={Topic} Partition={Partition} Offset={Offset}",
-                message.Topic,
-                message.Partition,
-                message.Offset);
-            return TelemetryMessageProcessingResult.RetryWithoutCommit;
-        }
-        catch (Exception ex) when (IsInfrastructureTransientFailure(ex))
-        {
-            _logger.LogWarning(
-                ex,
-                "Transient infrastructure failure; offset not committed and message not sent to DLQ. Topic={Topic} Partition={Partition} Offset={Offset}",
-                message.Topic,
-                message.Partition,
-                message.Offset);
-            return TelemetryMessageProcessingResult.RetryWithoutCommit;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (Exception ex) when (IsRetryableProcessingFailure(ex))
+        {
+            return await HandleProcessingFailureAsync(message, currentAttempt, ex, cancellationToken);
+        }
         catch (Exception ex)
         {
-            var attempts = _processingAttempts.TryGetValue(messageKey, out var count) ? count + 1 : 1;
-            _processingAttempts[messageKey] = attempts;
+            return await HandleProcessingFailureAsync(message, currentAttempt, ex, cancellationToken);
+        }
+    }
 
-            if (attempts >= _kafkaOptions.MaxProcessingAttempts)
-            {
-                await PublishDeadLetterAsync(
-                    message,
-                    reason: "processing_failure",
-                    exceptionMessage: ex.Message,
-                    cancellationToken);
-                _processingAttempts.Remove(messageKey);
-                return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
-            }
+    private async Task<TelemetryMessageProcessingResult> HandleProcessingFailureAsync(
+        KafkaConsumedMessage message,
+        int currentAttempt,
+        Exception ex,
+        CancellationToken cancellationToken)
+    {
+        if (currentAttempt >= _kafkaOptions.MaxProcessingAttempts)
+        {
+            await PublishDeadLetterAsync(
+                message,
+                reason: "processing_failure",
+                exceptionMessage: ex.Message,
+                cancellationToken);
+            return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
+        }
 
+        if (ex is BrokenCircuitException)
+        {
             _logger.LogWarning(
                 ex,
-                "Non-transient processing error; retry pending. MessageKey={MessageKey} Attempt={Attempt} MaxAttempts={MaxAttempts} Topic={Topic} Partition={Partition} Offset={Offset}",
-                messageKey,
-                attempts,
+                "TimescaleDB circuit breaker open; retrying same offset. Attempt={Attempt} MaxAttempts={MaxAttempts} Topic={Topic} Partition={Partition} Offset={Offset}",
+                currentAttempt,
                 _kafkaOptions.MaxProcessingAttempts,
                 message.Topic,
                 message.Partition,
                 message.Offset);
-            return TelemetryMessageProcessingResult.RetryWithoutCommit;
         }
+        else if (IsInfrastructureTransientFailure(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Transient infrastructure failure; retrying same offset. Attempt={Attempt} MaxAttempts={MaxAttempts} Topic={Topic} Partition={Partition} Offset={Offset}",
+                currentAttempt,
+                _kafkaOptions.MaxProcessingAttempts,
+                message.Topic,
+                message.Partition,
+                message.Offset);
+        }
+        else
+        {
+            _logger.LogWarning(
+                ex,
+                "Non-transient processing error; retry pending. Attempt={Attempt} MaxAttempts={MaxAttempts} Topic={Topic} Partition={Partition} Offset={Offset}",
+                currentAttempt,
+                _kafkaOptions.MaxProcessingAttempts,
+                message.Topic,
+                message.Partition,
+                message.Offset);
+        }
+
+        return TelemetryMessageProcessingResult.RetryWithoutCommit;
     }
 
     private async Task PublishDeadLetterAsync(
@@ -153,9 +168,9 @@ public class TelemetryMessageProcessor
             _kafkaOptions.DeadLetterTopic);
     }
 
+    private static bool IsRetryableProcessingFailure(Exception ex) =>
+        ex is BrokenCircuitException || IsInfrastructureTransientFailure(ex);
+
     private static bool IsInfrastructureTransientFailure(Exception ex) =>
         ex is NpgsqlException or DbUpdateException or TimeoutException;
-
-    private static string BuildMessageKey(KafkaConsumedMessage message) =>
-        $"{message.Topic}:{message.Partition}:{message.Offset}";
 }

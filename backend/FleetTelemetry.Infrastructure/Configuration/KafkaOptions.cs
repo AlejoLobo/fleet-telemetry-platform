@@ -1,7 +1,7 @@
 // Opciones de conexión a Kafka.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Bootstrap, tópico y grupo consumidor.
+// Bootstrap, tópico, grupo consumidor y reintentos de procesamiento.
 public class KafkaOptions
 {
     public const string SectionName = "Kafka";
@@ -11,7 +11,10 @@ public class KafkaOptions
     public string DeadLetterTopic { get; set; } = "telemetry.dead-letter";
     public string ConsumerGroup { get; set; } = "telemetry-processor";
 
-    // Reintentos antes de enviar a DLQ por fallo persistente de procesamiento.
+    // Intentos de procesamiento del mismo mensaje antes de DLQ.
     public int MaxProcessingAttempts { get; set; } = 3;
-}
 
+    // Backoff entre reintentos del mismo offset (exponencial + jitter).
+    public int RetryInitialDelayMilliseconds { get; set; } = 500;
+    public int RetryMaxDelayMilliseconds { get; set; } = 5000;
+}

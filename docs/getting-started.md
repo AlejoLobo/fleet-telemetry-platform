@@ -57,6 +57,9 @@ Referencia: [../.env.example](../.env.example). Convención ASP.NET: `Section__K
 | `TimescaleDb__ConnectionString` | Obligatorio en runtime |
 | `Kafka__BootstrapServers` | Local: `localhost:19092`; Compose app: `redpanda:9092` |
 | `Kafka__DeadLetterTopic` | Default `telemetry.dead-letter` |
+| `Kafka__MaxProcessingAttempts` | Intentos del mismo offset antes de DLQ (default `3`) |
+| `Kafka__RetryInitialDelayMilliseconds` | Backoff inicial (default `500`) |
+| `Kafka__RetryMaxDelayMilliseconds` | Tope de backoff (default `5000`) |
 | `Auth__Enabled` | Default `false` |
 | `Auth__JwtSecret` / `Auth__DemoPassword` | Obligatorios si Auth habilitado (≥ 32 chars el secret) |
 | `OpenAI__ApiKey` | Opcional |
