@@ -226,7 +226,7 @@ Cola SQLite offline, `EventId` en cliente, sync batch al reconectar. Ver `mobile
 
 Limitaciones conscientes del MVP (defendibles en sustentación):
 
-- **No hay despliegue productivo ECS/MSK completo.** El Terraform en `infra/terraform/` es un **blueprint** (VPC, RDS PostgreSQL, ECS cluster, security groups), no una plataforma cloud lista para producción. Faltan MSK/Kafka gestionado, task definitions, ALB y despliegue del dashboard.
+- **No hay despliegue productivo ECS/MSK completo.** El Terraform en `infra/terraform/` es un **blueprint** (VPC, subnets, RDS, ECS cluster, ECR, task definitions de ejemplo). Ver limitaciones en [`infra/README.md`](infra/README.md): **no MSK**, **no ALB completo**, **no task definitions productivas**, **no dashboard deploy**.
 - **Druid real no está implementado.** Existe el contrato intercambiable `IAnalyticsQueryService`; hoy se usa `TimescaleAnalyticsQueryService`. Ver `docs/analytics-druid-mock.md`.
 - **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck en cambios de `mobile/`; el workflow principal `ci.yml` también ejecuta mobile en cada push/PR. **Preview APK** disponible manualmente vía `mobile-preview.yml` (EAS, sin tiendas).
 - **OpenAI es opcional.** El agente operativo funciona sin LLM externo vía tools internas; OpenAI solo pule redacción si hay API key.
@@ -392,7 +392,7 @@ dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
 ## Fase 6 ✅
 
 - Pruebas de carga **k6** (`load-tests/`)
-- **Terraform** AWS blueprint (`infra/terraform/`)
+- **Terraform** AWS blueprint ejecutivo (`infra/terraform/`, overview en `infra/README.md`)
 - **Docker Compose** con API, Worker y Web
 - **JWT** opcional (`Auth:Enabled`)
 - **Tests** xUnit en `FleetTelemetry.Application.Tests`

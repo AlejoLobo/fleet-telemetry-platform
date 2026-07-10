@@ -1,3 +1,7 @@
+# Blueprint ejecutivo AWS — no es un despliegue productivo completo.
+# Incluye red, RDS PostgreSQL, ECS cluster, ECR y task definitions de ejemplo.
+# Faltan MSK, ALB/services, secrets productivos y deploy del dashboard. Ver infra/README.md.
+
 terraform {
   required_version = ">= 1.6.0"
   required_providers {

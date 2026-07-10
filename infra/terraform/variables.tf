@@ -23,7 +23,7 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña RDS (usar TF_VAR_db_password o secrets)"
+  description = "Contraseña RDS. Pasar con TF_VAR_db_password; no commitear valores reales."
   type        = string
   sensitive   = true
 }
