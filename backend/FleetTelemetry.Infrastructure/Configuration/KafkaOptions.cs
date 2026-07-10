@@ -8,7 +8,7 @@ public class KafkaOptions
 
     public string BootstrapServers { get; set; } = "localhost:19092";
     public string TelemetryTopic { get; set; } = "telemetry.raw";
-    public string DlqTopic { get; set; } = "telemetry.dlq";
+    public string DeadLetterTopic { get; set; } = "telemetry.dead-letter";
     public string ConsumerGroup { get; set; } = "telemetry-processor";
 
     // Reintentos antes de enviar a DLQ por fallo persistente de procesamiento.

@@ -7,10 +7,12 @@ using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Resilience;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Worker;
@@ -23,7 +25,7 @@ public class TelemetryConsumerWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly KafkaOptions _kafkaOptions;
     private readonly ResiliencePipelineFactory _resilience;
-    private readonly IKafkaDeadLetterPublisher _deadLetterPublisher;
+    private readonly IDeadLetterPublisher _deadLetterPublisher;
     private readonly ILogger<TelemetryConsumerWorker> _logger;
     private readonly Dictionary<string, int> _processingAttempts = new();
 
@@ -31,7 +33,7 @@ public class TelemetryConsumerWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         IOptions<KafkaOptions> kafkaOptions,
         ResiliencePipelineFactory resilience,
-        IKafkaDeadLetterPublisher deadLetterPublisher,
+        IDeadLetterPublisher deadLetterPublisher,
         ILogger<TelemetryConsumerWorker> logger)
     {
         _scopeFactory = scopeFactory;
@@ -60,10 +62,11 @@ public class TelemetryConsumerWorker : BackgroundService
         consumer.Subscribe(_kafkaOptions.TelemetryTopic);
 
         _logger.LogInformation(
-            "Telemetry consumer started. Topic={Topic}, Dlq={Dlq}, Group={Group}",
+            "Telemetry consumer started. Topic={Topic} DeadLetterTopic={DeadLetterTopic} Group={Group} MaxProcessingAttempts={MaxProcessingAttempts}",
             _kafkaOptions.TelemetryTopic,
-            _kafkaOptions.DlqTopic,
-            _kafkaOptions.ConsumerGroup);
+            _kafkaOptions.DeadLetterTopic,
+            _kafkaOptions.ConsumerGroup,
+            _kafkaOptions.MaxProcessingAttempts);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -76,21 +79,20 @@ public class TelemetryConsumerWorker : BackgroundService
                     continue;
 
                 var messageKey = BuildMessageKey(consumeResult);
-                TelemetryEvent? telemetryEvent = null;
 
+                TelemetryEvent telemetryEvent;
                 try
                 {
                     telemetryEvent = TelemetryEventJsonSerializer.Deserialize(consumeResult.Message.Value);
                 }
                 catch (InvalidOperationException ex)
                 {
-                    await SendToDlqAndCommitAsync(
+                    await PublishDeadLetterAndCommitAsync(
                         consumer,
                         consumeResult,
-                        failureReason: ex.Message,
-                        failureType: "deserialization",
-                        attemptCount: 1,
-                        stoppingToken);
+                        reason: "invalid_payload",
+                        exceptionMessage: ex.Message,
+                        cancellationToken: stoppingToken);
                     continue;
                 }
 
@@ -107,34 +109,48 @@ public class TelemetryConsumerWorker : BackgroundService
                 if (outcome == ProcessTelemetryOutcome.Processed)
                 {
                     _logger.LogInformation(
-                        "Telemetry event processed: {EventId} vehicle {VehicleId}",
+                        "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset}",
                         telemetryEvent.EventId,
-                        telemetryEvent.VehicleId);
+                        telemetryEvent.VehicleId,
+                        consumeResult.Partition.Value,
+                        consumeResult.Offset.Value);
                 }
             }
             catch (BrokenCircuitException ex)
             {
                 _logger.LogWarning(
                     ex,
-                    "TimescaleDB circuit breaker abierto; offset no confirmado. Reintento en {Seconds}s",
-                    CircuitOpenBackoff.TotalSeconds);
+                    "TimescaleDB circuit breaker open; offset not committed. BackoffSeconds={BackoffSeconds} Topic={Topic} Partition={Partition} Offset={Offset}",
+                    CircuitOpenBackoff.TotalSeconds,
+                    consumeResult?.Topic,
+                    consumeResult?.Partition.Value,
+                    consumeResult?.Offset.Value);
+                await Task.Delay(CircuitOpenBackoff, stoppingToken);
+            }
+            catch (Exception ex) when (IsInfrastructureTransientFailure(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Transient infrastructure failure; offset not committed and message not sent to DLQ. Topic={Topic} Partition={Partition} Offset={Offset}",
+                    consumeResult?.Topic,
+                    consumeResult?.Partition.Value,
+                    consumeResult?.Offset.Value);
                 await Task.Delay(CircuitOpenBackoff, stoppingToken);
             }
             catch (ConsumeException ex)
             {
-                _logger.LogError(ex, "Kafka consume error: {Reason}", ex.Error.Reason);
+                _logger.LogError(ex, "Kafka consume error. Reason={Reason}", ex.Error.Reason);
             }
             catch (InvalidOperationException ex)
             {
                 if (consumeResult is not null)
                 {
-                    await SendToDlqAndCommitAsync(
+                    await PublishDeadLetterAndCommitAsync(
                         consumer,
                         consumeResult,
-                        failureReason: ex.Message,
-                        failureType: "validation",
-                        attemptCount: 1,
-                        stoppingToken);
+                        reason: "validation_error",
+                        exceptionMessage: ex.Message,
+                        cancellationToken: stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -145,7 +161,7 @@ public class TelemetryConsumerWorker : BackgroundService
             {
                 if (consumeResult is null)
                 {
-                    _logger.LogError(ex, "Unexpected error without consume result");
+                    _logger.LogError(ex, "Unexpected processing error without consume result");
                     continue;
                 }
 
@@ -155,23 +171,25 @@ public class TelemetryConsumerWorker : BackgroundService
 
                 if (attempts >= _kafkaOptions.MaxProcessingAttempts)
                 {
-                    await SendToDlqAndCommitAsync(
+                    await PublishDeadLetterAndCommitAsync(
                         consumer,
                         consumeResult,
-                        failureReason: ex.Message,
-                        failureType: "processing",
-                        attemptCount: attempts,
-                        stoppingToken);
+                        reason: "processing_failure",
+                        exceptionMessage: ex.Message,
+                        cancellationToken: stoppingToken);
                     _processingAttempts.Remove(messageKey);
                 }
                 else
                 {
                     _logger.LogWarning(
                         ex,
-                        "Error procesando mensaje {Key}; intento {Attempt}/{Max}. Offset no confirmado",
+                        "Non-transient processing error; retry pending. MessageKey={MessageKey} Attempt={Attempt} MaxAttempts={MaxAttempts} Topic={Topic} Partition={Partition} Offset={Offset}",
                         messageKey,
                         attempts,
-                        _kafkaOptions.MaxProcessingAttempts);
+                        _kafkaOptions.MaxProcessingAttempts,
+                        consumeResult.Topic,
+                        consumeResult.Partition.Value,
+                        consumeResult.Offset.Value);
                 }
             }
         }
@@ -180,35 +198,37 @@ public class TelemetryConsumerWorker : BackgroundService
         _logger.LogInformation("Telemetry consumer stopped.");
     }
 
-    private async Task SendToDlqAndCommitAsync(
+    private async Task PublishDeadLetterAndCommitAsync(
         IConsumer<string, string> consumer,
         ConsumeResult<string, string> consumeResult,
-        string failureReason,
-        string failureType,
-        int attemptCount,
+        string reason,
+        string exceptionMessage,
         CancellationToken cancellationToken)
     {
-        var dlqMessage = new DeadLetterMessage(
-            SourceTopic: consumeResult.Topic,
+        var deadLetterMessage = new DeadLetterMessage(
+            OriginalPayload: consumeResult.Message.Value,
+            Reason: reason,
+            ExceptionMessage: exceptionMessage,
+            OriginalTopic: consumeResult.Topic,
             Partition: consumeResult.Partition.Value,
             Offset: consumeResult.Offset.Value,
-            OriginalKey: consumeResult.Message.Key,
-            OriginalPayload: consumeResult.Message.Value,
-            FailureReason: failureReason,
-            FailureType: failureType,
-            AttemptCount: attemptCount,
-            FailedAt: DateTimeOffset.UtcNow);
+            OccurredAt: DateTimeOffset.UtcNow);
 
-        await _deadLetterPublisher.PublishAsync(dlqMessage, cancellationToken);
+        // Offset se confirma solo si la publicación en DLQ fue exitosa.
+        await _deadLetterPublisher.PublishAsync(deadLetterMessage, cancellationToken);
         consumer.Commit(consumeResult);
 
         _logger.LogWarning(
-            "Mensaje enviado a DLQ y offset confirmado: topic={Topic} partition={Partition} offset={Offset} type={Type}",
+            "Message moved to dead letter queue and offset committed. Reason={Reason} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} DeadLetterTopic={DeadLetterTopic}",
+            reason,
             consumeResult.Topic,
             consumeResult.Partition.Value,
             consumeResult.Offset.Value,
-            failureType);
+            _kafkaOptions.DeadLetterTopic);
     }
+
+    private static bool IsInfrastructureTransientFailure(Exception ex) =>
+        ex is NpgsqlException or DbUpdateException or TimeoutException;
 
     private static string BuildMessageKey(ConsumeResult<string, string> result) =>
         $"{result.Topic}:{result.Partition.Value}:{result.Offset.Value}";

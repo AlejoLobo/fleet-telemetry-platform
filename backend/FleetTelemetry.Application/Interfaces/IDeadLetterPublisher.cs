@@ -2,8 +2,8 @@ using FleetTelemetry.Application.DTOs;
 
 namespace FleetTelemetry.Application.Interfaces;
 
-// Publica mensajes fallidos en el tópico dead-letter de Kafka.
-public interface IKafkaDeadLetterPublisher
+// Contrato de publicación de mensajes fallidos hacia el tópico dead-letter.
+public interface IDeadLetterPublisher
 {
     Task PublishAsync(DeadLetterMessage message, CancellationToken cancellationToken = default);
 }
