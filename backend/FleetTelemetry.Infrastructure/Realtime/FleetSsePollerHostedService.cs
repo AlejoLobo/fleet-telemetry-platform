@@ -9,7 +9,8 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Consulta flota y alertas periódicamente y publica actualizaciones SSE.
+// MVP: alimenta SSE por polling a TimescaleDB (activo ~3s / idle ~10s), no por push desde Kafka.
+// Suficiente para demo; en producción preferir Worker→broker o consumidor Kafka dedicado. Ver docs/realtime-sse.md.
 public class FleetSsePollerHostedService : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
