@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FleetTelemetry.Application\FleetTelemetry.Application.csproj" />
     <ProjectReference Include="..\FleetTelemetry.Infrastructure\FleetTelemetry.Infrastructure.csproj" />
+    <ProjectReference Include="..\FleetTelemetry.Api\FleetTelemetry.Api.csproj" />
   </ItemGroup>
 
 </Project>

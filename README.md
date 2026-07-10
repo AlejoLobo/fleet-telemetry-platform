@@ -70,7 +70,10 @@ fleet-telemetry-platform/
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check + circuit breakers |
+| `GET` | `/health/live` | Liveness (proceso vivo, sin dependencias) |
+| `GET` | `/health/ready` | Readiness (TimescaleDB + Kafka metadata) |
+| `GET` | `/api/ops/summary` | Resumen operativo (protegido si Auth habilitado) |
 | `POST` | `/api/telemetry` | Ingesta un evento → publica en Kafka (202 Accepted) |
 | `POST` | `/api/telemetry/batch` | Ingesta un lote → publica en Kafka (202 Accepted) |
 | `GET` | `/api/telemetry/{vehicleId}` | Historial de telemetría (`?from=&to=`) |
@@ -242,6 +245,22 @@ Limitaciones conscientes del MVP (defendibles en sustentación):
 | OpenAI HTTP | Timeout 20 s, circuit breaker + retry | `Infrastructure/Services/OpenAiPolishService.cs`, `Infrastructure/Resilience/ResiliencePipelineFactory.cs` |
 
 Configuración en `Resilience` dentro de `appsettings.json`. Estado en `GET /health` y `GET /health/circuit-breakers`.
+
+## Observabilidad y health checks
+
+Endpoints de diagnóstico para demo/MVP (sin Prometheus/Grafana/OpenTelemetry):
+
+| Método | Ruta | Uso |
+|--------|------|-----|
+| `GET` | `/health/live` | Liveness: 200 si la API está viva. No consulta DB ni Kafka. Público. |
+| `GET` | `/health/ready` | Readiness: comprueba TimescaleDB (`CanConnect`) y Kafka (metadata, sin publicar). 503 si falla alguna. Público, sin secretos. |
+| `GET` | `/api/ops/summary` | Resumen: vehículos, alertas críticas, última telemetría, modo SSE (`polling`), tópicos. Protegido si `Auth:Enabled=true`. |
+
+```bash
+curl http://localhost:5000/health/live
+curl http://localhost:5000/health/ready
+curl http://localhost:5000/api/ops/summary
+```
 
 Si Kafka está en circuit breaker abierto, la ingesta responde `503` con `Retry-After`. Si OpenAI falla o el circuit breaker está abierto, el agente devuelve la respuesta operativa sin pulir (`HybridAiAgentService`). Si TimescaleDB está abierto, el Worker no confirma offsets y reintenta tras backoff.
 
