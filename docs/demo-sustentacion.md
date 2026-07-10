@@ -42,7 +42,7 @@ flowchart LR
 | Circuit breakers (Polly) | Kafka produce, TimescaleDB, OpenAI; estado en `/health` y `/health/circuit-breakers` |
 | Retry + backoff | Fallos transitorios de DB/Kafka; sin DLQ ni commit prematuro |
 | DLQ `telemetry.dead-letter` | Payloads inválidos y fallos de procesamiento no recuperables |
-| Commit manual de offset | Solo tras éxito o DLQ exitoso; evita pérdida silenciosa |
+| Commit manual de offset | Solo tras éxito o DLQ exitoso; reintento del **mismo** offset (at-least-once) |
 | Validación Kafka | `TelemetryDomainEventValidator` en Worker (además del validador de API) |
 | Health checks | `/health/live`, `/health/ready` (DB + Kafka) |
 | Smoke E2E | `scripts/smoke-test.*`: API → Kafka → Worker → DB + DLQ |
