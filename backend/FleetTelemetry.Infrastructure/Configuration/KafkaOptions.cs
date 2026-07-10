@@ -17,4 +17,10 @@ public class KafkaOptions
     // Backoff entre reintentos del mismo offset (exponencial + jitter).
     public int RetryInitialDelayMilliseconds { get; set; } = 500;
     public int RetryMaxDelayMilliseconds { get; set; } = 5000;
+
+    // Intentos de publicación DLQ antes de detener el Worker sin commit.
+    public int MaxDeadLetterPublishAttempts { get; set; } = 5;
+
+    // Debe superar el peor escenario de procesamiento + Polly + backoff + DLQ.
+    public int MaxPollIntervalMilliseconds { get; set; } = 300_000;
 }
