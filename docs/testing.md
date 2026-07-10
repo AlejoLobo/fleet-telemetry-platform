@@ -4,69 +4,60 @@
 
 | Proyecto | Tipo | Qué cubre |
 |----------|------|-----------|
-| `FleetTelemetry.Application.Tests` | Unitario | Validadores, alertas, IA parser, health/ops controllers, circuit breakers (~36) |
-| `FleetTelemetry.Worker.Tests` | Unitario | `TelemetryMessageProcessor`: DLQ, commit semantics, reintentos (~7) |
-| `FleetTelemetry.Integration.Tests` | Integración | Idempotencia, transacción, overspeed, payload inválido vs TimescaleDB (~4) |
+| `FleetTelemetry.Application.Tests` | Unitario | Validadores, alertas, IA, health/ops, `DatabaseTransientFailureClassifier` |
+| `FleetTelemetry.Worker.Tests` | Unitario | Processor (payloads vacíos→DLQ), backoff acotado, sesión DLQ |
+| `FleetTelemetry.Integration.Tests` | Integración | TimescaleDB (idempotencia/transacción) + Kafka real (offsets, redelivery, DLQ) |
 
 ## Comandos
 
 ```bash
-cd backend
-dotnet test --configuration Release
-
-# Solo un proyecto
-dotnet test FleetTelemetry.Application.Tests --configuration Release
-dotnet test FleetTelemetry.Worker.Tests --configuration Release
-dotnet test FleetTelemetry.Integration.Tests --configuration Release
+dotnet restore backend/FleetTelemetry.sln
+dotnet build backend/FleetTelemetry.sln --configuration Release --no-restore
+dotnet test backend/FleetTelemetry.Application.Tests --configuration Release --no-build
+dotnet test backend/FleetTelemetry.Worker.Tests --configuration Release --no-build
+dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build
 ```
 
-Web / mobile (también en CI):
+Web / mobile:
 
 ```bash
 npm ci --prefix web && npm run build --prefix web
-npm ci --prefix mobile && npm run typecheck --prefix mobile
+npm ci --prefix mobile && npm run typecheck --prefix mobile && npm run export --prefix mobile
 ```
 
-## Integración — base de datos
+## Integración — TimescaleDB
 
-**Por defecto:** Testcontainers (`timescale/timescaledb:latest-pg16`). Requiere Docker.
+Imagen fija: `timescale/timescaledb:2.17.2-pg16`.
 
-**Sin Testcontainers:** TimescaleDB de Compose:
+**Por defecto:** Testcontainers (requiere Docker).
+
+**Sin Testcontainers:**
 
 ```bash
 docker compose up -d timescaledb
-
-# PowerShell
 $env:FLEET_INTEGRATION_DB_CONNECTION="Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet"
 dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
 ```
 
-## Smoke test E2E
+## Integración — Kafka
 
-Asume `docker compose --profile app up -d --build`.
+Testcontainers Kafka (`Testcontainers.Kafka`). Prueba obligatoria: `Failed_first_offset_is_retried_before_second_offset_is_processed` (mismo partition, reintento de A antes de B, committed offset, sin redelivery tras reinicio).
+
+## Smoke / k6
 
 ```bash
 ./scripts/smoke-test.ps1
-bash scripts/smoke-test.sh
+k6 run load-tests/telemetry-ingest.js
 ```
 
-Valida: API viva → evento válido procesado en flota → payload inválido en `telemetry.dead-letter` (`invalid_payload`). No inserta en DB a mano.
+## CI
 
-## CI (GitHub Actions)
-
-Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 | Job | Pasos |
 |-----|-------|
-| Backend | restore → build Release → `dotnet test` (solución) → auditoría vulnerabilidades |
+| Backend | restore → build → Application / Worker / Integration tests → audit High/Critical en Api+Worker+Infrastructure+Application |
 | Web | `npm ci` → `npm run build` |
-| Mobile | `npm ci` → `npm run typecheck` |
+| Mobile | `npm ci` → typecheck → `expo export --platform android` |
 
-.NET 10: `include-prerelease: true` + [global.json](../global.json).
-
-Adicionales:
-
-- `mobile-ci.yml` — typecheck en cambios de `mobile/`
-- `mobile-preview.yml` — EAS APK manual (`workflow_dispatch`, secret `EXPO_TOKEN`)
-
-Sin despliegue productivo automático en push/PR.
+EAS preview sigue siendo workflow manual.
