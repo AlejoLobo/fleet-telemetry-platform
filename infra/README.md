@@ -1,5 +1,7 @@
 # Infraestructura AWS — blueprint ejecutivo
 
+Índice de documentación del monorepo: [../docs/README.md](../docs/README.md).
+
 Terraform en `infra/terraform/` describe la **base** de red y cómputo para Fleet Telemetry. Es un **blueprint**, no un despliegue productivo completo.
 
 ## Qué incluye

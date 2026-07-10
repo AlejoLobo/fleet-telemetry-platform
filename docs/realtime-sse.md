@@ -1,5 +1,7 @@
 # Tiempo real SSE — decisión MVP
 
+Índice: [README.md](README.md) · Arquitectura: [architecture.md](architecture.md).
+
 ## Qué hay hoy
 
 El dashboard consume `GET /api/events/stream` (Server-Sent Events). Los eventos (`fleet-update`, `alert`, `heartbeat`) no salen de Kafka ni del Worker: los genera `FleetSsePollerHostedService`, un `BackgroundService` en la API que:
