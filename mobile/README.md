@@ -1,6 +1,8 @@
-# Fleet Telemetry Mobile (Fase 5)
+# Fleet Telemetry Mobile
 
 App React Native Expo para conductores con cola offline-first.
+
+Quickstart global del monorepo: [../docs/getting-started.md](../docs/getting-started.md) · [../README.md](../README.md).
 
 ## Stack
 
