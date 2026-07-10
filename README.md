@@ -108,13 +108,45 @@ fleet-telemetry-platform/
 └── .env.example
 ```
 
+## Auditoría de IA y criterio arquitectónico
+
+Documentación de propuestas deficientes de IA y correcciones con criterio senior (no confundir con auditoría de paquetes NuGet).
+
+### Caso 1: offsets Kafka
+
+- **Enfoque inicial:** ante `RetryWithoutCommit`, hacer `Task.Delay` y volver a `Consume()`.
+- **Riesgo:** no hacer commit no reposiciona el cursor local; consumir el offset N+1 y confirmarlo puede confirmar indirectamente offsets anteriores y perder N.
+- **Decisión:** mantener el mismo `ConsumeResult` hasta un resultado terminal (éxito, duplicado, DLQ o apagado), con backoff configurable.
+- **Archivos:** `TelemetryConsumerWorker.cs`, `KafkaProcessingRetryBackoff.cs`, `KafkaOptions`.
+- **Pruebas:** Worker unitarios + integración Kafka (`Failed_first_offset_is_retried_before_second_offset_is_processed`).
+- **Commit:** `e557210` (`fix(worker): garantizar at-least-once reintentando el mismo offset`) y commits posteriores de endurecimiento.
+
+### Caso 2: intentos en memoria
+
+- **Enfoque inicial:** `Dictionary<string, int> _processingAttempts` en el processor.
+- **Riesgo:** estado no durable, se pierde al reiniciar, incorrecto con múltiples réplicas, crecimiento potencial.
+- **Decisión:** processor stateless; el ciclo del mensaje administra `currentAttempt`.
+- **Archivos:** `TelemetryMessageProcessor.cs`.
+- **Pruebas:** intentos explícitos en `TelemetryMessageProcessorTests`.
+
+### Caso 3: payload vacío ignorado
+
+- **Enfoque inicial:** `IgnoreWithoutCommit` para payloads vacíos (avance potencial sin DLQ ni commit explícito).
+- **Riesgo:** pérdida silenciosa al confirmar offsets posteriores.
+- **Decisión:** eliminar `IgnoreWithoutCommit`; null/vacío/whitespace → DLQ `invalid_payload`.
+- **Archivos:** `TelemetryMessageProcessingResult.cs`, `TelemetryMessageProcessor.cs`, `TelemetryConsumerWorker.cs`.
+- **Pruebas:** payloads nulos, whitespace, JSON `null`, fallo de DLQ.
+
 ## Limitaciones MVP (conscientes)
 
 - Terraform es **blueprint** (sin MSK, ALB completo, tasks productivas ni deploy del dashboard). Ver [infra/README.md](infra/README.md).
-- Analytics Druid: contrato `IAnalyticsQueryService`; implementación actual Timescale. Ver [docs/analytics-druid-mock.md](docs/analytics-druid-mock.md).
+- Analytics Druid: **no desplegado**; solo contrato `IAnalyticsQueryService` con implementación Timescale. Ver [docs/analytics-druid-mock.md](docs/analytics-druid-mock.md).
 - SSE por **polling** a DB (no push Kafka→SSE). Ver [docs/realtime-sse.md](docs/realtime-sse.md).
 - JWT opcional y parcial; OpenAI opcional (pulido de texto).
 - Preview mobile EAS manual (`mobile-preview.yml`), sin tiendas.
+- OpenTelemetry **no implementado** (siguiente paso productivo).
+- Worker serial: un mensaje bloqueado puede detener particiones asignadas a la instancia.
+- Kafka es **at-least-once**, no exactly-once end-to-end.
 
 ## Commits
 

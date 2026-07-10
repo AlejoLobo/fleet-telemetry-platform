@@ -71,19 +71,20 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | Requerimiento | Implementación | Estado |
 |---------------|----------------|--------|
 | Backend event-driven | API produce + Worker consume; Clean Architecture .NET 10 | Cumple |
-| Kafka/RabbitMQ | Kafka vía Redpanda local; tópicos `telemetry.raw` / `telemetry.dead-letter` | Cumple |
-| TimescaleDB/Druid | TimescaleDB hypertable; Druid vía contrato `IAnalyticsQueryService` (impl. Timescale) | Cumple (Druid = contrato) |
-| Circuit breakers | Polly en Kafka, DB y OpenAI | Cumple |
+| Kafka/RabbitMQ | Kafka vía Redpanda local; at-least-once + tests reales | Cumple |
+| TimescaleDB/Druid | TimescaleDB hypertable; Druid no desplegado (contrato intercambiable) | Cumple parcialmente |
+| Circuit breakers | Polly en Kafka, DB y OpenAI; solo fallos transitorios de DB | Cumple |
 | Agente IA | `POST /api/ai/query` + pulido OpenAI opcional | Cumple |
 | SPA reactiva | Dashboard Next.js 15 | Cumple |
-| WebSockets/SSE | `GET /api/events/stream` (SSE por polling MVP) | Cumple |
+| WebSockets/SSE | SSE por polling MVP | Limitación MVP |
 | Mobile offline-first | Expo 52 + cola local | Cumple |
 | SQLite | `expo-sqlite` en mobile | Cumple |
-| Batch sync | `POST /api/telemetry/batch` al reconectar | Cumple |
+| Batch sync | `POST /api/telemetry/batch` | Cumple |
 | k6/JMeter | `load-tests/` (k6) | Cumple |
-| Docker Compose | Infra + profile `app` (API/Worker/Web) | Cumple |
-| Terraform/AWS CDK | Blueprint Terraform en `infra/terraform/` | Cumple (blueprint) |
-| AI Audit | Casos documentados: no persistir desde controller, no enviar datasets completos al LLM, modo demo frontend e idempotencia transaccional | Cumple |
+| Docker Compose | Infra + profile `app` | Cumple |
+| Terraform/AWS CDK | Blueprint en `infra/terraform/` | Blueprint |
+| AI Audit | Sección en README + casos de offsets, intentos en memoria y payload vacío | Cumple |
+| OpenTelemetry | No implementado | No implementado |
 
 ## 7. Limitaciones conscientes
 
