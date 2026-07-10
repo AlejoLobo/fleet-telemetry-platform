@@ -56,6 +56,8 @@ public static class DependencyInjection
             services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
+            services.AddScoped<IOpsQueryService, OpsQueryService>();
+            services.AddScoped<IReadinessCheckService, ReadinessCheckService>();
             services.AddScoped<AiOperationalTools>();
             services.AddScoped<OperationalAiAgentService>();
             services.AddHttpClient<OpenAiPolishService>(client =>

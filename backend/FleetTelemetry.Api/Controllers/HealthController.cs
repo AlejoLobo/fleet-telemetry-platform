@@ -1,13 +1,38 @@
 using FleetTelemetry.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
-// Controlador de salud y circuit breakers.
 namespace FleetTelemetry.Api.Controllers;
 
+// Health checks de liveness/readiness + circuit breakers existentes.
 [ApiController]
 [Route("health")]
 public class HealthController : ControllerBase
 {
+    // Liveness: proceso vivo, sin dependencias externas.
+    [HttpGet("live")]
+    public IActionResult Live()
+    {
+        return Ok(new
+        {
+            status = "alive",
+            service = "fleet-telemetry-api",
+            timestamp = DateTimeOffset.UtcNow
+        });
+    }
+
+    // Readiness: TimescaleDB + Kafka metadata (sin secretos).
+    [HttpGet("ready")]
+    public async Task<IActionResult> Ready(
+        [FromServices] IReadinessCheckService readinessCheckService,
+        CancellationToken cancellationToken)
+    {
+        var result = await readinessCheckService.CheckAsync(cancellationToken);
+        if (result.Status != "ready")
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, result);
+
+        return Ok(result);
+    }
+
     // Estado general del servicio y circuitos abiertos.
     [HttpGet]
     public IActionResult Get([FromServices] ICircuitBreakerStateRegistry registry)
