@@ -67,11 +67,14 @@ Solo infra (API/Worker/Web en host): `docker compose up -d`. Guía completa: [do
 
 Lista completa y ejemplos: [docs/api-and-ops.md](docs/api-and-ops.md).
 
+Ver [docs/demo-sustentacion.md](docs/demo-sustentacion.md) para el guion de evaluación y checklist contra requerimientos.
+
 ## Documentación
 
 | Guía | Contenido |
 |------|-----------|
 | [docs/README.md](docs/README.md) | Índice |
+| [docs/demo-sustentacion.md](docs/demo-sustentacion.md) | Guion de demo y checklist |
 | [docs/architecture.md](docs/architecture.md) | Clean Architecture, DI, flujo |
 | [docs/getting-started.md](docs/getting-started.md) | Arranque local, env, caveats |
 | [docs/api-and-ops.md](docs/api-and-ops.md) | Endpoints, auth, health/ops |
