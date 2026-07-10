@@ -5,6 +5,5 @@ public enum TelemetryMessageProcessingResult
 {
     ProcessedAndCommit,
     SentToDeadLetterAndCommit,
-    RetryWithoutCommit,
-    IgnoreWithoutCommit
+    RetryWithoutCommit
 }
