@@ -309,14 +309,16 @@ $env:Auth__DemoPassword="demo-password-change-me"
 dotnet run --project backend/FleetTelemetry.Api
 ```
 
-## SSE — decisión de polling
+## SSE — decisión MVP (polling)
 
-El dashboard usa SSE alimentado por un poller (`FleetSsePollerHostedService`):
+El dashboard usa SSE (`GET /api/events/stream`) alimentado por `FleetSsePollerHostedService`:
 
 - **Activo (3s):** cuando la flota cambió en el último ciclo.
 - **Idle (10s):** cuando no hay cambios (reduce carga en DB).
 
-En MVP no hay push directo Kafka→SSE; el polling con hash evita broadcasts redundantes. Para escalar: CDC o evento post-procesamiento en Worker.
+Es una **decisión MVP consciente**: no hay push Kafka→SSE; el poller lee TimescaleDB y publica solo si el hash del snapshot cambió. Suficiente para demo sin reescribir el pipeline.
+
+**Alternativas productivas** (documentadas, no implementadas): Worker publica al broker SSE tras persistir, o un consumidor Kafka dedicado alimenta el broker. Detalle en [`docs/realtime-sse.md`](docs/realtime-sse.md).
 
 ## CI (GitHub Actions)
 
