@@ -17,6 +17,7 @@ public class TelemetryConsumerWorker : BackgroundService
     private readonly KafkaOptions _kafkaOptions;
     private readonly ResiliencePipelineFactory _resilience;
     private readonly TelemetryMessageProcessor _messageProcessor;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<TelemetryConsumerWorker> _logger;
 
     public TelemetryConsumerWorker(
@@ -24,12 +25,14 @@ public class TelemetryConsumerWorker : BackgroundService
         IOptions<KafkaOptions> kafkaOptions,
         ResiliencePipelineFactory resilience,
         TelemetryMessageProcessor messageProcessor,
+        IHostApplicationLifetime lifetime,
         ILogger<TelemetryConsumerWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _kafkaOptions = kafkaOptions.Value;
         _resilience = resilience;
         _messageProcessor = messageProcessor;
+        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -45,24 +48,27 @@ public class TelemetryConsumerWorker : BackgroundService
             BootstrapServers = _kafkaOptions.BootstrapServers,
             GroupId = _kafkaOptions.ConsumerGroup,
             AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = false
+            EnableAutoCommit = false,
+            MaxPollIntervalMs = _kafkaOptions.MaxPollIntervalMilliseconds
         };
 
         using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
         consumer.Subscribe(_kafkaOptions.TelemetryTopic);
 
         _logger.LogInformation(
-            "Telemetry consumer started. Topic={Topic} DeadLetterTopic={DeadLetterTopic} Group={Group} MaxProcessingAttempts={MaxProcessingAttempts} RetryInitialDelayMs={RetryInitialDelayMs} RetryMaxDelayMs={RetryMaxDelayMs}",
+            "Telemetry consumer started. Topic={Topic} DeadLetterTopic={DeadLetterTopic} Group={Group} MaxProcessingAttempts={MaxProcessingAttempts} MaxDeadLetterPublishAttempts={MaxDeadLetterPublishAttempts} MaxPollIntervalMs={MaxPollIntervalMs} RetryInitialDelayMs={RetryInitialDelayMs} RetryMaxDelayMs={RetryMaxDelayMs}",
             _kafkaOptions.TelemetryTopic,
             _kafkaOptions.DeadLetterTopic,
             _kafkaOptions.ConsumerGroup,
             _kafkaOptions.MaxProcessingAttempts,
+            _kafkaOptions.MaxDeadLetterPublishAttempts,
+            _kafkaOptions.MaxPollIntervalMilliseconds,
             _kafkaOptions.RetryInitialDelayMilliseconds,
             _kafkaOptions.RetryMaxDelayMilliseconds);
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            ConsumeResult<string, string>? consumeResult = null;
+            ConsumeResult<string, string>? consumeResult;
 
             try
             {
@@ -78,19 +84,23 @@ public class TelemetryConsumerWorker : BackgroundService
                 break;
             }
 
-            if (consumeResult?.Message?.Value is null)
+            // Solo omitir cuando no hay resultado o Message; Value null se normaliza a vacío → DLQ.
+            if (consumeResult is null || consumeResult.Message is null)
                 continue;
 
             var message = new KafkaConsumedMessage(
-                Payload: consumeResult.Message.Value,
+                Payload: consumeResult.Message.Value ?? string.Empty,
                 Topic: consumeResult.Topic,
                 Partition: consumeResult.Partition.Value,
                 Offset: consumeResult.Offset.Value,
                 Key: consumeResult.Message.Key);
 
-            // No llamar a Consume() de nuevo hasta resolver este offset (o apagado).
+            var session = new DeadLetterPublishRetrySession(
+                _kafkaOptions.MaxDeadLetterPublishAttempts,
+                _kafkaOptions.RetryInitialDelayMilliseconds,
+                _kafkaOptions.RetryMaxDelayMilliseconds);
+
             var resolved = false;
-            var unexpectedFailureAttempt = 0;
             while (!resolved && !stoppingToken.IsCancellationRequested)
             {
                 try
@@ -106,24 +116,37 @@ public class TelemetryConsumerWorker : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    // p. ej. fallo al publicar DLQ: no confirmar; reintentar el mismo mensaje.
-                    unexpectedFailureAttempt++;
+                    var decision = session.RegisterFailure(
+                        ex,
+                        message.Topic,
+                        message.Partition,
+                        message.Offset);
+
+                    if (decision.ShouldStopWorker)
+                    {
+                        _logger.LogCritical(
+                            ex,
+                            "Dead-letter publish failed repeatedly; stopping worker without commit. Topic={Topic} Partition={Partition} Offset={Offset} Attempt={Attempt} MaxAttempts={MaxAttempts}",
+                            message.Topic,
+                            message.Partition,
+                            message.Offset,
+                            decision.Attempt,
+                            _kafkaOptions.MaxDeadLetterPublishAttempts);
+                        _lifetime.StopApplication();
+                        return;
+                    }
+
                     _logger.LogError(
                         ex,
-                        "Processing/DLQ error; offset not committed; will retry same message. Topic={Topic} Partition={Partition} Offset={Offset} UnexpectedAttempt={UnexpectedAttempt}",
+                        "DLQ or unexpected processing error; offset not committed. Topic={Topic} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                         message.Topic,
                         message.Partition,
                         message.Offset,
-                        unexpectedFailureAttempt);
-
-                    var delay = KafkaProcessingRetryBackoff.ComputeDelay(
-                        unexpectedFailureAttempt,
-                        _kafkaOptions.RetryInitialDelayMilliseconds,
-                        _kafkaOptions.RetryMaxDelayMilliseconds);
+                        decision.Attempt);
 
                     try
                     {
-                        await Task.Delay(delay, stoppingToken);
+                        await Task.Delay(decision.Delay, stoppingToken);
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
@@ -137,7 +160,6 @@ public class TelemetryConsumerWorker : BackgroundService
         _logger.LogInformation("Telemetry consumer stopped.");
     }
 
-    // Reintenta el mismo mensaje hasta commit, ignore o cancelación.
     private async Task<bool> ProcessUntilTerminalAsync(
         KafkaConsumedMessage message,
         CancellationToken stoppingToken)
@@ -167,9 +189,6 @@ public class TelemetryConsumerWorker : BackgroundService
                 case TelemetryMessageProcessingResult.SentToDeadLetterAndCommit:
                     return true;
 
-                case TelemetryMessageProcessingResult.IgnoreWithoutCommit:
-                    return false;
-
                 case TelemetryMessageProcessingResult.RetryWithoutCommit:
                     var delay = KafkaProcessingRetryBackoff.ComputeDelay(
                         attempt,
@@ -177,12 +196,13 @@ public class TelemetryConsumerWorker : BackgroundService
                         _kafkaOptions.RetryMaxDelayMilliseconds);
 
                     _logger.LogInformation(
-                        "Retrying same Kafka offset after backoff. Attempt={Attempt} DelayMs={DelayMs} Topic={Topic} Partition={Partition} Offset={Offset}",
+                        "Retrying same Kafka offset after backoff. Attempt={Attempt} DelayMs={DelayMs} Topic={Topic} Partition={Partition} Offset={Offset} Group={Group}",
                         attempt,
                         delay.TotalMilliseconds,
                         message.Topic,
                         message.Partition,
-                        message.Offset);
+                        message.Offset,
+                        _kafkaOptions.ConsumerGroup);
 
                     await Task.Delay(delay, stoppingToken);
                     break;

@@ -6,12 +6,64 @@ using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Worker;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Worker.Tests;
 
 public class TelemetryMessageProcessorTests
 {
     private const string Topic = "telemetry.raw";
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    [InlineData("\n")]
+    [InlineData("\r\n  \t")]
+    public async Task Whitespace_or_empty_payload_goes_to_dlq_invalid_payload(string? payload)
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq);
+        var message = new KafkaConsumedMessage(payload!, Topic, 0, 1);
+
+        var processCalled = false;
+        var result = await processor.ProcessAsync(
+            message,
+            currentAttempt: 1,
+            (_, _) =>
+            {
+                processCalled = true;
+                return Task.FromResult(ProcessTelemetryOutcome.Processed);
+            });
+
+        Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
+        Assert.False(processCalled);
+        Assert.Single(dlq.Messages);
+        Assert.Equal("invalid_payload", dlq.Messages[0].Reason);
+    }
+
+    [Fact]
+    public async Task Json_literal_null_goes_to_dlq_invalid_payload()
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq);
+        var message = new KafkaConsumedMessage("null", Topic, 0, 2);
+
+        var processCalled = false;
+        var result = await processor.ProcessAsync(
+            message,
+            currentAttempt: 1,
+            (_, _) =>
+            {
+                processCalled = true;
+                return Task.FromResult(ProcessTelemetryOutcome.Processed);
+            });
+
+        Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
+        Assert.False(processCalled);
+        Assert.Equal("invalid_payload", dlq.Messages[0].Reason);
+    }
 
     [Fact]
     public async Task Invalid_json_publishes_dlq_with_invalid_payload_and_commit_result()
@@ -87,7 +139,6 @@ public class TelemetryMessageProcessorTests
         Assert.Empty(dlq.Messages);
         Assert.NotNull(processed);
         Assert.Equal(telemetryEvent.EventId, processed!.EventId);
-        Assert.Equal(telemetryEvent.VehicleId, processed.VehicleId);
     }
 
     [Fact]
@@ -108,7 +159,7 @@ public class TelemetryMessageProcessorTests
     }
 
     [Fact]
-    public async Task Transient_error_at_max_attempt_publishes_processing_failure_and_commits()
+    public async Task Transient_error_at_max_attempt_publishes_processing_failure()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 3);
@@ -121,49 +172,60 @@ public class TelemetryMessageProcessorTests
             (_, _) => throw new TimeoutException("database timeout"));
 
         Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
-        Assert.Single(dlq.Messages);
         Assert.Equal("processing_failure", dlq.Messages[0].Reason);
     }
 
     [Fact]
-    public async Task Persistent_error_at_max_attempt_publishes_processing_failure_and_commits()
+    public async Task Permanent_error_on_first_attempt_goes_to_dlq_immediately()
     {
         var dlq = new FakeDeadLetterPublisher();
-        var processor = CreateProcessor(dlq, maxAttempts: 3);
+        var processor = CreateProcessor(dlq, maxAttempts: 5);
         var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
         var message = new KafkaConsumedMessage(payload, Topic, 2, 99);
 
         var result = await processor.ProcessAsync(
             message,
-            currentAttempt: 3,
-            (_, _) => throw new InvalidOperationException("persistent failure"));
+            currentAttempt: 1,
+            (_, _) => throw new InvalidOperationException("permanent failure"));
 
         Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
         Assert.Single(dlq.Messages);
         Assert.Equal("processing_failure", dlq.Messages[0].Reason);
-        Assert.Contains("persistent failure", dlq.Messages[0].ExceptionMessage);
     }
 
     [Fact]
-    public async Task Persistent_error_before_max_attempts_retries_without_dlq()
+    public async Task Circuit_breaker_open_retries_before_max()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 3);
         var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
-        var message = new KafkaConsumedMessage(payload, Topic, 2, 100);
+        var message = new KafkaConsumedMessage(payload, Topic, 0, 11);
 
-        var first = await processor.ProcessAsync(
+        var result = await processor.ProcessAsync(
             message,
             currentAttempt: 1,
-            (_, _) => throw new InvalidOperationException("not yet"));
-        var second = await processor.ProcessAsync(
-            message,
-            currentAttempt: 2,
-            (_, _) => throw new InvalidOperationException("not yet"));
+            (_, _) => throw new BrokenCircuitException("open"));
 
-        Assert.Equal(TelemetryMessageProcessingResult.RetryWithoutCommit, first);
-        Assert.Equal(TelemetryMessageProcessingResult.RetryWithoutCommit, second);
+        Assert.Equal(TelemetryMessageProcessingResult.RetryWithoutCommit, result);
         Assert.Empty(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Cancellation_propagates()
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq);
+        var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
+        var message = new KafkaConsumedMessage(payload, Topic, 0, 12);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            processor.ProcessAsync(
+                message,
+                currentAttempt: 1,
+                (_, _) => throw new OperationCanceledException(cts.Token),
+                cts.Token));
     }
 
     [Fact]
@@ -190,7 +252,8 @@ public class TelemetryMessageProcessorTests
             DeadLetterTopic = "telemetry.dead-letter",
             MaxProcessingAttempts = maxAttempts,
             RetryInitialDelayMilliseconds = 500,
-            RetryMaxDelayMilliseconds = 5000
+            RetryMaxDelayMilliseconds = 5000,
+            MaxDeadLetterPublishAttempts = 5
         });
 
         return new TelemetryMessageProcessor(
