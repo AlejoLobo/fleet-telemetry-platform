@@ -3,11 +3,14 @@
 #
 # Stack completo en contenedores (API + Worker + Web):
 #   docker compose --profile app up -d --build
+#
+# Defaults de credenciales solo para desarrollo local.
 
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
     container_name: fleet-redpanda
+    restart: unless-stopped
     command:
       - redpanda
       - start
@@ -39,24 +42,35 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        rpk topic create telemetry.raw --brokers redpanda:9092 || true
-        rpk topic create telemetry.dead-letter --brokers redpanda:9092 || true
+        set -e
+        ensure_topic() {
+          topic="$$1"
+          if rpk topic list --brokers redpanda:9092 | awk 'NR>1 {print $$1}' | grep -Fxq "$$topic"; then
+            echo "Topic already exists: $$topic"
+          else
+            rpk topic create "$$topic" --brokers redpanda:9092
+            echo "Topic created: $$topic"
+          fi
+        }
+        ensure_topic telemetry.raw
+        ensure_topic telemetry.dead-letter
         echo "Kafka topics ready"
     restart: "no"
 
   timescaledb:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.17.2-pg16
     container_name: fleet-timescaledb
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: fleet
-      POSTGRES_PASSWORD: fleet
-      POSTGRES_DB: fleet
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
     ports:
       - "5432:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-fleet} -d $${POSTGRES_DB:-fleet}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,18 +81,30 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: fleet-api
+    restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "${API_PORT:-5000}:5000"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
-      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet
+      TimescaleDb__ConnectionString: ${TIMESCALEDB_CONNECTION_STRING:-Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet}
       Auth__Enabled: "false"
+      Kafka__MaxProcessingAttempts: ${Kafka__MaxProcessingAttempts:-3}
+      Kafka__MaxDeadLetterPublishAttempts: ${Kafka__MaxDeadLetterPublishAttempts:-5}
+      Kafka__MaxPollIntervalMilliseconds: ${Kafka__MaxPollIntervalMilliseconds:-300000}
     depends_on:
       redpanda:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   worker:
     profiles: ["app"]
@@ -86,17 +112,23 @@ services:
       context: ./backend
       dockerfile: Dockerfile.worker
     container_name: fleet-worker
+    restart: unless-stopped
     environment:
       DOTNET_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
-      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet
+      TimescaleDb__ConnectionString: ${TIMESCALEDB_CONNECTION_STRING:-Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet}
+      Kafka__MaxProcessingAttempts: ${Kafka__MaxProcessingAttempts:-3}
+      Kafka__RetryInitialDelayMilliseconds: ${Kafka__RetryInitialDelayMilliseconds:-500}
+      Kafka__RetryMaxDelayMilliseconds: ${Kafka__RetryMaxDelayMilliseconds:-5000}
+      Kafka__MaxDeadLetterPublishAttempts: ${Kafka__MaxDeadLetterPublishAttempts:-5}
+      Kafka__MaxPollIntervalMilliseconds: ${Kafka__MaxPollIntervalMilliseconds:-300000}
     depends_on:
       redpanda:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
-      api:
-        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   web:
     profiles: ["app"]
@@ -106,10 +138,12 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:5000
     container_name: fleet-web
+    restart: unless-stopped
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   timescale_data:
