@@ -49,7 +49,8 @@ sequenceDiagram
   - API: `TelemetryEventValidator` (DTO `TelemetryEventRequest`).
   - Worker: `TelemetryDomainEventValidator` (entidad tras deserializar JSON de Kafka).
 - **SSE:** polling a TimescaleDB (`FleetSsePollerHostedService`), no push desde Kafka. Ver [realtime-sse.md](realtime-sse.md).
-- **Resiliencia:** circuit breaker + retry en Kafka produce, procesamiento DB y OpenAI. Estado en `GET /health`.
+- **Resiliencia:** circuit breaker + retry en Kafka produce, DB (solo transitorios vía `DatabaseTransientFailureClassifier`) y OpenAI. Estado en `GET /health`.
+- **Kafka at-least-once:** mismo `ConsumeResult` hasta terminal; sin exactly-once end-to-end; orden solo por partición; Worker serial.
 
 ## Alertas (Worker)
 
