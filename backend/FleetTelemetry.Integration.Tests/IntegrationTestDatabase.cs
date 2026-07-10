@@ -24,7 +24,7 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
         }
 
         _container = new PostgreSqlBuilder()
-            .WithImage("timescale/timescaledb:latest-pg16")
+            .WithImage("timescale/timescaledb:2.17.2-pg16")
             .WithDatabase("fleet")
             .WithUsername("fleet")
             .WithPassword("fleet")
