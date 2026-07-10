@@ -60,6 +60,10 @@ Referencia: [../.env.example](../.env.example). Convención ASP.NET: `Section__K
 | `Kafka__MaxProcessingAttempts` | Intentos del mismo offset antes de DLQ (default `3`) |
 | `Kafka__RetryInitialDelayMilliseconds` | Backoff inicial (default `500`) |
 | `Kafka__RetryMaxDelayMilliseconds` | Tope de backoff (default `5000`) |
+| `Kafka__MaxDeadLetterPublishAttempts` | Fallos DLQ antes de detener Worker (default `5`) |
+| `Kafka__MaxPollIntervalMilliseconds` | `MaxPollIntervalMs` (default `300000`) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Defaults locales de desarrollo (`fleet`) |
+| `TIMESCALEDB_CONNECTION_STRING` | Connection string Compose (default hacia servicio `timescaledb`) |
 | `Auth__Enabled` | Default `false` |
 | `Auth__JwtSecret` / `Auth__DemoPassword` | Obligatorios si Auth habilitado (≥ 32 chars el secret) |
 | `OpenAI__ApiKey` | Opcional |

@@ -1,85 +1,76 @@
 # Worker Kafka y Dead Letter Queue
 
+## Garantías
+
+- Kafka: **at-least-once** (no exactly-once end-to-end).
+- Idempotencia por `EventId` en TimescaleDB.
+- Commit manual (`EnableAutoCommit = false`).
+- Reintento del **mismo** `ConsumeResult` antes del siguiente `Consume()`.
+- DLQ exitosa antes del commit; fallo de DLQ ⇒ **sin** commit (redelivery tras reinicio).
+- Orden **solo** dentro de una partición; no hay orden global.
+- El Worker procesa **serialmente**; un mensaje bloqueado puede detener todas las particiones asignadas a esa instancia. Evolución productiva: pause/resume por partición.
+
 ## Componentes
 
 | Pieza | Rol |
 |-------|-----|
-| `TelemetryConsumerWorker` | `Consume` → reintentos del **mismo** offset → `Commit` solo al terminal |
-| `TelemetryMessageProcessor` | Deserializar, validar dominio, procesar, publicar DLQ (sin estado en memoria) |
-| `KafkaProcessingRetryBackoff` | Backoff exponencial + jitter entre intentos |
-| `IDeadLetterPublisher` / `KafkaDeadLetterPublisher` | Publica en `telemetry.dead-letter` |
-| `ProcessTelemetryEventUseCase` | Persistencia vía UoW transaccional |
-
-`EnableAutoCommit = false`. El offset se confirma **solo** cuando el resultado indica commit.
+| `TelemetryConsumerWorker` | `Consume` → reintentos del mismo offset → `Commit` solo al terminal |
+| `TelemetryMessageProcessor` | Deserializar, validar, clasificar fallos, DLQ (stateless) |
+| `KafkaProcessingRetryBackoff` | Backoff exponencial + jitter **acotado** al máximo |
+| `DeadLetterPublishRetrySession` | Límite de fallos al publicar DLQ; detiene el host sin commit |
+| `DatabaseTransientFailureClassifier` | SQLSTATE / Npgsql → transitorio vs permanente |
+| `IDeadLetterPublisher` | Publica en `telemetry.dead-letter` |
 
 ## At-least-once (mismo offset)
 
-Tras `Consume`, el Worker **no** llama a `Consume()` de nuevo hasta resolver el mensaje actual:
+Tras `Consume`, no se llama a `Consume()` de nuevo hasta:
 
 1. Procesamiento OK o duplicado → commit.
-2. Payload inválido → DLQ `invalid_payload` → commit (si DLQ OK).
-3. Fallo de procesamiento → reintento del mismo `ConsumeResult` con backoff.
-4. `currentAttempt >= MaxProcessingAttempts` → DLQ `processing_failure` → commit (si DLQ OK).
-5. Fallo al publicar DLQ → no commit; se reintenta el mismo mensaje.
-6. Cancelación / apagado → sale sin commit.
-
-Así no se confirma un offset posterior mientras uno anterior sigue pendiente (garantía at-least-once + idempotencia por `EventId` en DB).
+2. Payload inválido/vacío/whitespace → DLQ `invalid_payload` → commit (si DLQ OK).
+3. Fallo transitorio → reintento + backoff; al agotar intentos → DLQ `processing_failure`.
+4. Fallo permanente → DLQ inmediata.
+5. Fallo al publicar DLQ → reintento acotado; al límite → `LogCritical` + stop del Worker **sin** commit.
+6. Cancelación / apagado → sin commit.
 
 ## Resultados de procesamiento
 
 | Resultado | Commit | Uso |
 |-----------|--------|-----|
-| `ProcessedAndCommit` | Sí | Evento válido procesado |
+| `ProcessedAndCommit` | Sí | Evento válido / duplicado tratado |
 | `SentToDeadLetterAndCommit` | Sí | DLQ publicada con éxito |
-| `RetryWithoutCommit` | No | Reintentar el **mismo** offset tras backoff |
-| `IgnoreWithoutCommit` | No | Payload vacío / ignorado |
+| `RetryWithoutCommit` | No | Reintentar el mismo offset tras backoff |
 
-`ProcessAsync(message, currentAttempt, ...)` recibe el intento desde el consumidor (no hay contador en memoria en el processor).
+`IgnoreWithoutCommit` fue **eliminado**: no hay camino que avance sin DLQ ni commit explícito para payloads vacíos.
 
 ## Configuración (`Kafka`)
 
 | Clave | Default | Rol |
 |-------|---------|-----|
-| `MaxProcessingAttempts` | `3` | Intentos del mismo mensaje antes de DLQ |
-| `RetryInitialDelayMilliseconds` | `500` | Delay base del backoff |
-| `RetryMaxDelayMilliseconds` | `5000` | Tope del backoff |
+| `MaxProcessingAttempts` | `3` | Intentos del mismo mensaje antes de DLQ (transitorios) |
+| `RetryInitialDelayMilliseconds` | `500` | Delay base |
+| `RetryMaxDelayMilliseconds` | `5000` | Tope del backoff (incluye jitter) |
+| `MaxDeadLetterPublishAttempts` | `5` | Fallos de publicación DLQ antes de detener el Worker |
+| `MaxPollIntervalMilliseconds` | `300000` | `MaxPollIntervalMs` del consumidor; debe superar el peor escenario de procesamiento + Polly + backoff + DLQ |
 
-Validadas al arranque (`ConfigurationValidator`).
+## Validación de payload
 
-## Validación
+`string.IsNullOrWhiteSpace` → DLQ `invalid_payload`. También JSON inválido, `null` literal y dominio inválido.
 
-1. `TelemetryEventJsonSerializer.Deserialize` — JSON → `TelemetryEvent` (no aplica reglas de negocio).
-2. `TelemetryDomainEventValidator.Validate` — `EventId`, `VehicleId`, `Timestamp`, lat/lon, `SpeedKmh ≥ 0`.
+## Fallos DB
 
-Distinto de `TelemetryEventValidator` (API, DTO de `POST /api/telemetry`).
-
-JSON parcial como `{"vehicleId":"VH-001"}` deserializa pero falla dominio → DLQ `invalid_payload`.
-
-## Comportamiento DLQ
-
-Tópico: `telemetry.dead-letter` (`KafkaOptions.DeadLetterTopic`).
-
-Payload DLQ (camelCase): `originalPayload`, `reason`, `exceptionMessage`, `originalTopic`, `partition`, `offset`, `occurredAt`.
-
-| Caso | Reason | DLQ | Commit |
-|------|--------|-----|--------|
-| JSON inválido / dominio inválido | `invalid_payload` | Sí | Solo si DLQ OK |
-| Cualquier fallo de procesamiento con `currentAttempt >= MaxProcessingAttempts` | `processing_failure` | Sí | Solo si DLQ OK |
-| Fallo con `currentAttempt < Max` (transitorio, circuit breaker u otro) | — | No | No (retry mismo offset + backoff) |
+Polly y el processor usan `DatabaseTransientFailureClassifier.IsTransient`. Errores permanentes (constraints, esquema, tipos) van a DLQ inmediata; no abren el circuit breaker ni agotan reintentos inútiles.
 
 ## Verificar DLQ localmente
 
 ```bash
-# Payload inválido directo a Kafka (la API rechazaría el DTO con 400)
 printf '%s\n' '{"vehicleId":"SMOKE-DLQ"}' | \
   docker exec -i fleet-redpanda rpk topic produce telemetry.raw --brokers localhost:9092
 
-# Consumir DLQ
 docker exec fleet-redpanda rpk topic consume telemetry.dead-letter -n 5 --brokers localhost:9092
 ```
 
-O usar el smoke test: [../scripts/smoke-test.ps1](../scripts/smoke-test.ps1).
+O smoke: [../scripts/smoke-test.ps1](../scripts/smoke-test.ps1).
 
-## Tests unitarios del processor
+## Tests
 
-Proyecto `FleetTelemetry.Worker.Tests` — fakes de `IDeadLetterPublisher`, backoff unitario, sin Kafka real. Ver [testing.md](testing.md).
+`FleetTelemetry.Worker.Tests` (unitarios) + `FleetTelemetry.Integration.Tests` (Kafka real vía Testcontainers). Ver [testing.md](testing.md).
