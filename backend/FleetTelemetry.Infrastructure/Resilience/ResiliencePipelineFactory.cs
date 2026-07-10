@@ -1,10 +1,8 @@
 using Confluent.Kafka;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Npgsql;
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
@@ -115,9 +113,7 @@ public sealed class ResiliencePipelineFactory
     private ResiliencePipeline BuildDatabasePipeline(CircuitBreakerPolicyOptions options)
     {
         var shouldHandle = new PredicateBuilder()
-            .Handle<NpgsqlException>(IsTransientDatabaseError)
-            .Handle<DbUpdateException>()
-            .Handle<TimeoutException>();
+            .Handle<Exception>(DatabaseTransientFailureClassifier.IsTransient);
 
         var builder = new ResiliencePipelineBuilder();
 
@@ -172,7 +168,4 @@ public sealed class ResiliencePipelineFactory
         _logger.LogInformation("Circuit breaker HALF-OPEN para {Dependency} (probando recuperación)", dependency);
         return ValueTask.CompletedTask;
     }
-
-    private static bool IsTransientDatabaseError(NpgsqlException ex) =>
-        ex.IsTransient || ex.SqlState is "40001" or "40P01" or "53300" or "57P03";
 }
