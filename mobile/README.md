@@ -31,6 +31,51 @@ npm install
 npx expo start
 ```
 
+## EAS Preview (Android APK)
+
+Build de preview **manual** vía GitHub Actions. No publica en Play Store ni App Store.
+
+### Prerrequisito (una vez por proyecto)
+
+1. Crear cuenta en [expo.dev](https://expo.dev).
+2. Vincular el proyecto local con EAS (genera `extra.eas.projectId` en `app.json`):
+
+```bash
+cd mobile
+npx eas-cli login
+npx eas init
+```
+
+3. Configurar el secret `EXPO_TOKEN` en GitHub:
+   - Expo → **Account settings** → **Access tokens** → **Create token**
+   - GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+   - Nombre: `EXPO_TOKEN`, valor: el token de Expo
+
+### Lanzar el workflow
+
+1. GitHub → **Actions** → **Mobile Preview Build**
+2. **Run workflow** → branch `main`
+3. Opcional: `api_url` (default `http://localhost:5000`; en dispositivo físico usa la IP de tu máquina, p. ej. `http://192.168.1.10:5000`)
+4. Esperar a que termine el job (EAS compila en la nube)
+
+### Artefacto producido
+
+| Campo | Valor |
+|-------|-------|
+| Tipo | APK Android (`buildType: apk`) |
+| Perfil | `preview` en `eas.json` |
+| Distribución | `internal` (descarga directa, sin tiendas) |
+| Dónde descargar | [expo.dev](https://expo.dev) → proyecto **fleet-telemetry-mobile** → **Builds** |
+
+La lógica offline-first (SQLite, cola local, sync batch) no cambia; el APK empaqueta la misma app Expo 52.
+
+### Build local con EAS (opcional)
+
+```bash
+cd mobile
+eas build --platform android --profile preview
+```
+
 ## Funcionalidades
 
 - Captura periódica de telemetría (GPS o simulado)

@@ -228,7 +228,7 @@ Limitaciones conscientes del MVP (defendibles en sustentación):
 
 - **No hay despliegue productivo ECS/MSK completo.** El Terraform en `infra/terraform/` es un **blueprint** (VPC, RDS PostgreSQL, ECS cluster, security groups), no una plataforma cloud lista para producción. Faltan MSK/Kafka gestionado, task definitions, ALB y despliegue del dashboard.
 - **Druid real no está implementado.** Existe el contrato intercambiable `IAnalyticsQueryService`; hoy se usa `TimescaleAnalyticsQueryService`. Ver `docs/analytics-druid-mock.md`.
-- **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck en cambios de `mobile/`; el workflow principal `ci.yml` también ejecuta mobile en cada push/PR.
+- **Mobile CI** (`.github/workflows/mobile-ci.yml`) valida `npm ci` + typecheck en cambios de `mobile/`; el workflow principal `ci.yml` también ejecuta mobile en cada push/PR. **Preview APK** disponible manualmente vía `mobile-preview.yml` (EAS, sin tiendas).
 - **OpenAI es opcional.** El agente operativo funciona sin LLM externo vía tools internas; OpenAI solo pule redacción si hay API key.
 - **JWT parcial en API:** con `Auth:Enabled=true` protege ingesta y ack de alertas; lectura de flota/SSE/IA permanece abierta en el MVP.
 - **Circuit breaker y retry** aplican a Kafka, TimescaleDB (Worker) y OpenAI, con estado observable en `/health`.
@@ -330,7 +330,9 @@ Workflow principal: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — b
 
 Workflow adicional para cambios en mobile: [`.github/workflows/mobile-ci.yml`](.github/workflows/mobile-ci.yml).
 
-**Sin despliegue productivo** en CI (no ECS, no EAS build, no App Store/Play Store).
+**Preview mobile manual (sin tiendas):** [`.github/workflows/mobile-preview.yml`](.github/workflows/mobile-preview.yml) — `workflow_dispatch` que genera un **APK Android** con EAS profile `preview`. Requiere secret `EXPO_TOKEN`. Ver `mobile/README.md`.
+
+**Sin despliegue productivo automático** en CI (no ECS, no Play Store, no App Store en push/PR).
 
 ### .NET 10 en CI
 
