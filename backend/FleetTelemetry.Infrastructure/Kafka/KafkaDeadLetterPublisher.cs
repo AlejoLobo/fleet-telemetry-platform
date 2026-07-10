@@ -10,8 +10,8 @@ using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Infrastructure.Kafka;
 
-// Publica mensajes fallidos en el tópico DLQ de Kafka.
-public class KafkaDeadLetterPublisher : IKafkaDeadLetterPublisher, IDisposable
+// Publica mensajes fallidos en el tópico telemetry.dead-letter.
+public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -48,26 +48,34 @@ public class KafkaDeadLetterPublisher : IKafkaDeadLetterPublisher, IDisposable
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var kafkaMessage = new Message<string, string>
         {
-            Key = message.OriginalKey ?? "unknown",
+            Key = $"{message.OriginalTopic}:{message.Partition}:{message.Offset}",
             Value = json
         };
 
         try
         {
-            await _resilience.KafkaPublishPipeline.ExecuteAsync(
-                async token => await _producer.ProduceAsync(_options.DlqTopic, kafkaMessage, token),
+            var result = await _resilience.KafkaPublishPipeline.ExecuteAsync(
+                async token => await _producer.ProduceAsync(_options.DeadLetterTopic, kafkaMessage, token),
                 cancellationToken);
 
             _logger.LogWarning(
-                "Mensaje enviado a DLQ topic={Topic} partition={Partition} offset={Offset} reason={Reason}",
-                _options.DlqTopic,
+                "Dead letter message published. DeadLetterTopic={DeadLetterTopic} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} Reason={Reason} DlqPartition={DlqPartition} DlqOffset={DlqOffset}",
+                _options.DeadLetterTopic,
+                message.OriginalTopic,
                 message.Partition,
                 message.Offset,
-                message.FailureReason);
+                message.Reason,
+                result.Partition.Value,
+                result.Offset.Value);
         }
         catch (BrokenCircuitException ex)
         {
-            _logger.LogError(ex, "No se pudo publicar en DLQ; circuit breaker Kafka abierto");
+            _logger.LogError(
+                ex,
+                "Dead letter publish blocked by Kafka circuit breaker. OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset}",
+                message.OriginalTopic,
+                message.Partition,
+                message.Offset);
             throw;
         }
     }
