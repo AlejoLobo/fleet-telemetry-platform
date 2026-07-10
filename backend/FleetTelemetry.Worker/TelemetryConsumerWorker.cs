@@ -2,6 +2,7 @@ using Confluent.Kafka;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
@@ -84,8 +85,9 @@ public class TelemetryConsumerWorker : BackgroundService
                 try
                 {
                     telemetryEvent = TelemetryEventJsonSerializer.Deserialize(consumeResult.Message.Value);
+                    TelemetryDomainEventValidator.Validate(telemetryEvent);
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
                 {
                     await PublishDeadLetterAndCommitAsync(
                         consumer,
@@ -140,18 +142,6 @@ public class TelemetryConsumerWorker : BackgroundService
             catch (ConsumeException ex)
             {
                 _logger.LogError(ex, "Kafka consume error. Reason={Reason}", ex.Error.Reason);
-            }
-            catch (InvalidOperationException ex)
-            {
-                if (consumeResult is not null)
-                {
-                    await PublishDeadLetterAndCommitAsync(
-                        consumer,
-                        consumeResult,
-                        reason: "validation_error",
-                        exceptionMessage: ex.Message,
-                        cancellationToken: stoppingToken);
-                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

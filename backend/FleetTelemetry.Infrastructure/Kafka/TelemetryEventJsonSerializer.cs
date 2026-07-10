@@ -18,6 +18,7 @@ public static class TelemetryEventJsonSerializer
         JsonSerializer.Serialize(telemetryEvent, Options);
 
     // Deserializa JSON a entidad de dominio.
+    // No aplica reglas de negocio: el Worker debe llamar a TelemetryDomainEventValidator.Validate después.
     public static TelemetryEvent Deserialize(string json) =>
         JsonSerializer.Deserialize<TelemetryEvent>(json, Options)
         ?? throw new InvalidOperationException("Unable to deserialize telemetry event.");
