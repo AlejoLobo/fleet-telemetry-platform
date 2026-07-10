@@ -10,7 +10,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:5000"
+        "EXPO_PUBLIC_API_URL": "http://localhost:5000",
+        "EXPO_PUBLIC_VEHICLE_ID": "VH-001",
+        "EXPO_PUBLIC_DRIVER_ID": "DRV-001"
       }
     }
   }

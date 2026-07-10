@@ -1,0 +1,64 @@
+name: Mobile Preview Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: EXPO_PUBLIC_API_URL embebida en el APK (usa IP/LAN si pruebas en dispositivo físico)
+        required: false
+        default: http://localhost:5000
+        type: string
+
+concurrency:
+  group: mobile-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eas-preview-android:
+    name: EAS Preview (Android APK)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify package-lock.json
+        run: test -f package-lock.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android preview APK
+        run: eas build --platform android --profile preview --non-interactive --env EXPO_PUBLIC_API_URL=${{ inputs.api_url }}
+
+      - name: Build summary
+        run: |
+          {
+            echo "## Mobile preview build"
+            echo ""
+            echo "- **Plataforma:** Android"
+            echo "- **Perfil EAS:** \`preview\` (distribución internal, sin Play Store)"
+            echo "- **Artefacto:** APK instalable"
+            echo "- **API URL embebida:** \`${{ inputs.api_url }}\`"
+            echo ""
+            echo "Descarga el APK en [expo.dev](https://expo.dev) → proyecto **fleet-telemetry-mobile** → **Builds**."
+            echo ""
+            echo "Este workflow no publica en Play Store ni App Store."
+          } >> "$GITHUB_STEP_SUMMARY"
