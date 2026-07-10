@@ -23,6 +23,7 @@ public class TelemetryMessageProcessorTests
         var processCalled = false;
         var result = await processor.ProcessAsync(
             message,
+            currentAttempt: 1,
             (_, _) =>
             {
                 processCalled = true;
@@ -49,6 +50,7 @@ public class TelemetryMessageProcessorTests
         var processCalled = false;
         var result = await processor.ProcessAsync(
             message,
+            currentAttempt: 1,
             (_, _) =>
             {
                 processCalled = true;
@@ -74,6 +76,7 @@ public class TelemetryMessageProcessorTests
         TelemetryEvent? processed = null;
         var result = await processor.ProcessAsync(
             message,
+            currentAttempt: 1,
             (evt, _) =>
             {
                 processed = evt;
@@ -88,7 +91,7 @@ public class TelemetryMessageProcessorTests
     }
 
     [Fact]
-    public async Task Transient_db_error_does_not_publish_dlq_and_retries_without_commit()
+    public async Task Transient_db_error_before_max_attempts_retries_without_dlq()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 3);
@@ -97,6 +100,7 @@ public class TelemetryMessageProcessorTests
 
         var result = await processor.ProcessAsync(
             message,
+            currentAttempt: 1,
             (_, _) => throw new TimeoutException("database timeout"));
 
         Assert.Equal(TelemetryMessageProcessingResult.RetryWithoutCommit, result);
@@ -104,20 +108,35 @@ public class TelemetryMessageProcessorTests
     }
 
     [Fact]
-    public async Task Persistent_error_after_max_attempts_publishes_processing_failure_and_commits()
+    public async Task Transient_error_at_max_attempt_publishes_processing_failure_and_commits()
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq, maxAttempts: 3);
+        var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
+        var message = new KafkaConsumedMessage(payload, Topic, 0, 8);
+
+        var result = await processor.ProcessAsync(
+            message,
+            currentAttempt: 3,
+            (_, _) => throw new TimeoutException("database timeout"));
+
+        Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
+        Assert.Single(dlq.Messages);
+        Assert.Equal("processing_failure", dlq.Messages[0].Reason);
+    }
+
+    [Fact]
+    public async Task Persistent_error_at_max_attempt_publishes_processing_failure_and_commits()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 3);
         var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
         var message = new KafkaConsumedMessage(payload, Topic, 2, 99);
 
-        TelemetryMessageProcessingResult result = TelemetryMessageProcessingResult.IgnoreWithoutCommit;
-        for (var i = 0; i < 3; i++)
-        {
-            result = await processor.ProcessAsync(
-                message,
-                (_, _) => throw new InvalidOperationException("persistent failure"));
-        }
+        var result = await processor.ProcessAsync(
+            message,
+            currentAttempt: 3,
+            (_, _) => throw new InvalidOperationException("persistent failure"));
 
         Assert.Equal(TelemetryMessageProcessingResult.SentToDeadLetterAndCommit, result);
         Assert.Single(dlq.Messages);
@@ -135,9 +154,11 @@ public class TelemetryMessageProcessorTests
 
         var first = await processor.ProcessAsync(
             message,
+            currentAttempt: 1,
             (_, _) => throw new InvalidOperationException("not yet"));
         var second = await processor.ProcessAsync(
             message,
+            currentAttempt: 2,
             (_, _) => throw new InvalidOperationException("not yet"));
 
         Assert.Equal(TelemetryMessageProcessingResult.RetryWithoutCommit, first);
@@ -155,6 +176,7 @@ public class TelemetryMessageProcessorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             processor.ProcessAsync(
                 message,
+                currentAttempt: 1,
                 (_, _) => Task.FromResult(ProcessTelemetryOutcome.Processed)));
     }
 
@@ -166,7 +188,9 @@ public class TelemetryMessageProcessorTests
         {
             TelemetryTopic = Topic,
             DeadLetterTopic = "telemetry.dead-letter",
-            MaxProcessingAttempts = maxAttempts
+            MaxProcessingAttempts = maxAttempts,
+            RetryInitialDelayMilliseconds = 500,
+            RetryMaxDelayMilliseconds = 5000
         });
 
         return new TelemetryMessageProcessor(

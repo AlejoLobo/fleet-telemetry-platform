@@ -27,6 +27,8 @@ public static class ConfigurationValidator
             }
         }
 
+        ValidateKafkaOptions(configuration);
+
         if (environment.IsDevelopment())
             return;
 
@@ -42,6 +44,35 @@ public static class ConfigurationValidator
         {
             throw new InvalidOperationException(
                 "OpenAI:ApiKey es obligatoria cuando OpenAI está habilitado.");
+        }
+    }
+
+    private static void ValidateKafkaOptions(IConfiguration configuration)
+    {
+        var kafka = configuration.GetSection(KafkaOptions.SectionName).Get<KafkaOptions>() ?? new KafkaOptions();
+
+        if (kafka.MaxProcessingAttempts < 1)
+        {
+            throw new InvalidOperationException(
+                "Kafka:MaxProcessingAttempts debe ser mayor o igual a 1.");
+        }
+
+        if (kafka.RetryInitialDelayMilliseconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Kafka:RetryInitialDelayMilliseconds debe ser mayor que 0.");
+        }
+
+        if (kafka.RetryMaxDelayMilliseconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Kafka:RetryMaxDelayMilliseconds debe ser mayor que 0.");
+        }
+
+        if (kafka.RetryMaxDelayMilliseconds < kafka.RetryInitialDelayMilliseconds)
+        {
+            throw new InvalidOperationException(
+                "Kafka:RetryMaxDelayMilliseconds debe ser mayor o igual a Kafka:RetryInitialDelayMilliseconds.");
         }
     }
 }
