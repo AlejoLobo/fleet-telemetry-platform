@@ -6,12 +6,14 @@ Comandos estándar y arquitectura: [README.md](README.md) y [docs/getting-starte
 
 ### Orden de arranque
 
-1. **Infra:** `docker compose up -d` → Redpanda (`localhost:19092`) + TimescaleDB (`localhost:5432`, db/user/pass `fleet`). Tópicos: `telemetry.raw`, `telemetry.dead-letter`.
-2. **Worker** (`dotnet run --project FleetTelemetry.Worker` en `backend/`): consume Kafka y crea el esquema TimescaleDB al iniciar. Conviene antes que la API.
+1. **Infra:** `docker compose up -d` → Redpanda (`localhost:19092`) + TimescaleDB (`localhost:5432`, defaults de desarrollo `fleet`). Imagen fija `timescale/timescaledb:2.17.2-pg16`. Tópicos: `telemetry.raw`, `telemetry.dead-letter`.
+2. **Worker** (`dotnet run --project FleetTelemetry.Worker` en `backend/`): consume Kafka y crea el esquema TimescaleDB al iniciar. Conviene antes que la API. No depende de la API en Compose.
 3. **API** (`dotnet run --project FleetTelemetry.Api`): `http://localhost:5000`.
 4. **Web** (`npm run dev` en `web/`): `http://localhost:3000`. Copiar `web/.env.example` → `web/.env.local` si hace falta.
 
 Stack todo-en-uno: `docker compose --profile app up -d --build`. Smoke: `./scripts/smoke-test.ps1` o `bash scripts/smoke-test.sh`.
+
+Detalle: [docs/getting-started.md](docs/getting-started.md), [docs/worker-and-dlq.md](docs/worker-and-dlq.md), [docs/testing.md](docs/testing.md).
 
 ### Caveats
 
