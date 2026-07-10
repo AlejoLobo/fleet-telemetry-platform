@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 // Punto de entrada de la API REST de telemetría de flota.
 var builder = WebApplication.CreateBuilder(args);
 
+// Valida secretos al arrancar (Auth, TimescaleDB, OpenAI) antes de registrar servicios.
 ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
 
 // Controladores y documentación OpenAPI.
