@@ -300,8 +300,41 @@ cd backend
 dotnet test --configuration Release
 ```
 
-- Unitarios: `FleetTelemetry.Application.Tests`
-- Integración (Testcontainers + TimescaleDB): `FleetTelemetry.Integration.Tests`
+- **Unitarios:** `FleetTelemetry.Application.Tests` (26 tests)
+- **Integración:** `FleetTelemetry.Integration.Tests` (TimescaleDB real)
+
+Solo integración:
+
+```bash
+dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
+```
+
+### Base de datos para integración
+
+Por defecto los tests levantan **Testcontainers** con imagen `timescale/timescaledb:latest-pg16` (requiere Docker). En CI corre en el job `integration`.
+
+**Alternativa local (sin Testcontainers):** usar TimescaleDB de Docker Compose:
+
+```bash
+docker compose up -d timescaledb
+
+# PowerShell
+$env:FLEET_INTEGRATION_DB_CONNECTION="Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet"
+dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
+
+# Bash
+export FLEET_INTEGRATION_DB_CONNECTION="Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet"
+dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release
+```
+
+### Escenarios cubiertos
+
+| Escenario | Qué valida |
+|-----------|------------|
+| Idempotencia | Mismo `EventId` no duplica `telemetry_events` ni `processed_events` |
+| Procesamiento transaccional | `processed_events`, `telemetry_events` y `fleet_alerts` consistentes |
+| Alertas overspeed | Velocidad > 120 km/h genera alerta `critical` |
+| Payload inválido | JSON malformado no persiste evento válido |
 
 ## Fase 6 ✅
 
