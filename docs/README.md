@@ -4,6 +4,7 @@
 
 | Guía | Descripción |
 |------|-------------|
+| [demo-sustentacion.md](demo-sustentacion.md) | Guion ejecutivo de demo y checklist de requerimientos |
 | [architecture.md](architecture.md) | Clean Architecture, flujo event-driven, DI Api/Worker |
 | [getting-started.md](getting-started.md) | Arranque local (Compose, backend, web, mobile) |
 | [api-and-ops.md](api-and-ops.md) | Endpoints, auth, health checks y resumen operativo |
