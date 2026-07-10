@@ -46,7 +46,9 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build Android preview APK
-        run: eas build --platform android --profile preview --non-interactive --env EXPO_PUBLIC_API_URL=${{ inputs.api_url }}
+        env:
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
+        run: eas build --platform android --profile preview --non-interactive
 
       - name: Build summary
         run: |
