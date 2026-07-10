@@ -40,7 +40,7 @@ services:
     command:
       - |
         rpk topic create telemetry.raw --brokers redpanda:9092 || true
-        rpk topic create telemetry.dlq --brokers redpanda:9092 || true
+        rpk topic create telemetry.dead-letter --brokers redpanda:9092 || true
         echo "Kafka topics ready"
     restart: "no"
 

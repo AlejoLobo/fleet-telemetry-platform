@@ -245,16 +245,28 @@ Si Kafka está en circuit breaker abierto, la ingesta responde `503` con `Retry-
 
 ## DLQ (Dead Letter Queue)
 
-Mensajes inválidos o fallidos persistentemente se publican en `telemetry.dlq`:
+Mensajes inválidos o fallidos de forma definitiva se publican en `telemetry.dead-letter` vía `KafkaDeadLetterPublisher` (`IDeadLetterPublisher`).
 
 | Caso | Comportamiento |
 |------|----------------|
-| JSON/payload inválido | DLQ inmediato + offset confirmado |
-| Error de procesamiento (≥ `MaxProcessingAttempts`) | DLQ + offset confirmado |
-| Circuit breaker DB abierto | Sin DLQ; reintento sin confirmar offset |
+| JSON/payload inválido | Publicar en DLQ con `reason`, `exceptionMessage`, `originalTopic`, `partition`, `offset`, `occurredAt` → confirmar offset |
+| Error no transitorio (≥ `MaxProcessingAttempts`) | Publicar en DLQ → confirmar offset **solo si** la publicación DLQ fue exitosa |
+| Fallo TimescaleDB / circuit breaker abierto | **Sin DLQ**, **sin commit** de offset; reintento tras backoff (5s) |
+| `EnableAutoCommit` | Siempre `false` (commit manual) |
+
+Verificar localmente:
 
 ```bash
-docker exec fleet-redpanda rpk topic consume telemetry.dlq -n 5
+# Crear tópico (si no usaste docker compose kafka-init)
+docker exec fleet-redpanda rpk topic create telemetry.dead-letter --brokers localhost:9092
+
+# Consumir mensajes DLQ
+docker exec fleet-redpanda rpk topic consume telemetry.dead-letter -n 5
+
+# Enviar payload inválido para probar DLQ
+curl -X POST http://localhost:5000/api/telemetry \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleId\":\"VH-001\"}"
 ```
 
 ## Variables de entorno
@@ -266,7 +278,7 @@ Ver `.env.example`. En producción usar convención `Section__Key`:
 | `TimescaleDb__ConnectionString` | Connection string PostgreSQL |
 | `Auth__JwtSecret` | Secreto JWT (obligatorio si Auth habilitado) |
 | `OpenAI__ApiKey` | API key OpenAI (opcional) |
-| `Kafka__DlqTopic` | `telemetry.dlq` |
+| `Kafka__DeadLetterTopic` | `telemetry.dead-letter` |
 | `Sse__ActivePollIntervalSeconds` | `3` |
 | `Sse__IdlePollIntervalSeconds` | `10` |
 

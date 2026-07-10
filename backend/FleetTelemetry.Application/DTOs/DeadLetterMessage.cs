@@ -1,13 +1,11 @@
 namespace FleetTelemetry.Application.DTOs;
 
-// Mensaje enviado al tópico DLQ cuando el procesamiento falla de forma definitiva.
+// Mensaje publicado en telemetry.dead-letter cuando el procesamiento falla de forma definitiva.
 public record DeadLetterMessage(
-    string SourceTopic,
+    string OriginalPayload,
+    string Reason,
+    string ExceptionMessage,
+    string OriginalTopic,
     int Partition,
     long Offset,
-    string? OriginalKey,
-    string OriginalPayload,
-    string FailureReason,
-    string FailureType,
-    int AttemptCount,
-    DateTimeOffset FailedAt);
+    DateTimeOffset OccurredAt);

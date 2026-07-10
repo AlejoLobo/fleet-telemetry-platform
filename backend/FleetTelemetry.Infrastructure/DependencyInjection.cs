@@ -78,7 +78,7 @@ public static class DependencyInjection
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
-            services.AddSingleton<IKafkaDeadLetterPublisher, KafkaDeadLetterPublisher>();
+            services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
         }
 
         return services;
