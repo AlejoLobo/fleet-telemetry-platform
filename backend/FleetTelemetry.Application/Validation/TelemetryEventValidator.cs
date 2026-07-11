@@ -49,6 +49,9 @@ public class TelemetryEventValidator
         if (request.SpeedKmh < 0)
             throw new ArgumentException("SpeedKmh must be >= 0.");
 
+        if (request.SpeedKmh > _options.MaxSpeedKmh)
+            throw new ArgumentException($"SpeedKmh must be <= {_options.MaxSpeedKmh}.");
+
         if (request.FuelLevelPercent is < 0 or > 100)
             throw new ArgumentException("FuelLevelPercent must be between 0 and 100.");
 
