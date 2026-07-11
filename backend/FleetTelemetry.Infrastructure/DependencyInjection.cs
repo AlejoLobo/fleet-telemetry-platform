@@ -36,6 +36,9 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
+        services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
+
+        services.AddSingleton(TimeProvider.System);
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
