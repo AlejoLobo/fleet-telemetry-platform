@@ -75,7 +75,7 @@ Referencia: [../.env.example](../.env.example). Convención ASP.NET: `Section__K
 
 ## Caveats
 
-Detalles de VMs / Docker sin systemd / Timescale cgroups: [../AGENTS.md](../AGENTS.md).
+Detalles de VMs / Docker sin systemd / Timescale cgroups: [dev-environment.md](dev-environment.md).
 
 - Si `docker` no está en PATH en PowerShell, reinicia la terminal.
 - En Compose, el Worker depende de la API solo para orden de arranque; el esquema lo inicializa el Worker.
