@@ -89,14 +89,14 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        _broker.Publish(new FleetSseEvent(
-            "fleet-update",
-            vehicles,
-            _timeProvider.GetUtcNow()));
+        _broker.Publish("fleet-update", vehicles, _timeProvider.GetUtcNow());
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
     {
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush)
+            return;
+
         // Límite superior estable capturado antes de paginar para no perder alertas insertadas durante el ciclo.
         var upperBound = _timeProvider.GetUtcNow();
 
@@ -113,7 +113,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
             foreach (var alert in batch)
             {
-                _broker.Publish(new FleetSseEvent(
+                _broker.Publish(
                     "alert",
                     new FleetAlertResponse(
                         alert.AlertId,
@@ -123,7 +123,7 @@ public class FleetSsePollerHostedService : BackgroundService
                         alert.Message,
                         alert.CreatedAt,
                         alert.IsAcknowledged),
-                    _timeProvider.GetUtcNow()));
+                    _timeProvider.GetUtcNow());
 
                 _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
             }
@@ -140,10 +140,10 @@ public class FleetSsePollerHostedService : BackgroundService
             return Task.CompletedTask;
 
         _lastHeartbeat = _timeProvider.GetUtcNow();
-        _broker.Publish(new FleetSseEvent(
+        _broker.Publish(
             "heartbeat",
             new { status = "ok", subscribers = _broker.SubscriberCount },
-            _lastHeartbeat));
+            _lastHeartbeat);
 
         return Task.CompletedTask;
     }
