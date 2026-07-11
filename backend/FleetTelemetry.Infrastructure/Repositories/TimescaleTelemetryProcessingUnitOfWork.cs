@@ -1,3 +1,4 @@
+using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
@@ -5,6 +6,7 @@ using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 // Unidad de trabajo transaccional para procesar telemetría.
 namespace FleetTelemetry.Infrastructure.Repositories;
@@ -12,14 +14,22 @@ namespace FleetTelemetry.Infrastructure.Repositories;
 // Persiste evento, alertas e idempotencia en una transacción.
 public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOfWork
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly FleetDbContext _dbContext;
+    private readonly IFleetRealtimePublisher _realtimePublisher;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
 
     public TimescaleTelemetryProcessingUnitOfWork(
         FleetDbContext dbContext,
+        IFleetRealtimePublisher realtimePublisher,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
+        _realtimePublisher = realtimePublisher;
         _logger = logger;
     }
 
@@ -84,6 +94,56 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        await PublishRealtimeUpdatesAsync(telemetryEvent, alerts, processedAt, cancellationToken);
+
         return ProcessTelemetryOutcome.Processed;
+    }
+
+    private async Task PublishRealtimeUpdatesAsync(
+        TelemetryEvent telemetryEvent,
+        IReadOnlyList<FleetAlert> alerts,
+        DateTimeOffset processedAt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var vehicleUpdate = new VehicleLatestStatusResponse(
+                telemetryEvent.VehicleId,
+                telemetryEvent.VehicleId,
+                telemetryEvent.SpeedKmh <= 1 ? "stopped" : "online",
+                processedAt,
+                telemetryEvent.SpeedKmh,
+                telemetryEvent.Latitude,
+                telemetryEvent.Longitude,
+                null,
+                telemetryEvent.LocationSource);
+
+            await _realtimePublisher.PublishVehicleUpdateAsync(
+                telemetryEvent.VehicleId,
+                JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
+                cancellationToken);
+
+            foreach (var alert in alerts)
+            {
+                var alertDto = new FleetAlertResponse(
+                    alert.AlertId,
+                    alert.VehicleId,
+                    alert.AlertType,
+                    alert.Severity,
+                    alert.Message,
+                    alert.CreatedAt,
+                    alert.IsAcknowledged);
+
+                await _realtimePublisher.PublishAlertAsync(
+                    JsonSerializer.Serialize(alertDto, JsonOptions),
+                    cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            // El push realtime no debe revertir la transacción ya confirmada.
+            _logger.LogWarning(ex, "Realtime publish failed for vehicle {VehicleId}", telemetryEvent.VehicleId);
+        }
     }
 }
