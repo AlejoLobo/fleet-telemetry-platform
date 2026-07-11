@@ -54,7 +54,8 @@ public static class TelemetryEventJsonSerializer
             legacy.FuelLevelPercent,
             legacy.BatteryPercent,
             out var telemetryEvent,
-            out var error)
+            out var error,
+            locationSource: legacy.LocationSource)
             ? telemetryEvent!
             : throw new InvalidOperationException(error ?? "Unable to deserialize telemetry event.");
     }
@@ -69,7 +70,8 @@ public static class TelemetryEventJsonSerializer
         Longitude = telemetryEvent.Longitude,
         SpeedKmh = telemetryEvent.SpeedKmh,
         FuelLevelPercent = telemetryEvent.FuelLevelPercent,
-        BatteryPercent = telemetryEvent.BatteryPercent
+        BatteryPercent = telemetryEvent.BatteryPercent,
+        LocationSource = telemetryEvent.LocationSource
     };
 
     private sealed class LegacyTelemetryEventDto
@@ -83,5 +85,6 @@ public static class TelemetryEventJsonSerializer
         public double SpeedKmh { get; set; }
         public double? FuelLevelPercent { get; set; }
         public double? BatteryPercent { get; set; }
+        public string? LocationSource { get; set; }
     }
 }

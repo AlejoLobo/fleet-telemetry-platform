@@ -1,6 +1,5 @@
 // Tipos de datos para eventos de telemetría y sincronización
 
-// Payload enviado a la API
 export type TelemetryEventPayload = {
   eventId: string;
   vehicleId: string;
@@ -11,16 +10,24 @@ export type TelemetryEventPayload = {
   speedKmh: number;
   fuelLevelPercent: number | null;
   batteryPercent: number | null;
+  locationSource?: "gps" | "simulated";
 };
 
-// Evento almacenado en la cola local SQLite
+export type QueueStatus = "pending" | "processing" | "retry" | "permanent_failure" | "synced";
+
 export type QueuedTelemetryEvent = TelemetryEventPayload & {
   localId: number;
-  status: "pending" | "synced" | "failed";
+  source: "gps" | "simulated";
+  status: QueueStatus;
+  retryCount: number;
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  lockedAt: string | null;
+  syncedAt: string | null;
   createdAt: string;
 };
 
-// Lectura de ubicación del GPS o simulada
 export type LocationReading = {
   latitude: number;
   longitude: number;
@@ -28,12 +35,12 @@ export type LocationReading = {
   source: "gps" | "simulated";
 };
 
-// Estado de conexión de red
 export type NetworkStatus = "online" | "offline" | "unknown";
 
-// Resultado de una operación de sincronización
 export type SyncResult = {
   synced: number;
   failed: number;
+  retried: number;
+  permanentFailures: number;
   remaining: number;
 };

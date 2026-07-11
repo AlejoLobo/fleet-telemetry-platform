@@ -39,4 +39,15 @@ public class AiQuestionParserTests
         var zone = AiQuestionParser.ExtractZoneName("vehiculos parados en kennedy");
         Assert.Equal("Kennedy", zone);
     }
+
+    [Theory]
+    [InlineData("cuéntame un chiste")]
+    [InlineData("¿qué tiempo hace hoy?")]
+    [InlineData("hola, cómo estás")]
+    public void Parse_returns_unsupported_for_non_operational_questions(string question)
+    {
+        var intent = AiQuestionParser.Parse(question);
+
+        Assert.Equal(AiQueryIntent.UnsupportedQuery, intent.Intent);
+    }
 }

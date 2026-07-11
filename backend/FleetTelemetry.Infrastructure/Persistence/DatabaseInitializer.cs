@@ -12,7 +12,10 @@ public static class DatabaseInitializer
     private const long SchemaAdvisoryLockKey = 742001;
 
     // Ejecuta DDL idempotente para hypertables e índices.
-    public static async Task InitializeAsync(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+    public static async Task InitializeAsync(
+        IServiceProvider serviceProvider,
+        bool useAdvisoryLock = true,
+        CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -25,7 +28,8 @@ public static class DatabaseInitializer
 
         try
         {
-            await SetAdvisoryLockAsync(connection, acquire: true, cancellationToken);
+            if (useAdvisoryLock)
+                await SetAdvisoryLockAsync(connection, acquire: true, cancellationToken);
 
             try
             {
@@ -39,26 +43,27 @@ public static class DatabaseInitializer
         }
         finally
         {
-            try
+            if (useAdvisoryLock)
             {
-                await SetAdvisoryLockAsync(connection, acquire: false, CancellationToken.None);
-            }
-            catch (Exception unlockException)
-            {
-                logger.LogError(
-                    unlockException,
-                    "No se pudo liberar pg_advisory_unlock({LockKey}).",
-                    SchemaAdvisoryLockKey);
+                try
+                {
+                    await SetAdvisoryLockAsync(connection, acquire: false, CancellationToken.None);
+                }
+                catch (Exception unlockException)
+                {
+                    logger.LogError(
+                        unlockException,
+                        "No se pudo liberar pg_advisory_unlock({LockKey}).",
+                        SchemaAdvisoryLockKey);
 
-                if (initializationException is not null)
-                    throw initializationException;
+                    if (initializationException is not null)
+                        throw initializationException;
 
-                throw;
+                    throw;
+                }
             }
-            finally
-            {
-                await connection.CloseAsync();
-            }
+
+            await connection.CloseAsync();
         }
     }
 
@@ -150,6 +155,35 @@ public static class DatabaseInitializer
             """
             CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp
             ON telemetry_events ("VehicleId", "Timestamp" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS schema_versions (
+                "Version" integer NOT NULL,
+                "AppliedAt" timestamp with time zone NOT NULL,
+                "Description" character varying(256) NOT NULL,
+                CONSTRAINT "PK_schema_versions" PRIMARY KEY ("Version")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+            VALUES (1, NOW(), 'Initial TimescaleDB schema with hypertable telemetry_events')
+            ON CONFLICT ("Version") DO NOTHING;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            ALTER TABLE telemetry_events
+            ADD COLUMN IF NOT EXISTS "LocationSource" character varying(16) NOT NULL DEFAULT 'gps';
             """,
             cancellationToken);
 

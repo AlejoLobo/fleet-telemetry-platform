@@ -1,10 +1,13 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Realtime;
 using FleetTelemetry.Infrastructure.Repositories;
@@ -37,6 +40,21 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
+        services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
+
+        services.AddSingleton(sp =>
+        {
+            var sseBroker = profile == InfrastructureProfile.Api
+                ? sp.GetService<FleetSseBroker>()
+                : null;
+            return new FleetTelemetryMetrics(sseBroker);
+        });
+
+        services.AddSingleton(TimeProvider.System);
+
+        services.Configure<TelemetryIngestOptions>(configuration.GetSection(TelemetryIngestOptions.SectionName));
+        services.AddSingleton<TelemetryEventValidator>();
+        services.AddSingleton(TimeProvider.System);
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
@@ -62,6 +80,7 @@ public static class DependencyInjection
             services.AddScoped<IOpsQueryService, OpsQueryService>();
             services.AddScoped<IReadinessCheckService, ReadinessCheckService>();
             services.AddScoped<AiOperationalTools>();
+            services.AddScoped<AiToolRouter>();
             services.AddScoped<OperationalAiAgentService>();
             services.AddHttpClient<OpenAiPolishService>(client =>
             {

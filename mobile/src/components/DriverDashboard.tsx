@@ -106,6 +106,8 @@ export function DriverDashboard() {
           <Text style={styles.meta}>Enviados: {lastSync.synced}</Text>
           <Text style={styles.meta}>Fallidos: {lastSync.failed}</Text>
           <Text style={styles.meta}>Restantes: {lastSync.remaining}</Text>
+          <Text style={styles.meta}>Reintentos: {lastSync.retried}</Text>
+          <Text style={styles.meta}>Fallos permanentes: {lastSync.permanentFailures}</Text>
         </View>
       )}
     </ScrollView>

@@ -4,6 +4,7 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,15 +23,18 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
     private readonly IProducer<string, string> _producer;
     private readonly KafkaOptions _options;
     private readonly ResiliencePipelineFactory _resilience;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<KafkaDeadLetterPublisher> _logger;
 
     public KafkaDeadLetterPublisher(
         IOptions<KafkaOptions> options,
         ResiliencePipelineFactory resilience,
+        FleetTelemetryMetrics metrics,
         ILogger<KafkaDeadLetterPublisher> logger)
     {
         _options = options.Value;
         _resilience = resilience;
+        _metrics = metrics;
         _logger = logger;
 
         var config = new ProducerConfig
@@ -58,6 +62,8 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
             var result = await _resilience.KafkaPublishPipeline.ExecuteAsync(
                 async token => await _producer.ProduceAsync(_options.DeadLetterTopic, kafkaMessage, token),
                 cancellationToken);
+
+            _metrics.DlqMessagesPublished.Add(1);
 
             _logger.LogWarning(
                 "Dead letter message published. DeadLetterTopic={DeadLetterTopic} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} Reason={Reason} DlqPartition={DlqPartition} DlqOffset={DlqOffset}",
