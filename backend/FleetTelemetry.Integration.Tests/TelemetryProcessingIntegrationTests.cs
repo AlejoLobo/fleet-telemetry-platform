@@ -126,12 +126,9 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         // JSON parcial deserializa, pero falla validación de dominio (Worker → reason invalid_payload).
         const string partialJson = """{"vehicleId":"VH-001"}""";
         const string invalidPayloadReason = "invalid_payload";
-        var partialEvent = TelemetryEventJsonSerializer.Deserialize(partialJson);
-        Assert.Equal(Guid.Empty, partialEvent.EventId);
-
-        var validationError = Assert.Throws<ArgumentException>(() =>
-            TelemetryDomainEventValidator.Validate(partialEvent));
-        Assert.Contains("EventId", validationError.Message);
+        var partialException = Assert.Throws<InvalidOperationException>(() =>
+            TelemetryEventJsonSerializer.Deserialize(partialJson));
+        Assert.Contains("EventId", partialException.Message);
         Assert.Equal("invalid_payload", invalidPayloadReason);
 
         // El Worker no llama a ProcessAsync cuando Validate falla; no se persiste nada.
@@ -140,28 +137,27 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         Assert.Equal(alertsBefore, await db.FleetAlerts.CountAsync());
     }
 
-    private static TelemetryEvent CreateOverspeedEvent() => new()
-    {
-        EventId = Guid.NewGuid(),
-        VehicleId = $"VH-INT-{Guid.NewGuid():N}"[..16],
-        DriverId = "DRV-INT-001",
-        Timestamp = DateTimeOffset.UtcNow,
-        Latitude = 4.65,
-        Longitude = -74.08,
-        SpeedKmh = 130,
-        FuelLevelPercent = 50,
-        BatteryPercent = 90
-    };
+    private static TelemetryEvent CreateOverspeedEvent() =>
+        TelemetryEvent.Create(
+            Guid.NewGuid(),
+            $"VH-INT-{Guid.NewGuid():N}"[..16],
+            "DRV-INT-001",
+            DateTimeOffset.UtcNow,
+            4.65,
+            -74.08,
+            130,
+            50,
+            90);
 
-    private static TelemetryEvent CreateNormalEvent() => new()
-    {
-        EventId = Guid.NewGuid(),
-        VehicleId = $"VH-INT-{Guid.NewGuid():N}"[..16],
-        Timestamp = DateTimeOffset.UtcNow,
-        Latitude = 4.60,
-        Longitude = -74.10,
-        SpeedKmh = 45,
-        FuelLevelPercent = 70,
-        BatteryPercent = 85
-    };
+    private static TelemetryEvent CreateNormalEvent() =>
+        TelemetryEvent.Create(
+            Guid.NewGuid(),
+            $"VH-INT-{Guid.NewGuid():N}"[..16],
+            null,
+            DateTimeOffset.UtcNow,
+            4.60,
+            -74.10,
+            45,
+            70,
+            85);
 }
