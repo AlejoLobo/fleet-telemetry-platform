@@ -49,6 +49,9 @@ public class TelemetryEventValidator
         if (request.SpeedKmh < 0)
             throw new ArgumentException("SpeedKmh must be >= 0.");
 
+        if (request.SpeedKmh > _options.MaxSpeedKmh)
+            throw new ArgumentException($"SpeedKmh must be <= {_options.MaxSpeedKmh}.");
+
         if (request.FuelLevelPercent is < 0 or > 100)
             throw new ArgumentException("FuelLevelPercent must be between 0 and 100.");
 
@@ -60,19 +63,18 @@ public class TelemetryEventValidator
             throw new ArgumentException("LocationSource must be gps or simulated.");
     }
 
-    public TelemetryEvent MapToDomain(TelemetryEventRequest request) => new()
-    {
-        EventId = request.EventId,
-        VehicleId = request.VehicleId.Trim(),
-        DriverId = request.DriverId?.Trim(),
-        Timestamp = request.Timestamp,
-        Latitude = request.Latitude,
-        Longitude = request.Longitude,
-        SpeedKmh = request.SpeedKmh,
-        FuelLevelPercent = request.FuelLevelPercent,
-        BatteryPercent = request.BatteryPercent,
-        LocationSource = NormalizeLocationSource(request.LocationSource),
-    };
+    public TelemetryEvent MapToDomain(TelemetryEventRequest request) =>
+        TelemetryEvent.Create(
+            request.EventId,
+            request.VehicleId.Trim(),
+            request.DriverId?.Trim(),
+            request.Timestamp,
+            request.Latitude,
+            request.Longitude,
+            request.SpeedKmh,
+            request.FuelLevelPercent,
+            request.BatteryPercent,
+            NormalizeLocationSource(request.LocationSource));
 
     public static string NormalizeLocationSource(string? source) =>
         string.IsNullOrWhiteSpace(source) ? "gps" : source.Trim().ToLowerInvariant();

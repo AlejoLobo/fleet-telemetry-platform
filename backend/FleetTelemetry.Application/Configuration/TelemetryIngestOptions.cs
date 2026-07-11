@@ -10,4 +10,5 @@ public class TelemetryIngestOptions
     public int MaxDriverIdLength { get; set; } = 64;
     public int MaxFutureSkewMinutes { get; set; } = 5;
     public int MaxPastSkewDays { get; set; } = 30;
+    public double MaxSpeedKmh { get; set; } = 300;
 }
