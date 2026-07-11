@@ -23,4 +23,7 @@ public class KafkaOptions
 
     // Debe superar el peor escenario de procesamiento + Polly + backoff + DLQ.
     public int MaxPollIntervalMilliseconds { get; set; } = 300_000;
+
+    // Timeout de produce del publicador DLQ/ingesta (ms).
+    public int ProducerMessageTimeoutMs { get; set; } = 10_000;
 }

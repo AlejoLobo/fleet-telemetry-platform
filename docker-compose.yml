@@ -5,6 +5,7 @@
 #   docker compose --profile app up -d --build
 #
 # Defaults de credenciales solo para desarrollo local.
+# Connection strings derivan POSTGRES_USER, POSTGRES_PASSWORD y POSTGRES_DB.
 
 services:
   redpanda:
@@ -87,11 +88,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
-      TimescaleDb__ConnectionString: ${TIMESCALEDB_CONNECTION_STRING:-Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet}
+      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
-      Kafka__MaxProcessingAttempts: ${Kafka__MaxProcessingAttempts:-3}
-      Kafka__MaxDeadLetterPublishAttempts: ${Kafka__MaxDeadLetterPublishAttempts:-5}
-      Kafka__MaxPollIntervalMilliseconds: ${Kafka__MaxPollIntervalMilliseconds:-300000}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -116,7 +114,7 @@ services:
     environment:
       DOTNET_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
-      TimescaleDb__ConnectionString: ${TIMESCALEDB_CONNECTION_STRING:-Host=timescaledb;Port=5432;Database=fleet;Username=fleet;Password=fleet}
+      TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Kafka__MaxProcessingAttempts: ${Kafka__MaxProcessingAttempts:-3}
       Kafka__RetryInitialDelayMilliseconds: ${Kafka__RetryInitialDelayMilliseconds:-500}
       Kafka__RetryMaxDelayMilliseconds: ${Kafka__RetryMaxDelayMilliseconds:-5000}

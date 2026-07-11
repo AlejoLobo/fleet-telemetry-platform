@@ -4,6 +4,6 @@ namespace FleetTelemetry.Worker;
 public enum TelemetryMessageProcessingResult
 {
     ProcessedAndCommit,
-    SentToDeadLetterAndCommit,
+    RequiresDeadLetterPublish,
     RetryWithoutCommit
 }
