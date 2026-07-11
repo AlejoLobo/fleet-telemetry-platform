@@ -157,3 +157,22 @@ tipo(alcance): descripción breve en imperativo
 ```
 
 Ejemplos: `feat(worker): ...`, `fix(ci): ...`, `docs(readme): ...`, `test(e2e): ...`.
+
+## AI Audit
+
+Registro de propuestas incorrectas de IA durante el desarrollo, la corrección aplicada y la verificación asociada.
+
+| Caso | Problema / propuesta incorrecta | Riesgo | Decisión aplicada | Verificación | Estado |
+|------|----------------------------------|--------|-------------------|--------------|--------|
+| Persistencia desde controllers | Guardar telemetría directamente en TimescaleDB desde `TelemetryController` | Acopla ingesta con persistencia; rompe desacoplamiento Kafka | Ingesta publica en `telemetry.raw` y responde `202`; Worker persiste | Smoke test + integración Worker | **Implementado y probado** |
+| Datasets completos al LLM | Enviar todos los eventos o tablas completas al modelo | Fuga de datos, costo y alucinaciones | Catálogo cerrado `AiToolCatalog` + `AiToolRouter`; `unsupported_query` sin LLM | `AiToolCatalogTests`, `AiToolRouterTests` | **Implementado y probado** |
+| Dashboard sin backend | Depender solo del API real sin modo mock | Demo inutilizable sin stack levantado | `NEXT_PUBLIC_DATA_MODE=mock` en web | `npm run build` web | **Implementado y probado** |
+| Simulación GPS silenciosa | Fabricar coordenadas cuando GPS falla sin marcar origen | Telemetría ficticia indistinguible en operaciones | `EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION=true` explícito; `source` propagado; consultas excluyen `simulated` por defecto | `location-provider.test.ts`, consultas Timescale | **Implementado y probado** |
+| SSE `_lastAlertCheck` | Cursor solo por timestamp pierde alertas concurrentes | Pérdida/duplicación de alertas en polling | Cursor compuesto `CreatedAt` + `AlertId`, límite superior estable y paginación | `AlertStreamCursorIntegrationTests` | **Implementado y probado** |
+| Detención = último movimiento | Duración desde timestamp del último evento en movimiento | Subestima tiempo detenido | `first_stop_after_move` en SQL + gaps y frescura configurables | `StoppedVehicleQueryIntegrationTests` | **Implementado y probado** |
+| RDS = TimescaleDB en Terraform | Presentar RDS PostgreSQL estándar como Timescale | Arquitectura engañosa en producción | Blueprint documenta Timescale Cloud / self-hosted; RDS solo PG compatible | `infra/README.md`, `terraform fmt/validate` en CI | **Blueprint** |
+| EF migrations productivas | DDL automático en cada arranque | Riesgo de esquema en producción | `DatabaseInitializationPolicy` + `schema_versions`; DDL auto solo Development | `DatabaseInitializationPolicyTests` | **Implementado con limitaciones** |
+| JWT en query string SSE | Token largo en URL para EventSource | Exposición en logs y referrers | Documentado en `docs/realtime-sse.md`; auth opcional; ticket/cookie como siguiente paso | Documentación + políticas API | **Siguiente paso productivo** |
+| OpenAI tool calls arbitrarios | SQL generado o herramientas no tipadas | Inyección y acceso no controlado | Catálogo tipado, validación de argumentos, sin SQL; fallback determinista sin API key | Tests router + catálogo | **Implementado y probado** |
+
+Commits de referencia en ramas `fix/*`, `feature/*` y `develop`: ver historial Git (`fix/worker-dlq-retries`, `fix/stopped-vehicle-duration`, `fix/sse-alert-cursor`, `fix/mobile-offline-sync`, `refactor/ai-tool-routing`, `feature/security-hardening`, `feature/opentelemetry`).

@@ -41,7 +41,9 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
-        services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
+        services.AddOptions<StoppedVehicleQueryOptions>()
+            .Bind(configuration.GetSection(StoppedVehicleQueryOptions.SectionName))
+            .ValidateOnStart();
         services.AddSingleton<IValidateOptions<StoppedVehicleQueryOptions>, StoppedVehicleQueryOptionsValidator>();
 
         services.AddSingleton(sp =>
@@ -54,9 +56,11 @@ public static class DependencyInjection
 
         services.AddSingleton(TimeProvider.System);
 
-        services.Configure<TelemetryIngestOptions>(configuration.GetSection(TelemetryIngestOptions.SectionName));
+        services.AddOptions<TelemetryIngestOptions>()
+            .Bind(configuration.GetSection(TelemetryIngestOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TelemetryIngestOptions>, TelemetryIngestOptionsValidator>();
         services.AddSingleton<TelemetryEventValidator>();
-        services.AddSingleton(TimeProvider.System);
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
