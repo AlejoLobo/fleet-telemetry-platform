@@ -13,6 +13,11 @@ export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
   }
 }
 
+export function parseVehicleUpdatePayload(raw: string): VehicleStatus | null {
+  const vehicles = parseFleetUpdatePayload(raw);
+  return vehicles && vehicles.length > 0 ? vehicles[0] : null;
+}
+
 export function parseAlertPayload(raw: string): FleetAlert | null {
   try {
     return JSON.parse(raw) as FleetAlert;
