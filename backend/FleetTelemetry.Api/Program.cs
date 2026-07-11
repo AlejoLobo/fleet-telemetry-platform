@@ -5,12 +5,15 @@ using FleetTelemetry.Api.Middleware;
 using FleetTelemetry.Infrastructure;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
 // Punto de entrada de la API REST de telemetría de flota.
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.AddFleetOpenTelemetryLogging(builder.Configuration, InfrastructureProfile.Api);
 
 // Valida secretos al arrancar (Auth, TimescaleDB, OpenAI) antes de registrar servicios.
 ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
@@ -99,6 +102,7 @@ if (rateLimitOptions.Enabled)
 
 builder.Services.AddInfrastructure(builder.Configuration, InfrastructureProfile.Api);
 builder.Services.AddFleetSsePolling();
+builder.Services.AddFleetOpenTelemetry(builder.Configuration, InfrastructureProfile.Api);
 
 var app = builder.Build();
 
