@@ -23,4 +23,16 @@ public class KafkaOptions
 
     // Debe superar el peor escenario de procesamiento + Polly + backoff + DLQ.
     public int MaxPollIntervalMilliseconds { get; set; } = 300_000;
+
+    // Timeout de produce del publicador DLQ/ingesta (ms).
+    public int ProducerMessageTimeoutMs { get; set; } = 10_000;
+
+    // Máximo de particiones procesadas en paralelo (orden estricto por partición).
+    public int MaxConcurrentPartitions { get; set; } = 4;
+
+    // Tamaño máximo de lote de publicación de ingesta.
+    public int PublishBatchSize { get; set; } = 50;
+
+    // Serializar con envelope versionado en Kafka (false mantiene compatibilidad con consumidores actuales).
+    public bool UseEventEnvelope { get; set; } = false;
 }

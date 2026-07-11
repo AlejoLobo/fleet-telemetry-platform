@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Confluent.Kafka;
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,15 +23,18 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
     private readonly IProducer<string, string> _producer;
     private readonly KafkaOptions _options;
     private readonly ResiliencePipelineFactory _resilience;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<KafkaDeadLetterPublisher> _logger;
 
     public KafkaDeadLetterPublisher(
         IOptions<KafkaOptions> options,
         ResiliencePipelineFactory resilience,
+        FleetTelemetryMetrics metrics,
         ILogger<KafkaDeadLetterPublisher> logger)
     {
         _options = options.Value;
         _resilience = resilience;
+        _metrics = metrics;
         _logger = logger;
 
         var config = new ProducerConfig
@@ -37,7 +42,7 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
             BootstrapServers = _options.BootstrapServers,
             Acks = Acks.All,
             EnableIdempotence = true,
-            MessageTimeoutMs = 10_000
+            MessageTimeoutMs = _options.ProducerMessageTimeoutMs
         };
 
         _producer = new ProducerBuilder<string, string>(config).Build();
@@ -58,6 +63,8 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
                 async token => await _producer.ProduceAsync(_options.DeadLetterTopic, kafkaMessage, token),
                 cancellationToken);
 
+            _metrics.DlqMessagesPublished.Add(1);
+
             _logger.LogWarning(
                 "Dead letter message published. DeadLetterTopic={DeadLetterTopic} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} Reason={Reason} DlqPartition={DlqPartition} DlqOffset={DlqOffset}",
                 _options.DeadLetterTopic,
@@ -76,7 +83,17 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
                 message.OriginalTopic,
                 message.Partition,
                 message.Offset);
-            throw;
+            throw new DeadLetterPublishException("Dead-letter publish blocked by circuit breaker.", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(
+                ex,
+                "Dead letter publish failed. OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset}",
+                message.OriginalTopic,
+                message.Partition,
+                message.Offset);
+            throw new DeadLetterPublishException("Dead-letter publish failed.", ex);
         }
     }
 

@@ -1,6 +1,8 @@
+using FleetTelemetry.Application.Exceptions;
+
 namespace FleetTelemetry.Worker;
 
-// Controla reintentos de publicación DLQ / errores inesperados sin confirmar offset.
+// Controla reintentos exclusivos de publicación DLQ sin confirmar offset.
 public sealed class DeadLetterPublishRetrySession
 {
     private readonly int _maxAttempts;
@@ -21,8 +23,8 @@ public sealed class DeadLetterPublishRetrySession
         _maxDelayMilliseconds = maxDelayMilliseconds;
     }
 
-    public DeadLetterPublishRetryDecision RegisterFailure(
-        Exception exception,
+    public DeadLetterPublishRetryDecision RegisterPublishFailure(
+        DeadLetterPublishException exception,
         string topic,
         int partition,
         long offset)

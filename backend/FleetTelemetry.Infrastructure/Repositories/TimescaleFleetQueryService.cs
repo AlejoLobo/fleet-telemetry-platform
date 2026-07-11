@@ -27,15 +27,15 @@ public class TimescaleFleetQueryService : IFleetQueryService
     // Obtiene último evento por vehículo con DISTINCT ON.
     public async Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
         bool liveOnly = false,
+        bool excludeSimulated = false,
         CancellationToken cancellationToken = default)
     {
-        // DISTINCT ON evita cargar toda la hypertable en memoria (crítico tras pruebas k6).
         var latestRecords = await _dbContext.TelemetryEvents
             .FromSqlRaw(
                 """
                 SELECT DISTINCT ON ("VehicleId")
                     "EventId", "VehicleId", "DriverId", "Timestamp", "Latitude", "Longitude",
-                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt"
+                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt", "LocationSource"
                 FROM telemetry_events
                 ORDER BY "VehicleId", "Timestamp" DESC
                 """)
@@ -47,10 +47,12 @@ public class TimescaleFleetQueryService : IFleetQueryService
             .OrderBy(v => v.VehicleId)
             .ToList();
 
+        if (excludeSimulated)
+            latest = latest.Where(v => v.LastLocationSource != "simulated").ToList();
+
         if (liveOnly)
             latest = latest.Where(v => v.Status == "online").ToList();
 
-        _logger.LogDebug("Consultados {Count} vehículos con telemetría (liveOnly={LiveOnly})", latest.Count, liveOnly);
         return latest;
     }
 
@@ -88,6 +90,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastSpeedKmh: record.SpeedKmh,
             LastLatitude: record.Latitude,
             LastLongitude: record.Longitude,
-            LastHeadingDegrees: headingDegrees);
+            LastHeadingDegrees: headingDegrees,
+            LastLocationSource: record.LocationSource);
     }
 }

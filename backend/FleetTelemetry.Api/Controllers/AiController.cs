@@ -1,5 +1,7 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 // Controlador de consultas al agente de IA operativo.
@@ -18,6 +20,7 @@ public class AiController : ControllerBase
 
     // Envía pregunta al agente y devuelve respuesta con fuentes.
     [HttpPost("query")]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.AiQuery)]
     public async Task<ActionResult<AiQueryResponse>> Query(
         [FromBody] AiQueryRequest request,
         CancellationToken cancellationToken)

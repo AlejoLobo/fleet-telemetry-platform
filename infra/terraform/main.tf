@@ -1,5 +1,6 @@
 # Blueprint ejecutivo AWS — no es un despliegue productivo completo.
-# Incluye red, RDS PostgreSQL, ECS cluster, ECR y task definitions de ejemplo.
+# Incluye red, RDS PostgreSQL 16 (sin extensión TimescaleDB), ECS cluster, ECR y task definitions de ejemplo.
+# Para series de tiempo en producción usar Timescale Cloud o PostgreSQL self-hosted con TimescaleDB.
 # Faltan MSK, ALB/services, secrets productivos y deploy del dashboard. Ver infra/README.md.
 
 terraform {
@@ -121,7 +122,7 @@ resource "aws_db_instance" "fleet" {
   skip_final_snapshot     = true
   publicly_accessible     = false
   backup_retention_period = 7
-  tags = { Name = "${var.project_name}-timescale-ready-pg" }
+  tags = { Name = "${var.project_name}-postgresql" }
 }
 
 resource "aws_ecs_cluster" "fleet" {

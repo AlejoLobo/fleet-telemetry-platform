@@ -1,5 +1,7 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
@@ -25,6 +27,7 @@ public class EventsController : ControllerBase
 
     // Mantiene conexión SSE y reenvía eventos del broker.
     [HttpGet("stream")]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
     {
         Response.Headers.ContentType = "text/event-stream";

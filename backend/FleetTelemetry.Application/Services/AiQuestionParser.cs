@@ -13,7 +13,8 @@ public enum AiQueryIntent
     StoppedLongerThan,
     StoppedInCriticalZones,
     SpeedAbove,
-    AnalyticsSummary
+    AnalyticsSummary,
+    UnsupportedQuery
 }
 
 // Intención parseada con parámetros extraídos.
@@ -53,6 +54,9 @@ public sealed record AiQuestionIntent(
 
     public static AiQuestionIntent Analytics(string? vehicleId) =>
         new(AiQueryIntent.AnalyticsSummary, null, null, vehicleId, null, false);
+
+    public static AiQuestionIntent Unsupported() =>
+        new(AiQueryIntent.UnsupportedQuery, null, null, null, null, false);
 }
 
 /// <summary>
@@ -139,7 +143,7 @@ public static class AiQuestionParser
         if (mentionsOverview)
             return AiQuestionIntent.FleetOverview();
 
-        return AiQuestionIntent.FleetOverview();
+        return AiQuestionIntent.Unsupported();
     }
 
     // Extrae minutos de detención desde texto o números en español.

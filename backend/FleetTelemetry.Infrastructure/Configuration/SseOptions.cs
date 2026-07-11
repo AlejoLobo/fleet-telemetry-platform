@@ -10,4 +10,10 @@ public class SseOptions
 
     // Intervalo cuando la flota no cambió (reduce carga en DB).
     public int IdlePollIntervalSeconds { get; set; } = 10;
+
+    // Frecuencia de heartbeat para mantener conexiones vivas.
+    public int HeartbeatIntervalSeconds { get; set; } = 15;
+
+    // Máximo de alertas por ciclo de polling.
+    public int AlertBatchSize { get; set; } = 100;
 }
