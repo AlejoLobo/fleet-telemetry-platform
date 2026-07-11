@@ -5,6 +5,7 @@ using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,15 +18,18 @@ public class TelemetryMessageProcessor
 {
     private readonly IDeadLetterPublisher _deadLetterPublisher;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<TelemetryMessageProcessor> _logger;
 
     public TelemetryMessageProcessor(
         IDeadLetterPublisher deadLetterPublisher,
         IOptions<KafkaOptions> kafkaOptions,
+        FleetTelemetryMetrics metrics,
         ILogger<TelemetryMessageProcessor> logger)
     {
         _deadLetterPublisher = deadLetterPublisher;
         _kafkaOptions = kafkaOptions.Value;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -40,6 +44,7 @@ public class TelemetryMessageProcessor
 
         if (string.IsNullOrWhiteSpace(message.Payload))
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
@@ -54,6 +59,7 @@ public class TelemetryMessageProcessor
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
@@ -62,10 +68,12 @@ public class TelemetryMessageProcessor
 
         try
         {
+            using var duration = _metrics.TrackProcessingDuration();
             var outcome = await processEvent(telemetryEvent, cancellationToken);
 
             if (outcome == ProcessTelemetryOutcome.Processed)
             {
+                _metrics.TelemetryProcessedTotal.Add(1);
                 _logger.LogInformation(
                     "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
@@ -76,6 +84,7 @@ public class TelemetryMessageProcessor
             }
             else
             {
+                _metrics.TelemetryDuplicateTotal.Add(1);
                 _logger.LogInformation(
                     "Telemetry event duplicate skipped. EventId={EventId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
