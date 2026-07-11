@@ -1,40 +1,19 @@
+using FleetTelemetry.Application.Common;
 using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Validation;
 
-// Valida la entidad de dominio TelemetryEvent (p. ej. mensajes Kafka ya deserializados).
-// Distinto de TelemetryEventValidator, que valida DTOs de la API.
+// Fachada estática para compatibilidad con código existente.
 public static class TelemetryDomainEventValidator
 {
+    private static readonly ITelemetryDomainEventValidator Validator = new TelemetryDomainEventValidatorService();
+
     public static void Validate(TelemetryEvent telemetryEvent)
     {
         ArgumentNullException.ThrowIfNull(telemetryEvent);
 
-        if (telemetryEvent.EventId == Guid.Empty)
-            throw new ArgumentException("EventId is required.");
-
-        if (string.IsNullOrWhiteSpace(telemetryEvent.VehicleId))
-            throw new ArgumentException("VehicleId is required.");
-
-        if (telemetryEvent.Timestamp == default)
-            throw new ArgumentException("Timestamp is required.");
-
-        if (telemetryEvent.Latitude is < -90 or > 90)
-            throw new ArgumentException("Latitude must be between -90 and 90.");
-
-        if (telemetryEvent.Longitude is < -180 or > 180)
-            throw new ArgumentException("Longitude must be between -180 and 180.");
-
-        if (telemetryEvent.SpeedKmh < 0)
-            throw new ArgumentException("SpeedKmh must be >= 0.");
-
-        var source = string.IsNullOrWhiteSpace(telemetryEvent.LocationSource)
-            ? "gps"
-            : telemetryEvent.LocationSource.Trim().ToLowerInvariant();
-
-        if (source is not ("gps" or "simulated"))
-            throw new ArgumentException("LocationSource must be gps or simulated.");
-
-        telemetryEvent.LocationSource = source;
+        var result = Validator.Validate(telemetryEvent);
+        if (!result.IsSuccess)
+            throw new ArgumentException(result.Errors[0].Message);
     }
 }

@@ -64,6 +64,7 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
                 cancellationToken);
 
             _metrics.DlqMessagesPublished.Add(1);
+            _metrics.TelemetryDlqTotal.Add(1);
 
             _logger.LogWarning(
                 "Dead letter message published. DeadLetterTopic={DeadLetterTopic} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} Reason={Reason} DlqPartition={DlqPartition} DlqOffset={DlqOffset}",

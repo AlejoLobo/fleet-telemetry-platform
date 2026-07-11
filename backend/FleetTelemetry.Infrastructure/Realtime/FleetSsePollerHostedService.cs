@@ -79,7 +79,7 @@ public class FleetSsePollerHostedService : BackgroundService
     {
         var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(
             liveOnly: false,
-            excludeSimulated: false,
+            excludeSimulated: true,
             cancellationToken);
         var hash = string.Join('|', vehicles.Select(v =>
             $"{v.VehicleId}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}:{v.LastLatitude}:{v.LastLongitude}"));
@@ -89,36 +89,47 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        _broker.Publish(new FleetSseEvent(
-            "fleet-update",
-            vehicles,
-            _timeProvider.GetUtcNow()));
+        _broker.Publish("fleet-update", vehicles, _timeProvider.GetUtcNow());
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
     {
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush)
+            return;
+
+        // Límite superior estable capturado antes de paginar para no perder alertas insertadas durante el ciclo.
         var upperBound = _timeProvider.GetUtcNow();
-        var newAlerts = await alertRepository.GetOpenAlertsAfterCursorAsync(
-            _alertCursor,
-            upperBound,
-            _sseOptions.AlertBatchSize,
-            cancellationToken);
 
-        foreach (var alert in newAlerts)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _broker.Publish(new FleetSseEvent(
-                "alert",
-                new FleetAlertResponse(
-                    alert.AlertId,
-                    alert.VehicleId,
-                    alert.AlertType,
-                    alert.Severity,
-                    alert.Message,
-                    alert.CreatedAt,
-                    alert.IsAcknowledged),
-                _timeProvider.GetUtcNow()));
+            var batch = await alertRepository.GetOpenAlertsAfterCursorAsync(
+                _alertCursor,
+                upperBound,
+                _sseOptions.AlertBatchSize,
+                cancellationToken);
 
-            _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
+            if (batch.Count == 0)
+                break;
+
+            foreach (var alert in batch)
+            {
+                _broker.Publish(
+                    "alert",
+                    new FleetAlertResponse(
+                        alert.AlertId,
+                        alert.VehicleId,
+                        alert.AlertType,
+                        alert.Severity,
+                        alert.Message,
+                        alert.CreatedAt,
+                        alert.IsAcknowledged),
+                    _timeProvider.GetUtcNow());
+
+                _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
+            }
+
+            if (batch.Count < _sseOptions.AlertBatchSize)
+                break;
         }
     }
 
@@ -129,10 +140,10 @@ public class FleetSsePollerHostedService : BackgroundService
             return Task.CompletedTask;
 
         _lastHeartbeat = _timeProvider.GetUtcNow();
-        _broker.Publish(new FleetSseEvent(
+        _broker.Publish(
             "heartbeat",
             new { status = "ok", subscribers = _broker.SubscriberCount },
-            _lastHeartbeat));
+            _lastHeartbeat);
 
         return Task.CompletedTask;
     }

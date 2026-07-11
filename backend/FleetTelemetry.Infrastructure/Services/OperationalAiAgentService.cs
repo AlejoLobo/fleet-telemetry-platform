@@ -1,7 +1,9 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
+using FleetTelemetry.Infrastructure.Observability;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
@@ -12,11 +14,16 @@ namespace FleetTelemetry.Infrastructure.Services;
 public class OperationalAiAgentService : IAiAgentService
 {
     private readonly AiToolRouter _router;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<OperationalAiAgentService> _logger;
 
-    public OperationalAiAgentService(AiToolRouter router, ILogger<OperationalAiAgentService> logger)
+    public OperationalAiAgentService(
+        AiToolRouter router,
+        FleetTelemetryMetrics metrics,
+        ILogger<OperationalAiAgentService> logger)
     {
         _router = router;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -44,7 +51,9 @@ public class OperationalAiAgentService : IAiAgentService
             intent.ZoneName,
             intent.CriticalZonesOnly);
 
+        var sw = Stopwatch.StartNew();
         var routing = await _router.RouteAsync(intent, cancellationToken);
+        _metrics.RecordAiToolCall(routing.ToolName ?? "none", sw.Elapsed, routing.Success);
         var sources = routing.ToolName is not null
             ? routing.Sources.Prepend(routing.ToolName).Distinct(StringComparer.Ordinal).ToList()
             : routing.Sources;

@@ -2,32 +2,65 @@ import * as Location from "expo-location";
 import { isSimulatedLocationAllowed } from "@/config/env";
 import type { LocationReading } from "@/types/telemetry";
 
-class SimulatedLocationDisabledError extends Error {
-  constructor() { super("Simulated location disabled. Set EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION=true."); this.name = "SimulatedLocationDisabledError"; }
+export class LocationCaptureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LocationCaptureError";
+  }
 }
 
 function simulate(): LocationReading {
-  if (!isSimulatedLocationAllowed()) throw new SimulatedLocationDisabledError();
+  if (!isSimulatedLocationAllowed()) {
+    throw new LocationCaptureError(
+      "GPS no disponible y la simulación está deshabilitada. Configure EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION=true solo en desarrollo.",
+    );
+  }
+
   const jitter = () => (Math.random() - 0.5) * 0.01;
-  return { latitude: 4.711 + jitter(), longitude: -74.0721 + jitter(), speedKmh: Math.round(20 + Math.random() * 40), source: "simulated" };
+  return {
+    latitude: 4.711 + jitter(),
+    longitude: -74.0721 + jitter(),
+    speedKmh: Math.round(20 + Math.random() * 40),
+    source: "simulated",
+  };
 }
 
 export async function getCurrentReading(): Promise<LocationReading> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return simulate();
+    if (status !== "granted") {
+      if (!isSimulatedLocationAllowed()) {
+        throw new LocationCaptureError("Permiso de ubicación denegado.");
+      }
+      return simulate();
+    }
+
     const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return { latitude: position.coords.latitude, longitude: position.coords.longitude, speedKmh: Math.max(0, Math.round((position.coords.speed ?? 0) * 3.6)), source: "gps" };
+    return {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      speedKmh: Math.max(0, Math.round((position.coords.speed ?? 0) * 3.6)),
+      source: "gps",
+    };
   } catch (error) {
-    if (error instanceof SimulatedLocationDisabledError) throw error;
+    if (error instanceof LocationCaptureError) throw error;
+    if (!isSimulatedLocationAllowed()) {
+      throw new LocationCaptureError(
+        error instanceof Error ? error.message : "No se pudo capturar ubicación GPS",
+      );
+    }
     return simulate();
   }
 }
 
-export async function runCaptureLoop(onReading: (r: LocationReading) => void | Promise<void>, intervalMs: number, shouldContinue: () => boolean): Promise<void> {
+export async function runCaptureLoop(
+  onReading: (reading: LocationReading) => void | Promise<void>,
+  intervalMs: number,
+  shouldContinue: () => boolean,
+): Promise<void> {
   while (shouldContinue()) {
     const started = Date.now();
-    try { await onReading(await getCurrentReading()); } catch (e) { if (e instanceof SimulatedLocationDisabledError) throw e; }
-    await new Promise((r) => setTimeout(r, Math.max(0, intervalMs - (Date.now() - started))));
+    await onReading(await getCurrentReading());
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, intervalMs - (Date.now() - started))));
   }
 }

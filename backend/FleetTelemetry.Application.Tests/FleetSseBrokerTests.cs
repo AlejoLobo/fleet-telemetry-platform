@@ -8,12 +8,12 @@ public class FleetSseBrokerTests
     [Fact]
     public void Publish_drops_events_for_slow_subscriber_without_blocking()
     {
-        var broker = new FleetSseBroker(channelCapacity: 5);
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
         var reader = broker.Subscribe(out var subscriptionId);
 
         for (var i = 0; i < 20; i++)
         {
-            broker.Publish(new FleetSseEvent("alert", new { index = i }, DateTimeOffset.UtcNow));
+            broker.Publish("alert", new { index = i });
         }
 
         var drained = 0;
@@ -25,6 +25,45 @@ public class FleetSseBrokerTests
 
         broker.Unsubscribe(subscriptionId);
         Assert.Equal(0, broker.SubscriberCount);
+        Assert.Equal(1, broker.TotalUnsubscribes);
+    }
+
+    [Fact]
+    public void Publish_assigns_monotonic_stream_ids()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var first = broker.Publish("heartbeat", new { ok = true });
+        var second = broker.Publish("heartbeat", new { ok = true });
+
+        Assert.True(second.StreamId > first.StreamId);
+    }
+
+    [Fact]
+    public void GetReplayAfter_returns_events_after_cursor()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
+        var first = broker.Publish("alert", new { n = 1 });
+        broker.Publish("alert", new { n = 2 });
+        var third = broker.Publish("alert", new { n = 3 });
+
+        var replay = broker.GetReplayAfter(first.StreamId, maxEvents: 10);
+
+        Assert.Equal(2, replay.Count);
+        Assert.Equal(third.StreamId, replay.Last().StreamId);
+    }
+
+    [Fact]
+    public void Unsubscribe_removes_subscriber_without_affecting_others()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 10);
+        broker.Subscribe(out var first);
+        broker.Subscribe(out var second);
+
+        Assert.Equal(2, broker.SubscriberCount);
+
+        broker.Unsubscribe(first);
+        Assert.Equal(1, broker.SubscriberCount);
+        Assert.Equal(2, broker.TotalSubscriptions);
     }
 
     [Fact]

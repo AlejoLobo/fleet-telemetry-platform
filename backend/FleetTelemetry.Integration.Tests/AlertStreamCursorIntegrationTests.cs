@@ -63,6 +63,44 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetOpenAlertsAfterCursor_paginates_without_duplicates()
+    {
+        await ResetAlertsAsync();
+        var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
+        var ids = Enumerable.Range(1, 5)
+            .Select(i => Guid.Parse($"aaaaaaaa-aaaa-aaaa-aaaa-{i:D12}"))
+            .ToArray();
+
+        for (var i = 0; i < ids.Length; i++)
+        {
+            await SeedAlertsAsync((ids[i], baseTime.AddMinutes(i), $"VH-{i}"));
+        }
+
+        using var scope = _services.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
+        var upperBound = baseTime.AddHours(1);
+        var cursor = AlertStreamCursor.Origin;
+        var collected = new List<Guid>();
+
+        while (true)
+        {
+            var batch = await repository.GetOpenAlertsAfterCursorAsync(cursor, upperBound, limit: 2);
+            if (batch.Count == 0) break;
+
+            foreach (var alert in batch)
+            {
+                collected.Add(alert.AlertId);
+                cursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
+            }
+
+            if (batch.Count < 2) break;
+        }
+
+        Assert.Equal(ids.Length, collected.Count);
+        Assert.Equal(ids, collected);
+    }
+
+    [Fact]
     public async Task GetOpenAlertsAfterCursor_respects_upper_bound_captured_before_late_insert()
     {
         await ResetAlertsAsync();
