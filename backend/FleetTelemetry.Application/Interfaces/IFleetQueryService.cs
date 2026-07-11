@@ -10,6 +10,7 @@ public interface IFleetQueryService
     // Lista estados recientes de todos los vehículos.
     Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
         bool liveOnly = false,
+        bool excludeSimulated = false,
         CancellationToken cancellationToken = default);
     // Obtiene estado de un vehículo por identificador.
     Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(string vehicleId, CancellationToken cancellationToken = default);

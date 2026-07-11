@@ -1,26 +1,29 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Validation;
+using FleetTelemetry.Domain.Entities;
+using Microsoft.Extensions.Options;
 
-// Caso de uso de ingesta de un evento de telemetría.
 namespace FleetTelemetry.Application.UseCases;
 
-// Valida y publica un evento individual a Kafka.
 public class IngestTelemetryEventUseCase
 {
     private readonly ITelemetryEventPublisher _publisher;
+    private readonly TelemetryEventValidator _validator;
 
-    public IngestTelemetryEventUseCase(ITelemetryEventPublisher publisher)
+    public IngestTelemetryEventUseCase(
+        ITelemetryEventPublisher publisher,
+        TelemetryEventValidator validator)
     {
         _publisher = publisher;
+        _validator = validator;
     }
 
-    // Valida, mapea al dominio y publica.
     public async Task ExecuteAsync(TelemetryEventRequest request, CancellationToken cancellationToken = default)
     {
-        TelemetryEventValidator.Validate(request);
-
-        var domainEvent = TelemetryEventValidator.MapToDomain(request);
+        _validator.Validate(request);
+        var domainEvent = _validator.MapToDomain(request);
         await _publisher.PublishAsync(domainEvent, cancellationToken);
     }
 }

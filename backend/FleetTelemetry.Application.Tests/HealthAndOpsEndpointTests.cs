@@ -109,6 +109,7 @@ public class HealthAndOpsEndpointTests
     {
         public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
             bool liveOnly = false,
+            bool excludeSimulated = false,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(vehicles);
 
