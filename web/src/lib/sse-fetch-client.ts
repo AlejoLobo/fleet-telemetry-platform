@@ -15,19 +15,35 @@ export class SseParser {
   }
 
   flush(): SseParsedEvent[] {
-    const events: SseParsedEvent[] = [];
+    const events: SseParsedEvent[] = [...this.drainEvents()];
+
+    if (this.buffer.length > 0) {
+      let line = this.buffer;
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      this.buffer = "";
+
+      if (line !== "" && !line.startsWith(":")) {
+        const colonIndex = line.indexOf(":");
+        const field = colonIndex === -1 ? line : line.slice(0, colonIndex);
+        let value = colonIndex === -1 ? "" : line.slice(colonIndex + 1);
+        if (value.startsWith(" ")) value = value.slice(1);
+
+        if (field === "event") this.eventName = value;
+        else if (field === "data") this.dataLines.push(value);
+      }
+    }
+
     if (this.dataLines.length > 0) {
       events.push({
         event: this.eventName,
         data: this.dataLines.join("\n"),
       });
-      this.eventName = "message";
-      this.dataLines = [];
     }
-    if (this.buffer.length > 0) {
-      this.buffer += "\n";
-      events.push(...this.drainEvents());
-    }
+
+    this.eventName = "message";
+    this.dataLines = [];
+    this.buffer = "";
+
     return events;
   }
 

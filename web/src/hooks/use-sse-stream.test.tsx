@@ -20,7 +20,7 @@ describe("useSseStream FT-001", () => {
 
   it("cancela la conexión al desmontarse mediante AbortController", async () => {
     const abortSignals: AbortSignal[] = [];
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, init) => {
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, init) => {
       abortSignals.push(init.signal);
       return new Promise(() => {
         /* stream abierto hasta abort */
@@ -32,38 +32,56 @@ describe("useSseStream FT-001", () => {
 
     unmount();
     expect(abortSignals[0]?.aborted).toBe(true);
+    expect(consumeSpy).toHaveBeenCalled();
   });
 
   it("no reconecta indefinidamente después de 401", async () => {
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockRejectedValue(new sseClient.SseAuthError(401));
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream").mockRejectedValue(
+      new sseClient.SseAuthError(401),
+    );
 
     renderHook(() => useSseStream({ enabled: true, authToken: "bad-token" }));
-    await waitFor(() => expect(sseClient.consumeSseFetchStream).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(consumeSpy).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
-    expect(sseClient.consumeSseFetchStream).toHaveBeenCalledTimes(1);
+    expect(consumeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("no reconecta indefinidamente después de 403", async () => {
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream").mockRejectedValue(
+      new sseClient.SseAuthError(403),
+    );
+
+    renderHook(() => useSseStream({ enabled: true, authToken: "forbidden-token" }));
+    await waitFor(() => expect(consumeSpy).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    expect(consumeSpy).toHaveBeenCalledTimes(1);
   });
 
   it("reconecta después de un error temporal de red", async () => {
     vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(50);
-    vi.spyOn(sseClient, "consumeSseFetchStream")
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream")
       .mockRejectedValueOnce(new Error("network down"))
       .mockImplementation(async () => undefined);
 
     renderHook(() => useSseStream({ enabled: true }));
-    await waitFor(() => expect(sseClient.consumeSseFetchStream).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(consumeSpy).toHaveBeenCalledTimes(1));
 
     await waitFor(
-      () => expect(sseClient.consumeSseFetchStream).toHaveBeenCalledTimes(2),
+      () => expect(consumeSpy).toHaveBeenCalledTimes(2),
       { timeout: 2_000 },
     );
   });
 
   it("vuelve a conectar cuando cambia el token", async () => {
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, init) => {
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, init) => {
       await new Promise<void>((resolve) => {
         init.signal.addEventListener("abort", () => resolve(), { once: true });
       });
@@ -74,13 +92,11 @@ describe("useSseStream FT-001", () => {
       { initialProps: { token: "token-a" as string | null } },
     );
 
-    await waitFor(() => expect(sseClient.consumeSseFetchStream).toHaveBeenCalled());
-    const callsBeforeRerender = vi.mocked(sseClient.consumeSseFetchStream).mock.calls.length;
+    await waitFor(() => expect(consumeSpy).toHaveBeenCalled());
+    const callsBeforeRerender = consumeSpy.mock.calls.length;
 
     rerender({ token: "token-b" });
-    await waitFor(() =>
-      expect(sseClient.consumeSseFetchStream.mock.calls.length).toBeGreaterThan(callsBeforeRerender),
-    );
+    await waitFor(() => expect(consumeSpy.mock.calls.length).toBeGreaterThan(callsBeforeRerender));
   });
 
   it("procesa fleet-update y alert desde eventos SSE", async () => {
