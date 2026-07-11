@@ -15,5 +15,5 @@
 | [../infra/README.md](../infra/README.md) | Terraform blueprint AWS |
 | [../web/README.md](../web/README.md) | Dashboard Next.js |
 | [../mobile/README.md](../mobile/README.md) | App Expo + EAS preview |
-| [../AGENTS.md](../AGENTS.md) | Caveats para agentes / VMs Cloud |
+| [dev-environment.md](dev-environment.md) | Caveats de entorno en VM / desarrollo local |
 | [../.env.example](../.env.example) | Variables de entorno de ejemplo |
