@@ -101,7 +101,7 @@ if (rateLimitOptions.Enabled)
 }
 
 builder.Services.AddInfrastructure(builder.Configuration, InfrastructureProfile.Api);
-builder.Services.AddFleetSsePolling();
+builder.Services.AddFleetSseDelivery(builder.Configuration);
 builder.Services.AddFleetOpenTelemetry(builder.Configuration, InfrastructureProfile.Api);
 
 var app = builder.Build();

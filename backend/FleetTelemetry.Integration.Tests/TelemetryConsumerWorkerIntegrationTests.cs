@@ -426,29 +426,27 @@ public class TelemetryConsumerWorkerIntegrationTests
         }
     }
 
-    private static TelemetryEvent CreateEvent(string vehicleId) => new()
-    {
-        EventId = Guid.NewGuid(),
-        VehicleId = vehicleId,
-        DriverId = "DRV-1",
-        Timestamp = DateTimeOffset.UtcNow,
-        Latitude = 4.65,
-        Longitude = -74.08,
-        SpeedKmh = 40,
-        FuelLevelPercent = 50,
-        BatteryPercent = 80
-    };
+    private static TelemetryEvent CreateEvent(string vehicleId) =>
+        TelemetryEvent.Create(
+            Guid.NewGuid(),
+            vehicleId,
+            "DRV-1",
+            DateTimeOffset.UtcNow,
+            4.65,
+            -74.08,
+            40,
+            50,
+            80);
 
-    private static TelemetryEvent CreateEventWithId(string vehicleId, Guid eventId) => new()
-    {
-        EventId = eventId,
-        VehicleId = vehicleId,
-        DriverId = "DRV-1",
-        Timestamp = DateTimeOffset.UtcNow,
-        Latitude = 4.65,
-        Longitude = -74.08,
-        SpeedKmh = 40,
-        FuelLevelPercent = 50,
-        BatteryPercent = 80
-    };
+    private static TelemetryEvent CreateEventWithId(string vehicleId, Guid eventId) =>
+        TelemetryEvent.Create(
+            eventId,
+            vehicleId,
+            "DRV-1",
+            DateTimeOffset.UtcNow,
+            4.65,
+            -74.08,
+            40,
+            50,
+            80);
 }

@@ -5,6 +5,7 @@ using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,15 +18,18 @@ public class TelemetryMessageProcessor
 {
     private readonly IDeadLetterPublisher _deadLetterPublisher;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<TelemetryMessageProcessor> _logger;
 
     public TelemetryMessageProcessor(
         IDeadLetterPublisher deadLetterPublisher,
         IOptions<KafkaOptions> kafkaOptions,
+        FleetTelemetryMetrics metrics,
         ILogger<TelemetryMessageProcessor> logger)
     {
         _deadLetterPublisher = deadLetterPublisher;
         _kafkaOptions = kafkaOptions.Value;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -40,6 +44,7 @@ public class TelemetryMessageProcessor
 
         if (string.IsNullOrWhiteSpace(message.Payload))
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
@@ -54,6 +59,7 @@ public class TelemetryMessageProcessor
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
@@ -62,10 +68,12 @@ public class TelemetryMessageProcessor
 
         try
         {
+            using var duration = _metrics.TrackProcessingDuration();
             var outcome = await processEvent(telemetryEvent, cancellationToken);
 
             if (outcome == ProcessTelemetryOutcome.Processed)
             {
+                _metrics.TelemetryProcessedTotal.Add(1);
                 _logger.LogInformation(
                     "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
@@ -76,6 +84,7 @@ public class TelemetryMessageProcessor
             }
             else
             {
+                _metrics.TelemetryDuplicateTotal.Add(1);
                 _logger.LogInformation(
                     "Telemetry event duplicate skipped. EventId={EventId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
@@ -112,7 +121,8 @@ public class TelemetryMessageProcessor
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message);
+                exceptionMessage: ex.Message,
+                attemptNumber: currentAttempt);
         }
     }
 
@@ -155,7 +165,8 @@ public class TelemetryMessageProcessor
             return Task.FromResult(TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message));
+                exceptionMessage: ex.Message,
+                attemptNumber: currentAttempt));
         }
 
         _logger.LogWarning(
@@ -175,9 +186,10 @@ public class TelemetryMessageProcessor
     private TelemetryMessageProcessingOutcome TerminalDeadLetterOutcome(
         KafkaConsumedMessage message,
         string reason,
-        string exceptionMessage)
+        string exceptionMessage,
+        int attemptNumber = 1)
     {
-        var deadLetterMessage = BuildDeadLetterMessage(message, reason, exceptionMessage);
+        var deadLetterMessage = BuildDeadLetterMessage(message, reason, exceptionMessage, attemptNumber);
         return new TelemetryMessageProcessingOutcome(
             TelemetryMessageProcessingResult.RequiresDeadLetterPublish,
             deadLetterMessage);
@@ -186,13 +198,57 @@ public class TelemetryMessageProcessor
     private static DeadLetterMessage BuildDeadLetterMessage(
         KafkaConsumedMessage message,
         string reason,
-        string exceptionMessage) =>
-        new(
-            OriginalPayload: message.Payload ?? string.Empty,
-            Reason: reason,
-            ExceptionMessage: exceptionMessage,
+        string exceptionMessage,
+        int attemptNumber)
+    {
+        var category = reason switch
+        {
+            "invalid_payload" => "validation",
+            "processing_failure" => "processing",
+            _ => "unknown"
+        };
+
+        Guid? correlationId = null;
+        try
+        {
+            var parsed = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            correlationId = parsed.EventId;
+        }
+        catch
+        {
+            // Payload inválido: no hay correlationId confiable.
+        }
+
+        var sanitizedDetail = SanitizeTechnicalDetail(exceptionMessage);
+
+        return new DeadLetterMessage(
+            DeadLetterId: Guid.NewGuid(),
+            SchemaVersion: 1,
+            Category: category,
+            ErrorCode: reason,
+            AttemptNumber: attemptNumber,
+            OccurredAt: DateTimeOffset.UtcNow,
+            ProcessedAt: null,
             OriginalTopic: message.Topic,
             Partition: message.Partition,
             Offset: message.Offset,
-            OccurredAt: DateTimeOffset.UtcNow);
+            MessageKey: message.Key,
+            CorrelationId: correlationId,
+            OriginalPayload: message.Payload ?? string.Empty,
+            TechnicalDetail: sanitizedDetail,
+            Reason: reason,
+            ExceptionMessage: sanitizedDetail);
+    }
+
+    private static string SanitizeTechnicalDetail(string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "unknown";
+
+        const int maxLength = 500;
+        var normalized = detail.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..maxLength];
+    }
 }

@@ -1,9 +1,23 @@
 namespace FleetTelemetry.Infrastructure.Configuration;
 
+public enum SseDeliveryMode
+{
+    Polling,
+    KafkaPush
+}
+
 // Intervalos del poller SSE para el dashboard en tiempo real.
 public class SseOptions
 {
     public const string SectionName = "Sse";
+
+    public SseDeliveryMode Mode { get; set; } = SseDeliveryMode.Polling;
+
+    // Eventos SSE retenidos para replay con Last-Event-ID.
+    public int ReplayBufferSize { get; set; } = 200;
+
+    // Capacidad por suscriptor antes de descartar (backpressure).
+    public int SubscriberChannelCapacity { get; set; } = 100;
 
     // Intervalo cuando hay cambios recientes o primera consulta.
     public int ActivePollIntervalSeconds { get; set; } = 3;
