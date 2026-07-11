@@ -155,14 +155,8 @@ Reglas de documentación:
   - decisiones técnicas
   - limitaciones conscientes
   - próximos pasos
-  - AI Audit
-- La sección AI Audit debe explicar errores o malas propuestas de la IA y cómo fueron corregidas con criterio senior.
-
-AI Audit obligatorio:
-- Documentar si la IA propone guardar telemetría directamente desde controllers.
-- Documentar si la IA propone enviar todos los eventos al LLM.
-- Documentar si la IA propone depender del backend real sin modo mock.
-- Explicar la corrección técnica aplicada en cada caso.
+  - decisiones de arquitectura documentadas
+- Documentar garantías de procesamiento Kafka, DLQ y pruebas que las validan cuando el cambio lo amerite.
 
 Reglas de commits:
 - Todos los mensajes de commit y merge en español.
@@ -175,6 +169,6 @@ Reglas de commits:
   - feat(web): agregar dashboard de flota en tiempo real
   - feat(mobile): agregar cola offline-first de telemetría
   - test(carga): agregar simulación k6 de telemetría
-  - docs(readme): documentar arquitectura y auditoría IA
+  - docs(readme): documentar arquitectura y operacion del pipeline
   - chore(infra): agregar Redpanda y TimescaleDB
   - fix(worker): corregir manejo de payloads inválidos

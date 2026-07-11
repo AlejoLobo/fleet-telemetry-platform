@@ -15,11 +15,18 @@
 | Pieza | Rol |
 |-------|-----|
 | `TelemetryConsumerWorker` | `Consume` → reintentos del mismo offset → `Commit` solo al terminal |
-| `TelemetryMessageProcessor` | Deserializar, validar, clasificar fallos, DLQ (stateless) |
+| `TelemetryMessageCoordinator` | Separa procesamiento y publicación DLQ (reintento DLQ sin reprocesar) |
+| `TelemetryMessageProcessor` | Deserializar, validar, clasificar fallos, preparar DLQ (stateless) |
 | `KafkaProcessingRetryBackoff` | Backoff exponencial + jitter **acotado** al máximo |
 | `DeadLetterPublishRetrySession` | Límite de fallos al publicar DLQ; detiene el host sin commit |
 | `DatabaseTransientFailureClassifier` | SQLSTATE / Npgsql → transitorio vs permanente |
-| `IDeadLetterPublisher` | Publica en `telemetry.dead-letter` |
+| `IDeadLetterPublisher` | Publica en `telemetry.dead-letter` (`KafkaDeadLetterPublisher` en producción) |
+
+## Tests de integración
+
+- **Publisher productivo:** `UseProductionDeadLetterPublisher = true` en `TelemetryConsumerWorkerTestHost` conserva `KafkaDeadLetterPublisher` registrado por infraestructura. Las pruebas consumen el tópico DLQ real y verifican payload camelCase, metadatos y clave `topic:partition:offset` antes del commit.
+- **Double controlable:** `ControllableDeadLetterPublisher` reemplaza `IDeadLetterPublisher` solo cuando se necesita simular fallos de publicación, redelivery tras agotar intentos o contar reintentos sin depender del broker.
+- **Esquema TimescaleDB:** el Worker inicializa el esquema al arrancar; el test host ya no llama `DatabaseInitializer` en `CreateAsync`. La concurrencia del DDL se protege con `pg_advisory_lock` en una única conexión abierta.
 
 ## At-least-once (mismo offset)
 
@@ -29,7 +36,7 @@ Tras `Consume`, no se llama a `Consume()` de nuevo hasta:
 2. Payload inválido/vacío/whitespace → DLQ `invalid_payload` → commit (si DLQ OK).
 3. Fallo transitorio → reintento + backoff; al agotar intentos → DLQ `processing_failure`.
 4. Fallo permanente → DLQ inmediata.
-5. Fallo al publicar DLQ → reintento acotado; al límite → `LogCritical` + stop del Worker **sin** commit.
+5. Fallo al publicar DLQ → reintento **solo** de publicación (sin reprocesar ni reiniciar intentos de negocio); al límite → `LogCritical` + stop del Worker **sin** commit.
 6. Cancelación / apagado → sin commit.
 
 ## Resultados de procesamiento
@@ -37,7 +44,7 @@ Tras `Consume`, no se llama a `Consume()` de nuevo hasta:
 | Resultado | Commit | Uso |
 |-----------|--------|-----|
 | `ProcessedAndCommit` | Sí | Evento válido / duplicado tratado |
-| `SentToDeadLetterAndCommit` | Sí | DLQ publicada con éxito |
+| `RequiresDeadLetterPublish` | Sí (tras publicar DLQ) | Procesamiento terminal; el coordinador publica DLQ y luego confirma offset |
 | `RetryWithoutCommit` | No | Reintentar el mismo offset tras backoff |
 
 `IgnoreWithoutCommit` fue **eliminado**: no hay camino que avance sin DLQ ni commit explícito para payloads vacíos.
@@ -73,4 +80,4 @@ O smoke: [../scripts/smoke-test.ps1](../scripts/smoke-test.ps1).
 
 ## Tests
 
-`FleetTelemetry.Worker.Tests` (unitarios) + `FleetTelemetry.Integration.Tests` (Kafka real vía Testcontainers). Ver [testing.md](testing.md).
+`FleetTelemetry.Worker.Tests` (unitarios) + `FleetTelemetry.Integration.Tests` (Kafka/Timescale reales, DLQ productiva y doubles). Ver [testing.md](testing.md).
