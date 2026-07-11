@@ -92,15 +92,26 @@ export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" |
 export async function claimNextBatch(limit: number, nowIso: string): Promise<QueuedTelemetryEvent[]> {
   const db = await getDb();
   await recoverStaleLocks(nowIso);
-  const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-     ORDER BY local_id ASC LIMIT ?`, nowIso, limit);
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.local_id as number);
-  await db.runAsync(
-    `UPDATE telemetry_queue SET status='processing', locked_at=? WHERE local_id IN (${ids.map(() => "?").join(",")})`,
-    nowIso, ...ids);
-  return rows.map(mapRow);
+
+  return db.withTransactionAsync(async () => {
+    const rows = await db.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+       ORDER BY local_id ASC LIMIT ?`,
+      nowIso,
+      limit,
+    );
+
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.local_id as number);
+    await db.runAsync(
+      `UPDATE telemetry_queue SET status='processing', locked_at=? WHERE local_id IN (${ids.map(() => "?").join(",")})`,
+      nowIso,
+      ...ids,
+    );
+
+    return rows.map(mapRow);
+  });
 }
 
 export async function markEventsSynced(eventIds: string[]): Promise<void> {
