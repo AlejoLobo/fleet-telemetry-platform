@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
@@ -62,6 +63,18 @@ public class AiToolRouterTests
         Assert.Contains("VH-002", reduced);
         Assert.DoesNotContain("VH-005", reduced);
         Assert.Contains("resultado reducido", reduced, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteToolCallAsync_rejects_unknown_tool()
+    {
+        var router = CreateRouter();
+        var result = await router.ExecuteToolCallAsync(
+            "GetWeatherForecast",
+            new Dictionary<string, JsonElement>());
+
+        Assert.False(result.Success);
+        Assert.Contains("unsupported_tool", result.Sources);
     }
 
     private static AiToolRouter CreateRouter()
