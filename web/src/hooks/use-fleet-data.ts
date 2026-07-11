@@ -3,102 +3,142 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import {
+  computeGlobalAnalytics,
+  computeSelectedAnalytics,
+  toLegacyAnalytics,
+  type FleetDataSource,
+  type GlobalAnalytics,
+  type SelectedVehicleAnalytics,
+} from "@/lib/analytics";
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
 import { getApiBaseUrl } from "@/lib/utils";
-
-/** Origen de los datos: backend real o demostración. */
-export type FleetDataSource = "api" | "demo";
 
 type FleetDataState = {
   vehicles: VehicleStatus[];
   alerts: FleetAlert[];
   telemetry: TelemetryEvent[];
-  analytics: AnalyticsSummary;
-  loading: boolean;
-  error: string | null;
+  globalAnalytics: GlobalAnalytics;
+  selectedAnalytics: SelectedVehicleAnalytics | null;
+  fleetLoading: boolean;
+  telemetryLoading: boolean;
+  fleetError: string | null;
+  telemetryError: string | null;
   dataSource: FleetDataSource;
 };
 
-const defaultAnalytics: AnalyticsSummary = {
-  averageSpeedKmh: 0,
+const emptyGlobal: GlobalAnalytics = {
   activeVehicles: 0,
   totalVehicles: 0,
   openAlerts: 0,
   source: "TimescaleDB",
 };
 
-/** Calcula métricas resumidas a partir de los datos cargados. */
-function computeAnalytics(
-  vehicles: VehicleStatus[],
-  alerts: FleetAlert[],
-  telemetry: TelemetryEvent[],
-  dataSource: FleetDataSource,
-): AnalyticsSummary {
-  const speeds = telemetry.map((t) => t.speedKmh);
-  const avg = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
-
-  return {
-    averageSpeedKmh: Math.round(avg * 10) / 10,
-    activeVehicles: vehicles.filter((v) => v.status === "online").length,
-    totalVehicles: vehicles.length,
-    openAlerts: alerts.length,
-    source: dataSource === "demo" ? "Demostración" : "TimescaleDB",
-  };
-}
-
-/** Hook principal de datos de flota para el dashboard. */
 export function useFleetData(selectedVehicleId: string | null) {
   const [state, setState] = useState<FleetDataState>({
     vehicles: [],
     alerts: [],
     telemetry: [],
-    analytics: defaultAnalytics,
-    loading: true,
-    error: null,
+    globalAnalytics: emptyGlobal,
+    selectedAnalytics: null,
+    fleetLoading: true,
+    telemetryLoading: false,
+    fleetError: null,
+    telemetryError: null,
     dataSource: "api",
   });
 
   const dataSourceRef = useRef<FleetDataSource>("api");
+  const telemetryAbortRef = useRef<AbortController | null>(null);
+  const telemetryRequestIdRef = useRef(0);
 
-  /** Carga vehículos, alertas y telemetría desde el API. */
-  const loadFromApi = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+  const loadFleetAndAlerts = useCallback(async () => {
+    setState((prev) => ({ ...prev, fleetLoading: true, fleetError: null }));
 
     try {
-      const vehicleId = selectedVehicleId ?? "VH-001";
-      const [vehicles, alerts, telemetry] = await Promise.all([
+      const [vehicles, alerts] = await Promise.all([
         apiClient.fetchFleetLive(),
         apiClient.fetchAlertsLive(),
-        apiClient.fetchTelemetryLive(vehicleId),
       ]);
 
-      setState({
+      const globalAnalytics = computeGlobalAnalytics(vehicles, alerts, "api");
+
+      setState((prev) => ({
+        ...prev,
         vehicles,
         alerts,
-        telemetry,
-        analytics: computeAnalytics(vehicles, alerts, telemetry, "api"),
-        loading: false,
-        error:
+        globalAnalytics,
+        fleetLoading: false,
+        fleetError:
           vehicles.length === 0
             ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
             : null,
         dataSource: "api",
-      });
+      }));
       dataSourceRef.current = "api";
     } catch {
       setState((prev) => ({
         ...prev,
-        loading: false,
-        error: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
+        fleetLoading: false,
+        fleetError: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
         dataSource: "api",
       }));
     }
-  }, [selectedVehicleId]);
+  }, []);
 
-  /** Carga datos sintéticos para modo demostración. */
+  const loadTelemetryForVehicle = useCallback(async (vehicleId: string) => {
+    telemetryAbortRef.current?.abort();
+    const controller = new AbortController();
+    telemetryAbortRef.current = controller;
+    const requestId = ++telemetryRequestIdRef.current;
+
+    setState((prev) => ({ ...prev, telemetryLoading: true, telemetryError: null }));
+
+    try {
+      const to = new Date().toISOString();
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const response = await fetch(
+        `${getApiBaseUrl()}/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
+        {
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (!response.ok) throw new Error(`Error ${response.status} al cargar telemetría`);
+
+      const telemetry = (await response.json()) as TelemetryEvent[];
+      if (requestId !== telemetryRequestIdRef.current) return;
+
+      const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetry);
+      setState((prev) => ({
+        ...prev,
+        telemetry,
+        selectedAnalytics,
+        telemetryLoading: false,
+      }));
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      if (requestId !== telemetryRequestIdRef.current) return;
+
+      setState((prev) => ({
+        ...prev,
+        telemetryLoading: false,
+        telemetryError: error instanceof Error ? error.message : "Error al cargar telemetría",
+      }));
+    }
+  }, []);
+
+  const loadFromApi = useCallback(async () => {
+    await loadFleetAndAlerts();
+    const vehicleId = selectedVehicleId ?? "VH-001";
+    await loadTelemetryForVehicle(vehicleId);
+  }, [loadFleetAndAlerts, loadTelemetryForVehicle, selectedVehicleId]);
+
   const loadDemoData = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    telemetryAbortRef.current?.abort();
+    setState((prev) => ({ ...prev, fleetLoading: true, fleetError: null, telemetryError: null }));
 
     const dataset = refreshMockDataset(10);
     const vehicleId =
@@ -106,20 +146,24 @@ export function useFleetData(selectedVehicleId: string | null) {
         ? selectedVehicleId
         : (dataset.vehicles[0]?.vehicleId ?? "VH-001");
     const telemetry = dataset.telemetryByVehicle[vehicleId] ?? [];
+    const globalAnalytics = computeGlobalAnalytics(dataset.vehicles, dataset.alerts, "demo");
+    const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetry);
 
     setState({
       vehicles: dataset.vehicles,
       alerts: dataset.alerts,
       telemetry,
-      analytics: computeAnalytics(dataset.vehicles, dataset.alerts, telemetry, "demo"),
-      loading: false,
-      error: null,
+      globalAnalytics,
+      selectedAnalytics,
+      fleetLoading: false,
+      telemetryLoading: false,
+      fleetError: null,
+      telemetryError: null,
       dataSource: "demo",
     });
     dataSourceRef.current = "demo";
   }, [selectedVehicleId]);
 
-  /** Recarga según el origen de datos activo. */
   const refresh = useCallback(async () => {
     if (dataSourceRef.current === "demo") {
       await loadDemoData();
@@ -129,32 +173,54 @@ export function useFleetData(selectedVehicleId: string | null) {
   }, [loadDemoData, loadFromApi]);
 
   useEffect(() => {
-    loadFromApi();
-  }, [loadFromApi]);
+    void loadFleetAndAlerts();
+    return () => telemetryAbortRef.current?.abort();
+  }, [loadFleetAndAlerts]);
 
   useEffect(() => {
-    if (dataSourceRef.current !== "demo" || !selectedVehicleId) return;
-    const dataset = getMockDataset();
-    const telemetryForVehicle = dataset.telemetryByVehicle[selectedVehicleId] ?? [];
-    setState((prev) => {
-      if (prev.dataSource !== "demo") return prev;
-      return {
-        ...prev,
-        telemetry: telemetryForVehicle,
-        analytics: computeAnalytics(
-          prev.vehicles,
-          prev.alerts,
-          telemetryForVehicle,
-          "demo",
-        ),
-      };
-    });
-  }, [selectedVehicleId]);
+    if (!selectedVehicleId) return;
+
+    if (dataSourceRef.current === "demo") {
+      const dataset = getMockDataset();
+      const telemetryForVehicle = dataset.telemetryByVehicle[selectedVehicleId] ?? [];
+      setState((prev) => {
+        if (prev.dataSource !== "demo") return prev;
+        return {
+          ...prev,
+          telemetry: telemetryForVehicle,
+          selectedAnalytics: computeSelectedAnalytics(selectedVehicleId, telemetryForVehicle),
+        };
+      });
+      return;
+    }
+
+    if (state.fleetLoading) return;
+    void loadTelemetryForVehicle(selectedVehicleId);
+  }, [selectedVehicleId, state.fleetLoading, loadTelemetryForVehicle]);
+
+  const analytics: AnalyticsSummary = toLegacyAnalytics(
+    state.globalAnalytics,
+    state.selectedAnalytics,
+  );
 
   return {
-    ...state,
+    vehicles: state.vehicles,
+    alerts: state.alerts,
+    telemetry: state.telemetry,
+    analytics,
+    globalAnalytics: state.globalAnalytics,
+    selectedAnalytics: state.selectedAnalytics,
+    loading: state.fleetLoading || state.telemetryLoading,
+    fleetLoading: state.fleetLoading,
+    telemetryLoading: state.telemetryLoading,
+    error: state.fleetError ?? state.telemetryError,
+    fleetError: state.fleetError,
+    telemetryError: state.telemetryError,
+    dataSource: state.dataSource,
     refresh,
     loadFromApi,
     loadDemoData,
   };
 }
+
+export type { FleetDataSource };
