@@ -1,4 +1,4 @@
-// Prueba de carga k6: ingesta de telemetría (5% inválidos, 10% duplicados, 85% nuevos).
+// Prueba de carga k6: ingesta de telemetría (5% inválidos, 10% duplicados reales, 85% nuevos).
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
@@ -7,9 +7,7 @@ import { randomIntBetween, uuidv4 } from "https://jslib.k6.io/k6-utils/1.4.0/ind
 const API_URL = __ENV.API_URL || "http://localhost:5000";
 const AUTH_TOKEN = __ENV.AUTH_TOKEN || "";
 const VEHICLE_COUNT = Number(__ENV.VEHICLES || 300);
-
-// 400 intencionales no cuentan como http_req_failed.
-http.setResponseCallback(http.expectedStatuses(202, 400));
+const DUPLICATE_POOL_SIZE = 50;
 
 const BOGOTA_ZONES = [
   { lat: 4.648, lng: -74.063, spread: 0.018 },
@@ -32,23 +30,51 @@ const validAcceptedRate = new Rate("telemetry_valid_accepted_rate");
 const invalidRejectedRate = new Rate("telemetry_invalid_rejected_rate");
 const validRequestDuration = new Trend("telemetry_valid_request_duration", true);
 
-// Pool de payloads completos reutilizables (mismo EventId + cuerpo).
-const duplicatePayloadPool = Array.from({ length: 50 }, () => {
+function headers() {
+  const h = { "Content-Type": "application/json" };
+  if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
+  return h;
+}
+
+function buildDuplicateSeedPayload() {
   const eventId = uuidv4();
   const vehicle = `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
   const zone = BOGOTA_ZONES[Number.parseInt(vehicle.replace("VH-", ""), 10) % BOGOTA_ZONES.length];
+  const timestamp = new Date(Date.now() - 60_000).toISOString();
   return JSON.stringify({
     eventId,
     vehicleId: vehicle,
     driverId: `DRV-${vehicle.replace("VH-", "")}`,
-    timestamp: new Date(Date.now() - 60_000).toISOString(),
+    timestamp,
     latitude: zone.lat,
     longitude: zone.lng,
     speedKmh: 42,
     fuelLevelPercent: 55,
     batteryPercent: 70,
   });
-});
+}
+
+export function setup() {
+  const duplicatePayloadPool = Array.from({ length: DUPLICATE_POOL_SIZE }, () => buildDuplicateSeedPayload());
+
+  for (let i = 0; i < duplicatePayloadPool.length; i++) {
+    const payload = duplicatePayloadPool[i];
+    const res = http.post(`${API_URL}/api/telemetry`, payload, {
+      headers: headers(),
+      responseCallback: http.expectedStatuses(202),
+    });
+
+    const ok = check(res, {
+      [`semilla duplicado ${i + 1} aceptada (202)`]: (r) => r.status === 202,
+    });
+
+    if (!ok) {
+      throw new Error(`Setup: falló la siembra del duplicado ${i + 1} con HTTP ${res.status}`);
+    }
+  }
+
+  return { duplicatePayloadPool };
+}
 
 export const options = {
   scenarios: {
@@ -66,12 +92,6 @@ export const options = {
     telemetry_invalid_rejected_rate: ["rate>0.95"],
   },
 };
-
-function headers() {
-  const h = { "Content-Type": "application/json" };
-  if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
-  return h;
-}
 
 function vehicleId() {
   return `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
@@ -137,12 +157,17 @@ function buildInvalidPayload() {
   });
 }
 
-export default function () {
+export default function (data) {
+  const pool = data.duplicatePayloadPool;
+
   // Una sola variable aleatoria: [0,0.05) inválido, [0.05,0.15) duplicado, [0.15,1) nuevo.
   const roll = Math.random();
 
   if (roll < 0.05) {
-    const res = http.post(`${API_URL}/api/telemetry`, buildInvalidPayload(), { headers: headers() });
+    const res = http.post(`${API_URL}/api/telemetry`, buildInvalidPayload(), {
+      headers: headers(),
+      responseCallback: http.expectedStatuses(400),
+    });
     intentionalInvalid.add(1);
     const ok = res.status === 400;
     invalidRejectedRate.add(ok);
@@ -153,10 +178,13 @@ export default function () {
   }
 
   if (roll < 0.15) {
-    const payload = duplicatePayloadPool[randomIntBetween(0, duplicatePayloadPool.length - 1)];
+    const payload = pool[randomIntBetween(0, pool.length - 1)];
     duplicateEvents.add(1);
     const start = Date.now();
-    const res = http.post(`${API_URL}/api/telemetry`, payload, { headers: headers() });
+    const res = http.post(`${API_URL}/api/telemetry`, payload, {
+      headers: headers(),
+      responseCallback: http.expectedStatuses(202),
+    });
     const duration = Date.now() - start;
     const ok = res.status === 202;
     validAcceptedRate.add(ok);
@@ -173,7 +201,10 @@ export default function () {
   const vehicle = vehicleId();
   const payload = buildValidPayload(uuidv4(), vehicle);
   const start = Date.now();
-  const res = http.post(`${API_URL}/api/telemetry`, payload, { headers: headers() });
+  const res = http.post(`${API_URL}/api/telemetry`, payload, {
+    headers: headers(),
+    responseCallback: http.expectedStatuses(202),
+  });
   const duration = Date.now() - start;
   const ok = res.status === 202;
   validAcceptedRate.add(ok);
