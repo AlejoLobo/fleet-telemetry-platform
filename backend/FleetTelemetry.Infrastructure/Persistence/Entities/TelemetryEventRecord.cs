@@ -29,4 +29,7 @@ public class TelemetryEventRecord
     public double? BatteryPercent { get; set; }
 
     public DateTimeOffset CapturedAt { get; set; }
+
+    [MaxLength(16)]
+    public string LocationSource { get; set; } = "gps";
 }
