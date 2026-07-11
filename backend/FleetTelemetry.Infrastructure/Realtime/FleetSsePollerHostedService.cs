@@ -97,28 +97,39 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
     {
+        // Límite superior estable capturado antes de paginar para no perder alertas insertadas durante el ciclo.
         var upperBound = _timeProvider.GetUtcNow();
-        var newAlerts = await alertRepository.GetOpenAlertsAfterCursorAsync(
-            _alertCursor,
-            upperBound,
-            _sseOptions.AlertBatchSize,
-            cancellationToken);
 
-        foreach (var alert in newAlerts)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _broker.Publish(new FleetSseEvent(
-                "alert",
-                new FleetAlertResponse(
-                    alert.AlertId,
-                    alert.VehicleId,
-                    alert.AlertType,
-                    alert.Severity,
-                    alert.Message,
-                    alert.CreatedAt,
-                    alert.IsAcknowledged),
-                _timeProvider.GetUtcNow()));
+            var batch = await alertRepository.GetOpenAlertsAfterCursorAsync(
+                _alertCursor,
+                upperBound,
+                _sseOptions.AlertBatchSize,
+                cancellationToken);
 
-            _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
+            if (batch.Count == 0)
+                break;
+
+            foreach (var alert in batch)
+            {
+                _broker.Publish(new FleetSseEvent(
+                    "alert",
+                    new FleetAlertResponse(
+                        alert.AlertId,
+                        alert.VehicleId,
+                        alert.AlertType,
+                        alert.Severity,
+                        alert.Message,
+                        alert.CreatedAt,
+                        alert.IsAcknowledged),
+                    _timeProvider.GetUtcNow()));
+
+                _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
+            }
+
+            if (batch.Count < _sseOptions.AlertBatchSize)
+                break;
         }
     }
 
