@@ -1,14 +1,22 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Domain.Entities;
+using Microsoft.Extensions.Options;
 
-// Validación y mapeo de eventos de telemetría entrantes.
 namespace FleetTelemetry.Application.Validation;
 
-// Reglas de negocio para payloads de telemetría.
-public static class TelemetryEventValidator
+public class TelemetryEventValidator
 {
-    // Valida campos obligatorios y rangos geográficos.
-    public static void Validate(TelemetryEventRequest request)
+    private readonly TelemetryIngestOptions _options;
+    private readonly TimeProvider _timeProvider;
+
+    public TelemetryEventValidator(IOptions<TelemetryIngestOptions> options, TimeProvider timeProvider)
+    {
+        _options = options.Value;
+        _timeProvider = timeProvider;
+    }
+
+    public void Validate(TelemetryEventRequest request)
     {
         if (request.EventId == Guid.Empty)
             throw new ArgumentException("EventId is required.");
@@ -16,8 +24,21 @@ public static class TelemetryEventValidator
         if (string.IsNullOrWhiteSpace(request.VehicleId))
             throw new ArgumentException("VehicleId is required.");
 
+        if (request.VehicleId.Trim().Length > _options.MaxVehicleIdLength)
+            throw new ArgumentException($"VehicleId must be <= {_options.MaxVehicleIdLength} characters.");
+
+        if (request.DriverId is not null && request.DriverId.Trim().Length > _options.MaxDriverIdLength)
+            throw new ArgumentException($"DriverId must be <= {_options.MaxDriverIdLength} characters.");
+
         if (request.Timestamp == default)
             throw new ArgumentException("Timestamp is required.");
+
+        var now = _timeProvider.GetUtcNow();
+        if (request.Timestamp > now.AddMinutes(_options.MaxFutureSkewMinutes))
+            throw new ArgumentException("Timestamp cannot be too far in the future.");
+
+        if (request.Timestamp < now.AddDays(-_options.MaxPastSkewDays))
+            throw new ArgumentException("Timestamp is too old.");
 
         if (request.Latitude is < -90 or > 90)
             throw new ArgumentException("Latitude must be between -90 and 90.");
@@ -27,10 +48,19 @@ public static class TelemetryEventValidator
 
         if (request.SpeedKmh < 0)
             throw new ArgumentException("SpeedKmh must be >= 0.");
+
+        if (request.FuelLevelPercent is < 0 or > 100)
+            throw new ArgumentException("FuelLevelPercent must be between 0 and 100.");
+
+        if (request.BatteryPercent is < 0 or > 100)
+            throw new ArgumentException("BatteryPercent must be between 0 and 100.");
+
+        var source = NormalizeLocationSource(request.LocationSource);
+        if (source is not ("gps" or "simulated"))
+            throw new ArgumentException("LocationSource must be gps or simulated.");
     }
 
-    // Convierte DTO de entrada a entidad de dominio.
-    public static TelemetryEvent MapToDomain(TelemetryEventRequest request) => new()
+    public TelemetryEvent MapToDomain(TelemetryEventRequest request) => new()
     {
         EventId = request.EventId,
         VehicleId = request.VehicleId.Trim(),
@@ -40,6 +70,10 @@ public static class TelemetryEventValidator
         Longitude = request.Longitude,
         SpeedKmh = request.SpeedKmh,
         FuelLevelPercent = request.FuelLevelPercent,
-        BatteryPercent = request.BatteryPercent
+        BatteryPercent = request.BatteryPercent,
+        LocationSource = NormalizeLocationSource(request.LocationSource),
     };
+
+    public static string NormalizeLocationSource(string? source) =>
+        string.IsNullOrWhiteSpace(source) ? "gps" : source.Trim().ToLowerInvariant();
 }
