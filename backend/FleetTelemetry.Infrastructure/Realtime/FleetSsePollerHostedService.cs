@@ -79,7 +79,7 @@ public class FleetSsePollerHostedService : BackgroundService
     {
         var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(
             liveOnly: false,
-            excludeSimulated: false,
+            excludeSimulated: true,
             cancellationToken);
         var hash = string.Join('|', vehicles.Select(v =>
             $"{v.VehicleId}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}:{v.LastLatitude}:{v.LastLongitude}"));
