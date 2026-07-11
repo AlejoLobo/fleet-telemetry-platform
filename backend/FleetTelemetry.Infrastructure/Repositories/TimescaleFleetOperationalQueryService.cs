@@ -1,26 +1,32 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
+using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 // Consultas operativas de vehículos detenidos.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Detecta detenciones prolongadas con SQL analítico.
+// Detecta detenciones prolongadas con secuencia continua post-movimiento.
 public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryService
 {
-    private static readonly TimeSpan LookbackWindow = TimeSpan.FromHours(48);
-
     private readonly FleetDbContext _dbContext;
+    private readonly StoppedVehicleQueryOptions _options;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimescaleFleetOperationalQueryService> _logger;
 
     public TimescaleFleetOperationalQueryService(
         FleetDbContext dbContext,
+        IOptions<StoppedVehicleQueryOptions> options,
+        TimeProvider timeProvider,
         ILogger<TimescaleFleetOperationalQueryService> logger)
     {
         _dbContext = dbContext;
+        _options = options.Value;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -29,60 +35,98 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
         double stoppedSpeedThresholdKmh = 1,
         CancellationToken cancellationToken = default)
     {
-        var lookbackHours = (int)Math.Ceiling(LookbackWindow.TotalHours);
+        var asOf = _timeProvider.GetUtcNow();
+        var lookbackHours = Math.Max(1, _options.LookbackHours);
+        var freshnessMinutes = Math.Max(1, _options.MaxFreshnessMinutes);
+        var maxGapSeconds = Math.Max(30, _options.MaxTelemetryGapSeconds);
         var minDurationMinutes = (int)Math.Ceiling(minDuration.TotalMinutes);
+        var speedThreshold = stoppedSpeedThresholdKmh > 0
+            ? stoppedSpeedThresholdKmh
+            : _options.StoppedSpeedThresholdKmh;
 
-        // stopped_since = último evento con velocidad > umbral; si no hay, inicio de ventana de baja velocidad.
+        // stopped_since = primer evento detenido posterior al último movimiento dentro del lookback.
         var rows = await _dbContext.Database
             .SqlQueryRaw<StoppedVehicleRow>(
                 """
-                WITH latest AS (
-                    SELECT DISTINCT ON ("VehicleId")
-                        "VehicleId", "Timestamp", "SpeedKmh", "Latitude", "Longitude"
+                WITH recent AS (
+                    SELECT "VehicleId", "Timestamp", "SpeedKmh", "Latitude", "Longitude"
                     FROM telemetry_events
+                    WHERE "Timestamp" >= {0} - make_interval(hours => {1})
+                ),
+                latest AS (
+                    SELECT DISTINCT ON ("VehicleId")
+                        "VehicleId", "Timestamp" AS last_seen_at, "SpeedKmh", "Latitude", "Longitude"
+                    FROM recent
                     ORDER BY "VehicleId", "Timestamp" DESC
                 ),
                 last_move AS (
-                    SELECT e."VehicleId", MAX(e."Timestamp") AS last_moving_at
-                    FROM telemetry_events e
-                    INNER JOIN latest l ON l."VehicleId" = e."VehicleId"
-                    WHERE e."SpeedKmh" > {0}
-                      AND e."Timestamp" >= l."Timestamp" - make_interval(hours => {1})
-                    GROUP BY e."VehicleId"
+                    SELECT r."VehicleId", MAX(r."Timestamp") AS last_moving_at
+                    FROM recent r
+                    WHERE r."SpeedKmh" > {2}
+                    GROUP BY r."VehicleId"
                 ),
-                stopped_start AS (
+                first_stop_after_move AS (
+                    SELECT DISTINCT ON (r."VehicleId")
+                        r."VehicleId",
+                        r."Timestamp" AS stopped_since
+                    FROM recent r
+                    INNER JOIN latest l ON l."VehicleId" = r."VehicleId"
+                    LEFT JOIN last_move m ON m."VehicleId" = r."VehicleId"
+                    WHERE r."SpeedKmh" <= {2}
+                      AND r."Timestamp" > COALESCE(
+                          m.last_moving_at,
+                          {0} - make_interval(hours => {1}))
+                      AND r."Timestamp" <= l.last_seen_at
+                    ORDER BY r."VehicleId", r."Timestamp" ASC
+                ),
+                event_gaps AS (
                     SELECT
-                        l."VehicleId",
-                        l."Timestamp" AS last_seen_at,
-                        l."Latitude",
-                        l."Longitude",
-                        COALESCE(
-                            m.last_moving_at,
-                            (
-                                SELECT MIN(e2."Timestamp")
-                                FROM telemetry_events e2
-                                WHERE e2."VehicleId" = l."VehicleId"
-                                  AND e2."SpeedKmh" <= {0}
-                                  AND e2."Timestamp" >= l."Timestamp" - make_interval(hours => {1})
-                            ),
-                            l."Timestamp" - make_interval(hours => {1})
-                        ) AS stopped_since
-                    FROM latest l
-                    LEFT JOIN last_move m ON m."VehicleId" = l."VehicleId"
-                    WHERE l."SpeedKmh" <= {0}
+                        gaps."VehicleId",
+                        MAX(gaps.gap) AS max_gap
+                    FROM (
+                        SELECT
+                            r."VehicleId",
+                            r."Timestamp" - LAG(r."Timestamp") OVER (
+                                PARTITION BY r."VehicleId" ORDER BY r."Timestamp") AS gap
+                        FROM recent r
+                        INNER JOIN first_stop_after_move s ON s."VehicleId" = r."VehicleId"
+                        INNER JOIN latest l ON l."VehicleId" = r."VehicleId"
+                        WHERE r."Timestamp" BETWEEN s.stopped_since AND l.last_seen_at
+                    ) gaps
+                    WHERE gaps.gap IS NOT NULL
+                    GROUP BY gaps."VehicleId"
+                ),
+                has_intermediate_move AS (
+                    SELECT DISTINCT r."VehicleId"
+                    FROM recent r
+                    INNER JOIN first_stop_after_move s ON s."VehicleId" = r."VehicleId"
+                    INNER JOIN latest l ON l."VehicleId" = r."VehicleId"
+                    WHERE r."Timestamp" > s.stopped_since
+                      AND r."Timestamp" < l.last_seen_at
+                      AND r."SpeedKmh" > {2}
                 )
                 SELECT
-                    "VehicleId",
-                    last_seen_at AS "LastSeenAt",
-                    stopped_since AS "StoppedSince",
-                    "Latitude",
-                    "Longitude"
-                FROM stopped_start
-                WHERE last_seen_at - stopped_since >= make_interval(mins => {2})
-                ORDER BY "VehicleId"
+                    l."VehicleId",
+                    l.last_seen_at AS "LastSeenAt",
+                    s.stopped_since AS "StoppedSince",
+                    l."Latitude",
+                    l."Longitude"
+                FROM latest l
+                INNER JOIN first_stop_after_move s ON s."VehicleId" = l."VehicleId"
+                LEFT JOIN event_gaps g ON g."VehicleId" = l."VehicleId"
+                LEFT JOIN has_intermediate_move im ON im."VehicleId" = l."VehicleId"
+                WHERE l."SpeedKmh" <= {2}
+                  AND im."VehicleId" IS NULL
+                  AND l.last_seen_at >= {0} - make_interval(mins => {3})
+                  AND (g.max_gap IS NULL OR g.max_gap <= make_interval(secs => {4}))
+                  AND l.last_seen_at - s.stopped_since >= make_interval(mins => {5})
+                ORDER BY l."VehicleId"
                 """,
-                stoppedSpeedThresholdKmh,
+                asOf,
                 lookbackHours,
+                speedThreshold,
+                freshnessMinutes,
+                maxGapSeconds,
                 minDurationMinutes)
             .ToListAsync(cancellationToken);
 
@@ -101,10 +145,11 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
         }).ToList();
 
         _logger.LogDebug(
-            "Consultados {Count} vehículos detenidos ≥ {Minutes} min (umbral {Speed} km/h)",
+            "Consultados {Count} vehículos detenidos ≥ {Minutes} min (umbral {Speed} km/h, frescura {Freshness} min)",
             result.Count,
             minDurationMinutes,
-            stoppedSpeedThresholdKmh);
+            speedThreshold,
+            freshnessMinutes);
 
         return result;
     }
