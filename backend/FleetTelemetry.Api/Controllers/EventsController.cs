@@ -1,12 +1,12 @@
 using FleetTelemetry.Application.DTOs;
-using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Infrastructure.Auth;
+using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
-// Controlador de eventos SSE en tiempo real.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
@@ -19,13 +19,14 @@ public class EventsController : ControllerBase
     };
 
     private readonly FleetSseBroker _broker;
+    private readonly SseOptions _sseOptions;
 
-    public EventsController(FleetSseBroker broker)
+    public EventsController(FleetSseBroker broker, IOptions<SseOptions> sseOptions)
     {
         _broker = broker;
+        _sseOptions = sseOptions.Value;
     }
 
-    // Mantiene conexión SSE y reenvía eventos del broker.
     [HttpGet("stream")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
@@ -34,15 +35,26 @@ public class EventsController : ControllerBase
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
 
+        var lastEventId = ParseLastEventId(
+            Request.Headers["Last-Event-ID"].FirstOrDefault()
+            ?? Request.Query["lastEventId"].FirstOrDefault());
         var reader = _broker.Subscribe(out var subscriptionId);
 
         try
         {
-            await WriteEventAsync("connected", new { status = "connected" }, cancellationToken);
+            var connected = _broker.Publish(
+                "connected",
+                new { status = "connected", mode = _sseOptions.Mode.ToString() });
+            await WriteSseEventAsync(connected, cancellationToken);
+
+            foreach (var replayEvent in _broker.GetReplayAfter(lastEventId, _sseOptions.ReplayBufferSize))
+            {
+                await WriteSseEventAsync(replayEvent, cancellationToken);
+            }
 
             await foreach (var sseEvent in reader.ReadAllAsync(cancellationToken))
             {
-                await WriteEventAsync(sseEvent.EventType, sseEvent.Data, cancellationToken);
+                await WriteSseEventAsync(sseEvent, cancellationToken);
             }
         }
         finally
@@ -51,11 +63,15 @@ public class EventsController : ControllerBase
         }
     }
 
-    private async Task WriteEventAsync(string eventType, object data, CancellationToken cancellationToken)
+    private async Task WriteSseEventAsync(FleetSseEvent sseEvent, CancellationToken cancellationToken)
     {
-        var json = JsonSerializer.Serialize(data, JsonOptions);
-        await Response.WriteAsync($"event: {eventType}\n", cancellationToken);
+        var json = JsonSerializer.Serialize(sseEvent.Data, JsonOptions);
+        await Response.WriteAsync($"id: {sseEvent.StreamId}\n", cancellationToken);
+        await Response.WriteAsync($"event: {sseEvent.EventType}\n", cancellationToken);
         await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
         await Response.Body.FlushAsync(cancellationToken);
     }
+
+    private static long ParseLastEventId(string? raw) =>
+        long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : 0;
 }
