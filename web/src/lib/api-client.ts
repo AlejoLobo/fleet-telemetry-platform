@@ -2,6 +2,7 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
 import { normalizeVehicles } from "@/lib/fleet-normalize";
+import { resolveSseStreamUrl, type SseTicketResponse } from "@/lib/sse-auth";
 
 type LoginResponse = {
   token: string;
@@ -59,6 +60,22 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const apiClient = {
   getSseUrl(): string {
     return `${getApiBaseUrl()}/api/events/stream`;
+  },
+
+  async resolveSseStreamUrl(): Promise<string> {
+    const authStatus = await apiClient.fetchAuthStatus();
+    return resolveSseStreamUrl({
+      baseUrl: getApiBaseUrl(),
+      authStatus,
+      hasToken: apiClient.hasAuthToken(),
+      fetchTicket: () => apiClient.fetchSseStreamTicket(),
+    });
+  },
+
+  async fetchSseStreamTicket(): Promise<SseTicketResponse> {
+    return fetchJson<SseTicketResponse>("/api/events/stream/ticket", {
+      method: "POST",
+    });
   },
 
   async fetchAuthStatus(): Promise<AuthStatusResponse> {
