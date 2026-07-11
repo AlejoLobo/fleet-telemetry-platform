@@ -28,8 +28,8 @@ public class StoppedVehicleQueryIntegrationTests : IAsyncLifetime
         services.Configure<StoppedVehicleQueryOptions>(options =>
         {
             options.LookbackHours = 48;
-            options.MaxFreshnessMinutes = 30;
-            options.MaxTelemetryGapSeconds = 3600;
+            options.VehicleFreshnessMinutes = 30;
+            options.MaximumTelemetryGapMinutes = 60;
             options.StoppedSpeedThresholdKmh = 1;
         });
         services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
@@ -39,6 +39,55 @@ public class StoppedVehicleQueryIntegrationTests : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _database.DisposeAsync();
+
+    [Fact]
+    public async Task GetVehiclesStoppedLongerThan_seven_minutes_from_first_stopped_after_movement()
+    {
+        await ResetTelemetryAsync();
+        var day = new DateTimeOffset(2026, 7, 10, 0, 0, 0, TimeSpan.Zero);
+        var moveAt = day.AddHours(10);
+        var firstStopped = day.AddHours(10).AddMinutes(18);
+        var lastStopped = day.AddHours(10).AddMinutes(25);
+        _timeProvider.SetUtcNow(day.AddHours(10).AddMinutes(30));
+
+        await SeedEventsAsync(
+            ("VH-DUR-1", moveAt, 45),
+            ("VH-DUR-1", firstStopped, 0),
+            ("VH-DUR-1", lastStopped, 0));
+
+        using var scope = _services.CreateScope();
+        var query = scope.ServiceProvider.GetRequiredService<IFleetOperationalQueryService>();
+        var stopped = await query.GetVehiclesStoppedLongerThanAsync(TimeSpan.FromMinutes(5));
+
+        var vehicle = Assert.Single(stopped);
+        Assert.Equal(firstStopped, vehicle.StoppedSince);
+        Assert.Equal(lastStopped, vehicle.LastSeenAt);
+        Assert.Equal(TimeSpan.FromMinutes(7), vehicle.StoppedDuration);
+    }
+
+    [Fact]
+    public async Task GetVehiclesStoppedLongerThan_returns_multiple_vehicles_independently()
+    {
+        await ResetTelemetryAsync();
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        _timeProvider.SetUtcNow(now);
+
+        await SeedEventsAsync(
+            ("VH-A", now.AddMinutes(-50), 30),
+            ("VH-A", now.AddMinutes(-40), 0),
+            ("VH-A", now.AddMinutes(-5), 0),
+            ("VH-B", now.AddMinutes(-70), 0),
+            ("VH-B", now.AddMinutes(-35), 0),
+            ("VH-B", now.AddMinutes(-4), 0));
+
+        using var scope = _services.CreateScope();
+        var query = scope.ServiceProvider.GetRequiredService<IFleetOperationalQueryService>();
+        var stopped = await query.GetVehiclesStoppedLongerThanAsync(TimeSpan.FromMinutes(30));
+
+        Assert.Equal(2, stopped.Count);
+        Assert.Contains(stopped, v => v.VehicleId == "VH-A");
+        Assert.Contains(stopped, v => v.VehicleId == "VH-B");
+    }
 
     [Fact]
     public async Task GetVehiclesStoppedLongerThan_continuous_sequence_after_last_movement()
@@ -121,8 +170,8 @@ public class StoppedVehicleQueryIntegrationTests : IAsyncLifetime
         services.Configure<StoppedVehicleQueryOptions>(options =>
         {
             options.LookbackHours = 48;
-            options.MaxFreshnessMinutes = 30;
-            options.MaxTelemetryGapSeconds = 600;
+            options.VehicleFreshnessMinutes = 30;
+            options.MaximumTelemetryGapMinutes = 10;
             options.StoppedSpeedThresholdKmh = 1;
         });
         services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
