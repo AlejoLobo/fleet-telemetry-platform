@@ -25,6 +25,7 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         services.AddDbContext<FleetDbContext>(options =>
             options.UseNpgsql(_database.ConnectionString));
         services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
+        services.AddSingleton<IFleetRealtimePublisher, NoOpFleetRealtimePublisher>();
 
         _services = services.BuildServiceProvider();
         await DatabaseInitializer.InitializeAsync(_services);
