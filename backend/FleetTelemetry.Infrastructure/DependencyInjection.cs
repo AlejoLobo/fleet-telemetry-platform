@@ -74,7 +74,6 @@ public static class DependencyInjection
             // Servicios expuestos por la API REST.
             RegisterTimescaleDb(services, configuration);
 
-            services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
             services.AddSingleton<FleetSseBroker>(sp =>
             {
                 var sseOptions = sp.GetRequiredService<IOptions<SseOptions>>().Value;
