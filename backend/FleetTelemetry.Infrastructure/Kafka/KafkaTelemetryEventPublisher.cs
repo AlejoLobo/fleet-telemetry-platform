@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using FleetTelemetry.Application.Contracts;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
@@ -9,10 +10,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 
-// Publicador de eventos de telemetría en Kafka.
 namespace FleetTelemetry.Infrastructure.Kafka;
 
-// Envía eventos al tópico con resiliencia y idempotencia del productor.
+// Publicador de eventos de telemetría en Kafka con batching configurable.
 public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposable
 {
     private readonly IProducer<string, string> _producer;
@@ -37,20 +37,42 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
             BootstrapServers = _options.BootstrapServers,
             Acks = Acks.All,
             EnableIdempotence = true,
-            MessageTimeoutMs = 10_000
+            MessageTimeoutMs = _options.ProducerMessageTimeoutMs,
+            LingerMs = 5
         };
 
         _producer = new ProducerBuilder<string, string>(config).Build();
     }
 
-    // Serializa y publica un evento con clave por vehículo.
     public async Task PublishAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken = default)
     {
-        var json = TelemetryEventJsonSerializer.Serialize(telemetryEvent);
+        await PublishCoreAsync(telemetryEvent, cancellationToken);
+    }
+
+    public async Task PublishBatchAsync(IEnumerable<TelemetryEvent> events, CancellationToken cancellationToken = default)
+    {
+        var batch = events.ToList();
+        if (batch.Count == 0)
+            return;
+
+        var chunkSize = Math.Max(1, _options.PublishBatchSize);
+        for (var offset = 0; offset < batch.Count; offset += chunkSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var chunk = batch.Skip(offset).Take(chunkSize);
+            var deliveryTasks = chunk.Select(evt => PublishCoreAsync(evt, cancellationToken));
+            await Task.WhenAll(deliveryTasks);
+        }
+    }
+
+    private async Task PublishCoreAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken)
+    {
+        var json = TelemetryEventJsonSerializer.Serialize(telemetryEvent, _options.UseEventEnvelope);
         var message = new Message<string, string>
         {
             Key = telemetryEvent.VehicleId,
-            Value = json
+            Value = json,
+            Headers = BuildHeaders(telemetryEvent)
         };
 
         try
@@ -78,14 +100,15 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
         }
     }
 
-    // Publica eventos secuencialmente reutilizando PublishAsync.
-    public async Task PublishBatchAsync(IEnumerable<TelemetryEvent> events, CancellationToken cancellationToken = default)
+    private static Headers BuildHeaders(TelemetryEvent telemetryEvent)
     {
-        foreach (var telemetryEvent in events)
+        var headers = new Headers
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await PublishAsync(telemetryEvent, cancellationToken);
-        }
+            { "schema-version", BitConverter.GetBytes(TelemetryEventEnvelope.CurrentSchemaVersion) },
+            { "event-id", telemetryEvent.EventId.ToByteArray() },
+            { "correlation-id", telemetryEvent.EventId.ToByteArray() }
+        };
+        return headers;
     }
 
     public void Dispose()

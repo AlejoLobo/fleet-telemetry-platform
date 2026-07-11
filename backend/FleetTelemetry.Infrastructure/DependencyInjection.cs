@@ -1,8 +1,8 @@
 using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
-using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Application.Validation;
+using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
@@ -66,14 +66,22 @@ public static class DependencyInjection
         services.AddSingleton<ICircuitBreakerStateRegistry, CircuitBreakerStateRegistry>();
         services.AddSingleton<ResiliencePipelineFactory>();
         services.AddSingleton<JwtTokenService>();
+        services.AddSingleton<ITelemetryEventValidator, TelemetryEventValidatorService>();
+        services.AddSingleton<ITelemetryDomainEventValidator, TelemetryDomainEventValidatorService>();
 
         if (profile == InfrastructureProfile.Api)
         {
             // Servicios expuestos por la API REST.
             RegisterTimescaleDb(services, configuration);
 
-            services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
-            services.AddSingleton<FleetSseBroker>(sp => new FleetSseBroker(sp.GetRequiredService<TimeProvider>()));
+            services.AddSingleton<FleetSseBroker>(sp =>
+            {
+                var sseOptions = sp.GetRequiredService<IOptions<SseOptions>>().Value;
+                return new FleetSseBroker(
+                    sp.GetRequiredService<TimeProvider>(),
+                    sseOptions.SubscriberChannelCapacity,
+                    sseOptions.ReplayBufferSize);
+            });
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
@@ -110,6 +118,7 @@ public static class DependencyInjection
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
             services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
+            services.AddSingleton<IFleetRealtimePublisher, KafkaFleetRealtimePublisher>();
         }
 
         return services;
@@ -119,6 +128,26 @@ public static class DependencyInjection
     public static IServiceCollection AddFleetSsePolling(this IServiceCollection services)
     {
         services.AddHostedService<FleetSsePollerHostedService>();
+        return services;
+    }
+
+    // Consume fleet.realtime y empuja al broker SSE (modo kafka-push).
+    public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
+    {
+        services.AddHostedService<FleetSseKafkaPushHostedService>();
+        return services;
+    }
+
+    public static IServiceCollection AddFleetSseDelivery(this IServiceCollection services, IConfiguration configuration)
+    {
+        var mode = configuration.GetSection(SseOptions.SectionName).Get<SseOptions>()?.Mode
+            ?? SseDeliveryMode.Polling;
+
+        if (mode == SseDeliveryMode.KafkaPush)
+            services.AddFleetSseKafkaPush();
+        else
+            services.AddFleetSsePolling();
+
         return services;
     }
 
