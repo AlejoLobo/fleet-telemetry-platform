@@ -3,6 +3,7 @@ using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -18,14 +19,17 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
     private readonly KafkaOptions _options;
     private readonly ILogger<KafkaTelemetryEventPublisher> _logger;
     private readonly ResiliencePipelineFactory _resilience;
+    private readonly FleetTelemetryMetrics _metrics;
 
     public KafkaTelemetryEventPublisher(
         IOptions<KafkaOptions> options,
         ResiliencePipelineFactory resilience,
+        FleetTelemetryMetrics metrics,
         ILogger<KafkaTelemetryEventPublisher> logger)
     {
         _options = options.Value;
         _resilience = resilience;
+        _metrics = metrics;
         _logger = logger;
 
         var config = new ProducerConfig
@@ -61,9 +65,12 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
                 telemetryEvent.VehicleId,
                 result.Topic,
                 result.Partition.Value);
+
+            _metrics.TelemetryIngestedTotal.Add(1);
         }
         catch (BrokenCircuitException ex)
         {
+            _metrics.KafkaPublishFailuresTotal.Add(1);
             _logger.LogError(ex, "Kafka publish bloqueado: circuit breaker abierto");
             throw new DependencyCircuitOpenException(
                 ResilienceDependency.Kafka.ToString(),
