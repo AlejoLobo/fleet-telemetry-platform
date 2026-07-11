@@ -77,6 +77,13 @@ public class AiOperationalToolsTests
         public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<FleetAlert>>([]);
 
+        public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAfterCursorAsync(
+            AlertStreamCursor cursor,
+            DateTimeOffset upperBound,
+            int limit,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FleetAlert>>([]);
+
         public Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 

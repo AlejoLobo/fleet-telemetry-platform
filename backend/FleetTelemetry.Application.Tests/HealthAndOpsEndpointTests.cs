@@ -123,6 +123,20 @@ public class HealthAndOpsEndpointTests
         public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(alerts);
 
+        public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAfterCursorAsync(
+            AlertStreamCursor cursor,
+            DateTimeOffset upperBound,
+            int limit,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FleetAlert>>(alerts
+                .Where(a => !a.IsAcknowledged && a.CreatedAt <= upperBound)
+                .Where(a => a.CreatedAt > cursor.CreatedAt
+                    || (a.CreatedAt == cursor.CreatedAt && a.AlertId.CompareTo(cursor.AlertId) > 0))
+                .OrderBy(a => a.CreatedAt)
+                .ThenBy(a => a.AlertId)
+                .Take(limit)
+                .ToList());
+
         public Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
