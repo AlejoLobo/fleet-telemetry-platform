@@ -8,7 +8,7 @@ public class FleetSseBrokerTests
     [Fact]
     public void Publish_drops_events_for_slow_subscriber_without_blocking()
     {
-        var broker = new FleetSseBroker(channelCapacity: 5);
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
         var reader = broker.Subscribe(out var subscriptionId);
 
         for (var i = 0; i < 20; i++)
@@ -25,6 +25,21 @@ public class FleetSseBrokerTests
 
         broker.Unsubscribe(subscriptionId);
         Assert.Equal(0, broker.SubscriberCount);
+        Assert.Equal(1, broker.TotalUnsubscribes);
+    }
+
+    [Fact]
+    public void Unsubscribe_removes_subscriber_without_affecting_others()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 10);
+        broker.Subscribe(out var first);
+        broker.Subscribe(out var second);
+
+        Assert.Equal(2, broker.SubscriberCount);
+
+        broker.Unsubscribe(first);
+        Assert.Equal(1, broker.SubscriberCount);
+        Assert.Equal(2, broker.TotalSubscriptions);
     }
 
     [Fact]

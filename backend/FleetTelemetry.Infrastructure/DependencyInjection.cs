@@ -69,7 +69,7 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
-            services.AddSingleton<FleetSseBroker>();
+            services.AddSingleton<FleetSseBroker>(sp => new FleetSseBroker(sp.GetRequiredService<TimeProvider>()));
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
