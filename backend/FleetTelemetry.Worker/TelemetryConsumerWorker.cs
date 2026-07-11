@@ -36,7 +36,21 @@ public class TelemetryConsumerWorker : BackgroundService
     {
         using (var initScope = _scopeFactory.CreateScope())
         {
-            await DatabaseInitializer.InitializeAsync(initScope.ServiceProvider, stoppingToken);
+            var environment = initScope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+            var timescaleOptions = initScope.ServiceProvider.GetRequiredService<IOptions<TimescaleDbOptions>>().Value;
+
+            if (DatabaseInitializationPolicy.ShouldRun(environment, timescaleOptions))
+            {
+                await DatabaseInitializer.InitializeAsync(
+                    initScope.ServiceProvider,
+                    useAdvisoryLock: environment.IsDevelopment(),
+                    stoppingToken);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Omitiendo inicialización automática del esquema TimescaleDB (entorno distinto de Development y AllowAutoSchemaInitialization=false).");
+            }
         }
 
         var consumerConfig = new ConsumerConfig
