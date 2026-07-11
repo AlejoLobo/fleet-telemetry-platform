@@ -52,6 +52,18 @@ export default function DashboardPage() {
   const { connectionState } = useSseStream({
     enabled: dataSource === "api",
     onFleetUpdate: setLiveVehicles,
+
+    onVehicleUpdate: (vehicle) => {
+      setLiveVehicles((prev) => {
+        const base = prev ?? vehicles;
+        const index = base.findIndex((v) => v.vehicleId === vehicle.vehicleId);
+        if (index < 0) return [...base, vehicle];
+        const next = [...base];
+        next[index] = { ...next[index], ...vehicle };
+        return next;
+      });
+    },
+
     onAlert: (alert) => {
       setLiveAlerts((prev) => [alert, ...prev]);
       setAlertsAttention(true);

@@ -7,8 +7,7 @@ import {
   purgeSyncedOlderThan,
   toPayload,
 } from "@/db/offline-queue";
-import { sendBatchEvents, sendSingleEvent, TelemetryApiError } from "@/services/telemetry-api";
-import { computeBackoffMs, isPermanentSyncError, isTransientSyncError } from "@/services/sync-policy";
+import { computeBackoffMs, getRetryAfterSeconds, isPermanentSyncError, isTransientSyncError } from "@/services/sync-policy";
 import type { QueuedTelemetryEvent, SyncResult } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
@@ -30,6 +29,11 @@ export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE
     syncInFlight = null;
   });
   return syncInFlight;
+}
+
+/** Libera el mutex de sincronización; solo para pruebas automatizadas. */
+export function resetSyncCoordinatorForTests(): void {
+  syncInFlight = null;
 }
 
 async function runSync(batchSize: number): Promise<SyncResult> {
@@ -96,10 +100,7 @@ async function syncSingleEvent(item: QueuedTelemetryEvent): Promise<SyncResult> 
         return { synced: 0, failed: 1, retried: 0, permanentFailures: 1, remaining: 0 };
       }
 
-      const delay = computeBackoffMs(
-        next,
-        error instanceof TelemetryApiError ? error.retryAfterSeconds : undefined,
-      );
+      const delay = computeBackoffMs(next, getRetryAfterSeconds(error));
       await markEventRetry(
         item.eventId,
         next,
