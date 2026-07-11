@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Testcontainers.Kafka;
@@ -9,6 +10,21 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
 {
     public const string BootstrapEnvVar = "FLEET_INTEGRATION_KAFKA_BOOTSTRAP";
 
+    private static readonly string[] IntegrationTopicPrefixes =
+    [
+        "worker-",
+        "dlq-publisher-"
+    ];
+
+    private static readonly HashSet<string> ProtectedTopics = new(StringComparer.Ordinal)
+    {
+        "telemetry.raw",
+        "telemetry.dead-letter",
+        "__consumer_offsets"
+    };
+
+    private readonly ConcurrentDictionary<string, byte> _trackedTopics = new(StringComparer.Ordinal);
+
     private KafkaContainer? _container;
 
     public string BootstrapServers { get; private set; } = string.Empty;
@@ -19,12 +35,14 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
         if (!string.IsNullOrWhiteSpace(external))
         {
             BootstrapServers = external.Trim();
+            await PurgeStaleIntegrationTopicsAsync();
             return;
         }
 
         if (await CanConnectAsync("localhost:19092", TimeSpan.FromSeconds(3)))
         {
             BootstrapServers = "localhost:19092";
+            await PurgeStaleIntegrationTopicsAsync();
             return;
         }
 
@@ -38,6 +56,7 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        await DeleteTrackedTopicsAsync();
         if (_container is not null)
             await _container.DisposeAsync();
     }
@@ -72,6 +91,8 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
         {
         }
 
+        _trackedTopics.TryAdd(topic, 0);
+
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < deadline)
         {
@@ -84,6 +105,90 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
 
         throw new TimeoutException($"Topic {topic} no quedó listo a tiempo.");
     }
+
+    public Task DeleteTrackedTopicsAsync(params string[] topics)
+    {
+        var toDelete = topics
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var topic in toDelete)
+            _trackedTopics.TryRemove(topic, out _);
+
+        return toDelete.Length == 0
+            ? Task.CompletedTask
+            : DeleteTopicsAsync(toDelete);
+    }
+
+    public async Task DeleteTrackedTopicsAsync()
+    {
+        var topics = _trackedTopics.Keys.ToArray();
+        foreach (var topic in topics)
+            _trackedTopics.TryRemove(topic, out _);
+
+        if (topics.Length > 0)
+            await DeleteTopicsAsync(topics);
+    }
+
+    private async Task PurgeStaleIntegrationTopicsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(BootstrapServers))
+            return;
+
+        using var admin = CreateAdminClient();
+        var metadata = admin.GetMetadata(TimeSpan.FromSeconds(10));
+        var staleTopics = metadata.Topics
+            .Where(topic => topic.Error.Code == ErrorCode.NoError)
+            .Select(topic => topic.Topic)
+            .Where(topic => !ProtectedTopics.Contains(topic))
+            .Where(IsIntegrationTestTopic)
+            .ToArray();
+
+        if (staleTopics.Length > 0)
+            await DeleteTopicsAsync(staleTopics);
+    }
+
+    private async Task DeleteTopicsAsync(IReadOnlyCollection<string> topics)
+    {
+        if (topics.Count == 0 || string.IsNullOrWhiteSpace(BootstrapServers))
+            return;
+
+        using var admin = CreateAdminClient();
+
+        try
+        {
+            await admin.DeleteTopicsAsync(topics, new DeleteTopicsOptions
+            {
+                OperationTimeout = TimeSpan.FromSeconds(15),
+                RequestTimeout = TimeSpan.FromSeconds(15)
+            });
+        }
+        catch (DeleteTopicsException ex) when (ex.Results.All(r =>
+            r.Error.Code is ErrorCode.UnknownTopicOrPart or ErrorCode.NoError))
+        {
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            var metadata = admin.GetMetadata(TimeSpan.FromSeconds(2));
+            if (topics.All(topic => metadata.Topics.All(existing => existing.Topic != topic)))
+                return;
+
+            await Task.Delay(200);
+        }
+    }
+
+    private IAdminClient CreateAdminClient() =>
+        new AdminClientBuilder(new AdminClientConfig
+        {
+            BootstrapServers = BootstrapServers,
+            SocketTimeoutMs = 5_000
+        }).Build();
+
+    private static bool IsIntegrationTestTopic(string topic) =>
+        IntegrationTopicPrefixes.Any(prefix => topic.StartsWith(prefix, StringComparison.Ordinal));
 
     private static Task<bool> CanConnectAsync(string bootstrap, TimeSpan timeout)
     {
