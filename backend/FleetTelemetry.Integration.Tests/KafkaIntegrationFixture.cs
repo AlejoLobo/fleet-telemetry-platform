@@ -39,6 +39,21 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
             return;
         }
 
+        if (IsCiEnvironment())
+        {
+            const string ciBootstrap = "localhost:9092";
+            if (await CanConnectAsync(ciBootstrap, TimeSpan.FromSeconds(15)))
+            {
+                BootstrapServers = ciBootstrap;
+                await PurgeStaleIntegrationTopicsAsync();
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"CI requiere broker Kafka en {ciBootstrap}. " +
+                $"Configure {BootstrapEnvVar} o el service container de GitHub Actions.");
+        }
+
         if (await CanConnectAsync("localhost:19092", TimeSpan.FromSeconds(3)))
         {
             BootstrapServers = "localhost:19092";
@@ -189,6 +204,10 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
 
     private static bool IsIntegrationTestTopic(string topic) =>
         IntegrationTopicPrefixes.Any(prefix => topic.StartsWith(prefix, StringComparison.Ordinal));
+
+    private static bool IsCiEnvironment() =>
+        string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"), "true", StringComparison.OrdinalIgnoreCase);
 
     private static Task<bool> CanConnectAsync(string bootstrap, TimeSpan timeout)
     {
