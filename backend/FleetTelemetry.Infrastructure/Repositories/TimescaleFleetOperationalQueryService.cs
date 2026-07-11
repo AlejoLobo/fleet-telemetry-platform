@@ -52,6 +52,7 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
                     SELECT "VehicleId", "Timestamp", "SpeedKmh", "Latitude", "Longitude"
                     FROM telemetry_events
                     WHERE "Timestamp" >= {0} - make_interval(hours => {1})
+                      AND COALESCE("LocationSource", 'gps') <> 'simulated'
                 ),
                 latest AS (
                     SELECT DISTINCT ON ("VehicleId")
