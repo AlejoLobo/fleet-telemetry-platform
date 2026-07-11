@@ -113,13 +113,22 @@ public class KafkaDeadLetterPublisherIntegrationTests
         int partition,
         long offset) =>
         new(
-            OriginalPayload: originalPayload,
-            Reason: reason,
-            ExceptionMessage: "test failure",
+            DeadLetterId: Guid.NewGuid(),
+            SchemaVersion: 1,
+            Category: "test",
+            ErrorCode: reason,
+            AttemptNumber: 1,
+            OccurredAt: DateTimeOffset.UtcNow,
+            ProcessedAt: null,
             OriginalTopic: originalTopic,
             Partition: partition,
             Offset: offset,
-            OccurredAt: DateTimeOffset.UtcNow);
+            MessageKey: null,
+            CorrelationId: null,
+            OriginalPayload: originalPayload,
+            TechnicalDetail: "test failure",
+            Reason: reason,
+            ExceptionMessage: "test failure");
 
     private static KafkaDeadLetterPublisher CreatePublisher(
         string bootstrapServers,
