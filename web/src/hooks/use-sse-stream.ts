@@ -1,21 +1,23 @@
-/** Hook para conexión SSE con actualizaciones de flota y alertas. */
+/** Hook SSE con parser centralizado, backoff exponencial y vehicle-update. */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { parseAlertPayload, parseFleetUpdatePayload } from "@/lib/sse-parser";
+import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
+import { computeReconnectDelay } from "@/lib/sse-reconnect";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
 type SseHandlers = {
   enabled?: boolean;
   onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
+  onVehicleUpdate?: (vehicle: VehicleStatus) => void;
   onAlert?: (alert: FleetAlert) => void;
 };
 
-export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHandlers) {
+export function useSseStream({ enabled = true, onFleetUpdate, onVehicleUpdate, onAlert }: SseHandlers) {
   const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
-  const handlersRef = useRef({ onFleetUpdate, onAlert });
-  handlersRef.current = { onFleetUpdate, onAlert };
+  const handlersRef = useRef({ onFleetUpdate, onVehicleUpdate, onAlert });
+  handlersRef.current = { onFleetUpdate, onVehicleUpdate, onAlert };
 
   const connect = useCallback(() => {
     if (!enabled) {
@@ -25,6 +27,7 @@ export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHand
 
     let eventSource: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
     let closed = false;
 
     const open = () => {
@@ -32,14 +35,18 @@ export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHand
       eventSource = new EventSource(apiClient.getSseUrl());
 
       eventSource.addEventListener("connected", () => {
+        reconnectAttempt = 0;
         setConnectionState("connected");
       });
 
       eventSource.addEventListener("fleet-update", (event) => {
         const vehicles = parseFleetUpdatePayload(event.data);
-        if (vehicles !== null) {
-          handlersRef.current.onFleetUpdate?.(vehicles);
-        }
+        if (vehicles !== null) handlersRef.current.onFleetUpdate?.(vehicles);
+      });
+
+      eventSource.addEventListener("vehicle-update", (event) => {
+        const vehicle = parseVehicleUpdatePayload(event.data);
+        if (vehicle) handlersRef.current.onVehicleUpdate?.(vehicle);
       });
 
       eventSource.addEventListener("alert", (event) => {
@@ -55,7 +62,7 @@ export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHand
         setConnectionState("reconnecting");
         eventSource?.close();
         if (!closed) {
-          reconnectTimer = setTimeout(open, 3000);
+          reconnectTimer = setTimeout(open, computeReconnectDelay(reconnectAttempt++));
         }
       };
     };
