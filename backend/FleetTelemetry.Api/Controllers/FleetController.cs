@@ -1,8 +1,8 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
-using FleetTelemetry.Infrastructure.Realtime;
+using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 
 // Controlador de consulta de estado de flota.
 namespace FleetTelemetry.Api.Controllers;
@@ -20,6 +20,7 @@ public class FleetController : ControllerBase
 
     // Lista último estado de todos los vehículos.
     [HttpGet]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<IReadOnlyList<VehicleLatestStatusResponse>>> GetAll(
         [FromQuery] bool liveOnly = false,
         CancellationToken cancellationToken = default)
@@ -30,6 +31,7 @@ public class FleetController : ControllerBase
 
     // Obtiene estado de un vehículo por identificador.
     [HttpGet("{vehicleId}")]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<VehicleLatestStatusResponse>> GetById(
         string vehicleId,
         CancellationToken cancellationToken)

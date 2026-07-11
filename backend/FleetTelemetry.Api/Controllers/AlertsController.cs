@@ -2,6 +2,7 @@ using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 // Controlador de alertas de flota.
@@ -24,6 +25,7 @@ public class AlertsController : ControllerBase
 
     // Lista alertas abiertas.
     [HttpGet]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<IReadOnlyList<FleetAlertResponse>>> GetOpen(
         CancellationToken cancellationToken)
     {
@@ -43,7 +45,7 @@ public class AlertsController : ControllerBase
 
     // Confirma una alerta por identificador.
     [HttpPatch("{alertId:guid}/acknowledge")]
-    [AuthorizeWhenEnabled]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.AlertAcknowledge)]
     public async Task<IActionResult> Acknowledge(Guid alertId, CancellationToken cancellationToken)
     {
         var acknowledged = await _acknowledgeAlertUseCase.ExecuteAsync(alertId, cancellationToken);
