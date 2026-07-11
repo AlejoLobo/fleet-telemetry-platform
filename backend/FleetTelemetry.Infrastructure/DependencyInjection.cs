@@ -3,7 +3,6 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Application.UseCases;
-using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
