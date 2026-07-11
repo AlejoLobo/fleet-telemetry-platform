@@ -100,10 +100,10 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health/live"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 10
+      start_period: 45s
 
   worker:
     profiles: ["app"]
@@ -142,7 +142,7 @@ services:
       - "3000:3000"
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   timescale_data:
