@@ -37,8 +37,8 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
     {
         var asOf = _timeProvider.GetUtcNow();
         var lookbackHours = Math.Max(1, _options.LookbackHours);
-        var freshnessMinutes = Math.Max(1, _options.MaxFreshnessMinutes);
-        var maxGapSeconds = Math.Max(30, _options.MaxTelemetryGapSeconds);
+        var freshnessMinutes = Math.Max(1, _options.VehicleFreshnessMinutes);
+        var maxGapMinutes = Math.Max(1, _options.MaximumTelemetryGapMinutes);
         var minDurationMinutes = (int)Math.Ceiling(minDuration.TotalMinutes);
         var speedThreshold = stoppedSpeedThresholdKmh > 0
             ? stoppedSpeedThresholdKmh
@@ -118,7 +118,7 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
                 WHERE l."SpeedKmh" <= {2}
                   AND im."VehicleId" IS NULL
                   AND l.last_seen_at >= {0} - make_interval(mins => {3})
-                  AND (g.max_gap IS NULL OR g.max_gap <= make_interval(secs => {4}))
+                  AND (g.max_gap IS NULL OR g.max_gap <= make_interval(mins => {4}))
                   AND l.last_seen_at - s.stopped_since >= make_interval(mins => {5})
                 ORDER BY l."VehicleId"
                 """,
@@ -126,7 +126,7 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
                 lookbackHours,
                 speedThreshold,
                 freshnessMinutes,
-                maxGapSeconds,
+                maxGapMinutes,
                 minDurationMinutes)
             .ToListAsync(cancellationToken);
 
