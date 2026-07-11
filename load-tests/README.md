@@ -5,10 +5,16 @@
 | Rango | Porcentaje | Comportamiento |
 |-------|------------|----------------|
 | `[0.00, 0.05)` | 5 % | Payload inválido intencional → espera **400** |
-| `[0.05, 0.15)` | 10 % | Duplicado: **mismo payload completo** del pool → espera **202** |
+| `[0.05, 0.15)` | 10 % | Duplicado real: **mismo payload completo** sembrado en `setup()` → espera **202** |
 | `[0.15, 1.00)` | 85 % | Evento nuevo válido → espera **202** |
 
-Los duplicados reutilizan EventId, vehículo, timestamp, coordenadas y métricas (pool de payloads completos).
+Los duplicados reutilizan exactamente el mismo `eventId`, vehículo, timestamp, coordenadas y métricas. En `setup()` se envían los 50 payloads a la API (cada uno debe responder **202**) antes de la fase de carga; el 10 % del tráfico reenvía esos mismos cuerpos.
+
+## Expectativas HTTP por solicitud
+
+- Inválidos: `responseCallback: http.expectedStatuses(400)` — un 202 o 5xx cuenta como fallo inesperado.
+- Válidos y duplicados: `responseCallback: http.expectedStatuses(202)` — un 400 en una solicitud válida cuenta como fallo inesperado.
+- No hay configuración global que trate 202 y 400 como esperados a la vez.
 
 ## Requisitos
 
@@ -47,4 +53,11 @@ k6 run -e AUTH_TOKEN=<jwt> telemetry-ingest.js
 - `telemetry_valid_accepted_rate` > 95 %
 - `telemetry_invalid_rejected_rate` > 95 %
 
-Los 400 intencionales se registran como respuestas esperadas (`http.expectedStatuses(202, 400)`), no como fallos HTTP globales.
+## Métricas custom
+
+- `telemetry_accepted` — eventos válidos aceptados (202)
+- `telemetry_duplicate_sent` — duplicados reales enviados
+- `telemetry_intentional_invalid` — inválidos intencionales enviados
+- `telemetry_unexpected_failure_rate` — respuestas distintas a la expectativa por tipo de solicitud
+- `telemetry_valid_accepted_rate` — tasa de 202 en válidos/duplicados
+- `telemetry_invalid_rejected_rate` — tasa de 400 en inválidos
