@@ -7,6 +7,7 @@ import {
   purgeSyncedOlderThan,
   toPayload,
 } from "@/db/offline-queue";
+import { sendBatchEvents, sendSingleEvent } from "@/services/telemetry-api";
 import { computeBackoffMs, getRetryAfterSeconds, isPermanentSyncError, isTransientSyncError } from "@/services/sync-policy";
 import type { QueuedTelemetryEvent, SyncResult } from "@/types/telemetry";
 
