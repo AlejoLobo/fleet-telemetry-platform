@@ -1,11 +1,20 @@
 namespace FleetTelemetry.Application.DTOs;
 
-// Mensaje publicado en telemetry.dead-letter cuando el procesamiento falla de forma definitiva.
+// Mensaje enriquecido publicado en telemetry.dead-letter.
 public record DeadLetterMessage(
-    string OriginalPayload,
-    string Reason,
-    string ExceptionMessage,
+    Guid DeadLetterId,
+    int SchemaVersion,
+    string Category,
+    string ErrorCode,
+    int AttemptNumber,
+    DateTimeOffset OccurredAt,
+    DateTimeOffset? ProcessedAt,
     string OriginalTopic,
     int Partition,
     long Offset,
-    DateTimeOffset OccurredAt);
+    string? MessageKey,
+    Guid? CorrelationId,
+    string OriginalPayload,
+    string TechnicalDetail,
+    string Reason,
+    string ExceptionMessage);
