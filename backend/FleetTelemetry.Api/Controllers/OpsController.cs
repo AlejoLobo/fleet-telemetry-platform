@@ -1,6 +1,7 @@
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Controllers;
@@ -19,7 +20,7 @@ public class OpsController : ControllerBase
 
     // Resumen operativo; protegido si Auth.Enabled=true.
     [HttpGet("summary")]
-    [AuthorizeWhenEnabled]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.OperationsRead)]
     public async Task<ActionResult<OpsSummaryResponse>> Summary(CancellationToken cancellationToken)
     {
         var summary = await _opsQueryService.GetSummaryAsync(cancellationToken);
