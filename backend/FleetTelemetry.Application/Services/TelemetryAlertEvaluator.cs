@@ -50,14 +50,12 @@ public static class TelemetryAlertEvaluator
         string vehicleId,
         string alertType,
         string severity,
-        string message) => new()
-    {
-        AlertId = Guid.NewGuid(),
-        VehicleId = vehicleId,
-        AlertType = alertType,
-        Severity = severity,
-        Message = message,
-        CreatedAt = DateTimeOffset.UtcNow,
-        IsAcknowledged = false
-    };
+        string message) =>
+        FleetAlert.Create(
+            Guid.NewGuid(),
+            vehicleId,
+            alertType,
+            severity,
+            message,
+            DateTimeOffset.UtcNow);
 }
