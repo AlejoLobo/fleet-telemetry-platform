@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
@@ -28,7 +29,7 @@ public class TelemetryMessageProcessor
         _logger = logger;
     }
 
-    public async Task<TelemetryMessageProcessingResult> ProcessAsync(
+    public async Task<TelemetryMessageProcessingOutcome> ProcessAsync(
         KafkaConsumedMessage message,
         int currentAttempt,
         Func<TelemetryEvent, CancellationToken, Task<ProcessTelemetryOutcome>> processEvent,
@@ -39,12 +40,10 @@ public class TelemetryMessageProcessor
 
         if (string.IsNullOrWhiteSpace(message.Payload))
         {
-            await PublishDeadLetterAsync(
+            return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
-                exceptionMessage: "Payload nulo, vacío o whitespace.",
-                cancellationToken);
-            return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
+                exceptionMessage: "Payload nulo, vacío o whitespace.");
         }
 
         TelemetryEvent telemetryEvent;
@@ -55,12 +54,10 @@ public class TelemetryMessageProcessor
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
         {
-            await PublishDeadLetterAsync(
+            return TerminalDeadLetterOutcome(
                 message,
                 reason: "invalid_payload",
-                exceptionMessage: ex.Message,
-                cancellationToken);
-            return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
+                exceptionMessage: ex.Message);
         }
 
         try
@@ -87,7 +84,7 @@ public class TelemetryMessageProcessor
                     currentAttempt);
             }
 
-            return TelemetryMessageProcessingResult.ProcessedAndCommit;
+            return new TelemetryMessageProcessingOutcome(TelemetryMessageProcessingResult.ProcessedAndCommit);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -95,11 +92,11 @@ public class TelemetryMessageProcessor
         }
         catch (BrokenCircuitException ex)
         {
-            return await HandleTransientFailureAsync(message, currentAttempt, ex, "circuit_breaker_open", cancellationToken);
+            return await HandleTransientFailureAsync(message, currentAttempt, ex, "circuit_breaker_open");
         }
         catch (Exception ex) when (DatabaseTransientFailureClassifier.IsTransient(ex))
         {
-            return await HandleTransientFailureAsync(message, currentAttempt, ex, "transient_database", cancellationToken);
+            return await HandleTransientFailureAsync(message, currentAttempt, ex, "transient_database");
         }
         catch (Exception ex)
         {
@@ -112,30 +109,53 @@ public class TelemetryMessageProcessor
                 message.Partition,
                 message.Offset);
 
-            await PublishDeadLetterAsync(
+            return TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message,
-                cancellationToken);
-            return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
+                exceptionMessage: ex.Message);
         }
     }
 
-    private async Task<TelemetryMessageProcessingResult> HandleTransientFailureAsync(
+    public async Task PublishDeadLetterAsync(DeadLetterMessage deadLetterMessage, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _deadLetterPublisher.PublishAsync(deadLetterMessage, cancellationToken);
+
+            _logger.LogWarning(
+                "Message moved to dead letter queue. Reason={Reason} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} DeadLetterTopic={DeadLetterTopic}",
+                deadLetterMessage.Reason,
+                deadLetterMessage.OriginalTopic,
+                deadLetterMessage.Partition,
+                deadLetterMessage.Offset,
+                _kafkaOptions.DeadLetterTopic);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (DeadLetterPublishException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new DeadLetterPublishException("Dead-letter publish failed.", ex);
+        }
+    }
+
+    private Task<TelemetryMessageProcessingOutcome> HandleTransientFailureAsync(
         KafkaConsumedMessage message,
         int currentAttempt,
         Exception ex,
-        string failureKind,
-        CancellationToken cancellationToken)
+        string failureKind)
     {
         if (currentAttempt >= _kafkaOptions.MaxProcessingAttempts)
         {
-            await PublishDeadLetterAsync(
+            return Task.FromResult(TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message,
-                cancellationToken);
-            return TelemetryMessageProcessingResult.SentToDeadLetterAndCommit;
+                exceptionMessage: ex.Message));
         }
 
         _logger.LogWarning(
@@ -148,16 +168,26 @@ public class TelemetryMessageProcessor
             message.Partition,
             message.Offset);
 
-        return TelemetryMessageProcessingResult.RetryWithoutCommit;
+        return Task.FromResult(
+            new TelemetryMessageProcessingOutcome(TelemetryMessageProcessingResult.RetryWithoutCommit));
     }
 
-    private async Task PublishDeadLetterAsync(
+    private TelemetryMessageProcessingOutcome TerminalDeadLetterOutcome(
         KafkaConsumedMessage message,
         string reason,
-        string exceptionMessage,
-        CancellationToken cancellationToken)
+        string exceptionMessage)
     {
-        var deadLetterMessage = new DeadLetterMessage(
+        var deadLetterMessage = BuildDeadLetterMessage(message, reason, exceptionMessage);
+        return new TelemetryMessageProcessingOutcome(
+            TelemetryMessageProcessingResult.RequiresDeadLetterPublish,
+            deadLetterMessage);
+    }
+
+    private static DeadLetterMessage BuildDeadLetterMessage(
+        KafkaConsumedMessage message,
+        string reason,
+        string exceptionMessage) =>
+        new(
             OriginalPayload: message.Payload ?? string.Empty,
             Reason: reason,
             ExceptionMessage: exceptionMessage,
@@ -165,15 +195,4 @@ public class TelemetryMessageProcessor
             Partition: message.Partition,
             Offset: message.Offset,
             OccurredAt: DateTimeOffset.UtcNow);
-
-        await _deadLetterPublisher.PublishAsync(deadLetterMessage, cancellationToken);
-
-        _logger.LogWarning(
-            "Message moved to dead letter queue. Reason={Reason} OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset} DeadLetterTopic={DeadLetterTopic}",
-            reason,
-            message.Topic,
-            message.Partition,
-            message.Offset,
-            _kafkaOptions.DeadLetterTopic);
-    }
 }
