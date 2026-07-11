@@ -153,6 +153,14 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
+        await ExecuteSqlAsync(
+            connection,
+            """
+            ALTER TABLE telemetry_events
+            ADD COLUMN IF NOT EXISTS "LocationSource" character varying(16) NOT NULL DEFAULT 'gps';
+            """,
+            cancellationToken);
+
         logger.LogInformation("TimescaleDB schema initialized successfully.");
     }
 

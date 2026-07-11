@@ -23,9 +23,13 @@ public class FleetController : ControllerBase
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<IReadOnlyList<VehicleLatestStatusResponse>>> GetAll(
         [FromQuery] bool liveOnly = false,
+        [FromQuery] bool excludeSimulated = false,
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(liveOnly, cancellationToken);
+        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(
+            liveOnly,
+            excludeSimulated,
+            cancellationToken);
         return Ok(vehicles);
     }
 

@@ -57,6 +57,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             SpeedKmh = telemetryEvent.SpeedKmh,
             FuelLevelPercent = telemetryEvent.FuelLevelPercent,
             BatteryPercent = telemetryEvent.BatteryPercent,
+            LocationSource = telemetryEvent.LocationSource,
             CapturedAt = processedAt
         });
 

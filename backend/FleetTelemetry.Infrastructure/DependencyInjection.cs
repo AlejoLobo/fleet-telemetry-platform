@@ -1,6 +1,8 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Application.UseCases;
+using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
@@ -38,6 +40,10 @@ public static class DependencyInjection
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
         services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
 
+        services.AddSingleton(TimeProvider.System);
+
+        services.Configure<TelemetryIngestOptions>(configuration.GetSection(TelemetryIngestOptions.SectionName));
+        services.AddSingleton<TelemetryEventValidator>();
         services.AddSingleton(TimeProvider.System);
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
