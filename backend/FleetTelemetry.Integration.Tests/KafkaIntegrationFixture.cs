@@ -4,7 +4,7 @@ using Testcontainers.Kafka;
 
 namespace FleetTelemetry.Integration.Tests;
 
-// Broker Kafka real: variable de entorno, Redpanda local, o Testcontainers.
+// Broker Kafka compatible (confluent-local vía Testcontainers, Redpanda local o variable de entorno).
 public sealed class KafkaIntegrationFixture : IAsyncLifetime
 {
     public const string BootstrapEnvVar = "FLEET_INTEGRATION_KAFKA_BOOTSTRAP";
@@ -29,7 +29,7 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
         }
 
         _container = new KafkaBuilder()
-            .WithImage("confluentinc/confluent-local:7.6.1")
+            .WithImage("confluentinc/confluent-local:7.6.1") // Kafka-compatible (no Redpanda)
             .Build();
 
         await _container.StartAsync();
@@ -52,7 +52,8 @@ public sealed class KafkaIntegrationFixture : IAsyncLifetime
     {
         using var admin = new AdminClientBuilder(new AdminClientConfig
         {
-            BootstrapServers = BootstrapServers
+            BootstrapServers = BootstrapServers,
+            SocketTimeoutMs = 5_000
         }).Build();
 
         try
