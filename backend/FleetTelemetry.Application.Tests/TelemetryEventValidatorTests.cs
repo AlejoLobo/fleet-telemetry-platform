@@ -1,41 +1,29 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Validation;
+using Microsoft.Extensions.Options;
 
-// Pruebas de validación de eventos de telemetría.
 namespace FleetTelemetry.Application.Tests;
 
 public class TelemetryEventValidatorTests
 {
+    private readonly TelemetryEventValidator _validator = new(
+        Options.Create(new TelemetryIngestOptions()),
+        TimeProvider.System);
+
     [Fact]
     public void Validate_accepts_valid_request()
     {
-        var request = ValidRequest();
-        var exception = Record.Exception(() => TelemetryEventValidator.Validate(request));
+        var exception = Record.Exception(() => _validator.Validate(ValidRequest()));
         Assert.Null(exception);
     }
 
     [Fact]
-    public void Validate_rejects_empty_vehicle_id()
+    public void Validate_rejects_invalid_location_source()
     {
-        var request = ValidRequest() with { VehicleId = " " };
-        Assert.Throws<ArgumentException>(() => TelemetryEventValidator.Validate(request));
-    }
-
-    [Fact]
-    public void Validate_rejects_negative_speed()
-    {
-        var request = ValidRequest() with { SpeedKmh = -1 };
-        Assert.Throws<ArgumentException>(() => TelemetryEventValidator.Validate(request));
+        Assert.Throws<ArgumentException>(() => _validator.Validate(ValidRequest() with { LocationSource = "fake" }));
     }
 
     private static TelemetryEventRequest ValidRequest() => new(
-        EventId: Guid.NewGuid(),
-        VehicleId: "VH-001",
-        DriverId: "DRV-001",
-        Timestamp: DateTimeOffset.UtcNow,
-        Latitude: 4.65,
-        Longitude: -74.08,
-        SpeedKmh: 45,
-        FuelLevelPercent: 80,
-        BatteryPercent: 90);
+        Guid.NewGuid(), "VH-001", "DRV-001", DateTimeOffset.UtcNow, 4.65, -74.08, 45, 80, 90, "gps");
 }

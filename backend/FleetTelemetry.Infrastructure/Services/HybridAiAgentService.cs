@@ -1,17 +1,16 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Services;
 using FleetTelemetry.Infrastructure.Configuration;
-using FleetTelemetry.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// Agente IA híbrido: operativo + pulido opcional con LLM.
 namespace FleetTelemetry.Infrastructure.Services;
 
 /// <summary>
-/// Agente híbrido: consulta tools operativas y opcionalmente pule la respuesta con OpenAI.
+/// Agente híbrido: consulta tools operativas de forma determinista y opcionalmente pule la respuesta con OpenAI.
+/// Las consultas rechazadas o no soportadas nunca pasan por el LLM.
 /// </summary>
-// Delega al agente operativo y opcionalmente mejora el texto con OpenAI.
 public class HybridAiAgentService : IAiAgentService
 {
     private readonly OperationalAiAgentService _operational;
@@ -31,14 +30,13 @@ public class HybridAiAgentService : IAiAgentService
         _logger = logger;
     }
 
-    // Obtiene respuesta operativa y la pule si OpenAI está habilitado.
     public async Task<AiQueryResponse> QueryAsync(
         AiQueryRequest request,
         CancellationToken cancellationToken = default)
     {
         var response = await _operational.QueryAsync(request, cancellationToken);
 
-        if (!_openAiOptions.Enabled)
+        if (!ShouldPolishWithLlm(request.Question, response, _openAiOptions.Enabled))
             return response;
 
         try
@@ -48,8 +46,28 @@ public class HybridAiAgentService : IAiAgentService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "No se pudo pulir respuesta con LLM; se devuelve respuesta operativa");
+            _logger.LogWarning(ex, "No se pudo pulir respuesta con LLM; se devuelve respuesta operativa determinista");
             return response;
         }
+    }
+
+    private static bool ShouldPolishWithLlm(string question, AiQueryResponse response, bool openAiEnabled)
+    {
+        if (!openAiEnabled)
+            return false;
+
+        if (response.Sources.Contains("prompt_guard", StringComparer.Ordinal)
+            || response.Sources.Contains("unsupported_query", StringComparer.Ordinal)
+            || response.Sources.Contains("validation", StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        var guard = AiPromptGuard.Inspect(question);
+        if (!guard.IsSafe)
+            return false;
+
+        var intent = AiQuestionParser.Parse(guard.SanitizedQuestion);
+        return intent.Intent != AiQueryIntent.UnsupportedQuery;
     }
 }

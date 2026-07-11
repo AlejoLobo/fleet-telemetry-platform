@@ -26,6 +26,7 @@ public class OpsQueryService : IOpsQueryService
     {
         var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(
             liveOnly: false,
+            excludeSimulated: false,
             cancellationToken);
         var alerts = await _alertRepository.GetOpenAlertsAsync(cancellationToken);
 

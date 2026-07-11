@@ -93,6 +93,9 @@ export function FleetStatusPanel({
                     <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
                       {etiquetaEstadoVehiculo(vehicle.status)}
                     </Badge>
+                    {vehicle.lastLocationSource === "simulated" && (
+                      <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
+                    )}
                   </div>
                   {vehicle.name && (
                     <p className="truncate text-xs text-slate-500">{vehicle.name}</p>

@@ -1,3 +1,4 @@
+using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Persistence;
@@ -23,6 +24,26 @@ public class TimescaleAlertRepository : IAlertRepository
             .AsNoTracking()
             .Where(a => !a.IsAcknowledged)
             .OrderByDescending(a => a.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return records.Select(MapToDomain).ToList();
+    }
+
+    public async Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAfterCursorAsync(
+        AlertStreamCursor cursor,
+        DateTimeOffset upperBound,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var records = await _dbContext.FleetAlerts
+            .AsNoTracking()
+            .Where(a => !a.IsAcknowledged && a.CreatedAt <= upperBound)
+            .Where(a =>
+                a.CreatedAt > cursor.CreatedAt
+                || (a.CreatedAt == cursor.CreatedAt && a.AlertId.CompareTo(cursor.AlertId) > 0))
+            .OrderBy(a => a.CreatedAt)
+            .ThenBy(a => a.AlertId)
+            .Take(Math.Max(1, limit))
             .ToListAsync(cancellationToken);
 
         return records.Select(MapToDomain).ToList();
@@ -58,14 +79,13 @@ public class TimescaleAlertRepository : IAlertRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static FleetAlert MapToDomain(FleetAlertRecord record) => new()
-    {
-        AlertId = record.AlertId,
-        VehicleId = record.VehicleId,
-        AlertType = record.AlertType,
-        Severity = record.Severity,
-        Message = record.Message,
-        CreatedAt = record.CreatedAt,
-        IsAcknowledged = record.IsAcknowledged
-    };
+    private static FleetAlert MapToDomain(FleetAlertRecord record) =>
+        FleetAlert.FromPersistence(
+            record.AlertId,
+            record.VehicleId,
+            record.AlertType,
+            record.Severity,
+            record.Message,
+            record.CreatedAt,
+            record.IsAcknowledged);
 }

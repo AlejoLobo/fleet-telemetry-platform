@@ -25,10 +25,18 @@ public class JwtTokenService
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expires = DateTime.UtcNow.AddMinutes(_options.TokenExpirationMinutes);
 
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Name, username),
+            new(ClaimTypes.Role, "operator")
+        };
+        foreach (var permission in AuthorizationPermissions.OperatorPermissions)
+            claims.Add(new Claim(AuthorizationPermissions.ClaimType, permission));
+
         var token = new JwtSecurityToken(
             issuer: _options.JwtIssuer,
             audience: _options.JwtAudience,
-            claims: [new Claim(ClaimTypes.Name, username), new Claim(ClaimTypes.Role, "operator")],
+            claims: claims,
             expires: expires,
             signingCredentials: credentials);
 
