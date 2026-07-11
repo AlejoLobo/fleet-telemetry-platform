@@ -79,14 +79,13 @@ public class TimescaleAlertRepository : IAlertRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static FleetAlert MapToDomain(FleetAlertRecord record) => new()
-    {
-        AlertId = record.AlertId,
-        VehicleId = record.VehicleId,
-        AlertType = record.AlertType,
-        Severity = record.Severity,
-        Message = record.Message,
-        CreatedAt = record.CreatedAt,
-        IsAcknowledged = record.IsAcknowledged
-    };
+    private static FleetAlert MapToDomain(FleetAlertRecord record) =>
+        FleetAlert.FromPersistence(
+            record.AlertId,
+            record.VehicleId,
+            record.AlertType,
+            record.Severity,
+            record.Message,
+            record.CreatedAt,
+            record.IsAcknowledged);
 }
