@@ -63,50 +63,57 @@ public class TelemetryConsumerWorkerIntegrationTests
         await _kafka.CreateTopicAsync(topic);
         await _kafka.CreateTopicAsync(dlqTopic);
 
-        Produce(topic, "{ bad-json");
-
-        await using (var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
-            _kafka,
-            "worker-redeliver",
-            "worker-redeliver-group",
-            new TelemetryConsumerWorkerHostOptions
-            {
-                ExistingTopic = topic,
-                ExistingDeadLetterTopic = dlqTopic,
-                ExistingGroupId = group,
-                ConfigureDeadLetterPublisher = dlq => dlq.FailUntilAttempt(int.MaxValue)
-            }))
+        try
         {
-            await host.StartAsync();
-            await WaitUntilDlqAttemptsAsync(host, expectedAttempts: 3, TimeSpan.FromSeconds(45));
-            await host.StopAsync();
-            await KafkaTestPolling.WaitUntilConsumerGroupEmptyAsync(
-                _kafka.BootstrapServers,
-                group,
-                TimeSpan.FromSeconds(30));
-        }
+            Produce(topic, "{ bad-json");
 
-        var committedBefore = await GetCommittedOffsetAsync(group, topic);
-        AssertNoCommittedOffset(committedBefore);
-
-        await using (var host2 = await TelemetryConsumerWorkerTestHost.CreateAsync(
-            _kafka,
-            "worker-redeliver-2",
-            "worker-redeliver-group-2",
-            new TelemetryConsumerWorkerHostOptions
+            await using (var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "worker-redeliver",
+                "worker-redeliver-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConfigureDeadLetterPublisher = dlq => dlq.FailUntilAttempt(int.MaxValue)
+                }))
             {
-                ExistingTopic = topic,
-                ExistingDeadLetterTopic = dlqTopic,
-                ExistingGroupId = group
-            }))
-        {
-            await host2.StartAsync();
-            await WaitUntilAsync(() => host2.DeadLetterPublisher!.Messages.Count > 0, TimeSpan.FromSeconds(60));
-            await WaitUntilCommittedOffsetAsync(group, topic, expectedOffset: 1, TimeSpan.FromSeconds(30));
-        }
+                await host.StartAsync();
+                await WaitUntilDlqAttemptsAsync(host, expectedAttempts: 3, TimeSpan.FromSeconds(45));
+                await host.StopAsync();
+                await KafkaTestPolling.WaitUntilConsumerGroupEmptyAsync(
+                    _kafka.BootstrapServers,
+                    group,
+                    TimeSpan.FromSeconds(30));
+            }
 
-        using var verifier = CreateConsumer(group, topic);
-        Assert.Null(ConsumeOne(verifier, TimeSpan.FromSeconds(3)));
+            var committedBefore = await GetCommittedOffsetAsync(group, topic);
+            AssertNoCommittedOffset(committedBefore);
+
+            await using (var host2 = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "worker-redeliver-2",
+                "worker-redeliver-group-2",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group
+                }))
+            {
+                await host2.StartAsync();
+                await WaitUntilAsync(() => host2.DeadLetterPublisher!.Messages.Count > 0, TimeSpan.FromSeconds(60));
+                await WaitUntilCommittedOffsetAsync(group, topic, expectedOffset: 1, TimeSpan.FromSeconds(30));
+            }
+
+            using var verifier = CreateConsumer(group, topic);
+            Assert.Null(ConsumeOne(verifier, TimeSpan.FromSeconds(3)));
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
     }
 
     [Fact]
@@ -192,25 +199,32 @@ public class TelemetryConsumerWorkerIntegrationTests
         await _kafka.CreateTopicAsync(topic);
         await _kafka.CreateTopicAsync(dlqTopic);
 
-        Produce(topic, "{ bad");
+        try
+        {
+            Produce(topic, "{ bad");
 
-        await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
-            _kafka,
-            "worker-dlq-down",
-            "worker-dlq-down-group",
-            new TelemetryConsumerWorkerHostOptions
-            {
-                ExistingTopic = topic,
-                ExistingDeadLetterTopic = dlqTopic,
-                ExistingGroupId = group,
-                ConfigureDeadLetterPublisher = dlq => dlq.FailUntilAttempt(int.MaxValue)
-            });
+            await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "worker-dlq-down",
+                "worker-dlq-down-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConfigureDeadLetterPublisher = dlq => dlq.FailUntilAttempt(int.MaxValue)
+                });
 
-        await host.StartAsync();
-        await WaitUntilDlqAttemptsAsync(host, expectedAttempts: 3, TimeSpan.FromSeconds(45));
+            await host.StartAsync();
+            await WaitUntilDlqAttemptsAsync(host, expectedAttempts: 3, TimeSpan.FromSeconds(45));
 
-        var committed = await GetCommittedOffsetAsync(group, topic);
-        AssertNoCommittedOffset(committed);
+            var committed = await GetCommittedOffsetAsync(group, topic);
+            AssertNoCommittedOffset(committed);
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
     }
 
     [Fact]
