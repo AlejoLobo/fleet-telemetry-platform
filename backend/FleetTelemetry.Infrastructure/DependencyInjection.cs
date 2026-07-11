@@ -71,6 +71,7 @@ public static class DependencyInjection
 
             services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
             services.AddSingleton<FleetSseBroker>();
+            services.AddSingleton<ISseStreamTicketService, SseStreamTicketService>();
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
