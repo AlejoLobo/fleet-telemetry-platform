@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Confluent.Kafka;
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Resilience;
@@ -37,7 +38,7 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
             BootstrapServers = _options.BootstrapServers,
             Acks = Acks.All,
             EnableIdempotence = true,
-            MessageTimeoutMs = 10_000
+            MessageTimeoutMs = _options.ProducerMessageTimeoutMs
         };
 
         _producer = new ProducerBuilder<string, string>(config).Build();
@@ -76,7 +77,17 @@ public class KafkaDeadLetterPublisher : IDeadLetterPublisher, IDisposable
                 message.OriginalTopic,
                 message.Partition,
                 message.Offset);
-            throw;
+            throw new DeadLetterPublishException("Dead-letter publish blocked by circuit breaker.", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(
+                ex,
+                "Dead letter publish failed. OriginalTopic={OriginalTopic} Partition={Partition} Offset={Offset}",
+                message.OriginalTopic,
+                message.Partition,
+                message.Offset);
+            throw new DeadLetterPublishException("Dead-letter publish failed.", ex);
         }
     }
 
