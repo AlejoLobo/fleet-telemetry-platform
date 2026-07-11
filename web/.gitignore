@@ -12,3 +12,7 @@ npm-debug.log*
 
 # Typescript
 next-env.d.ts
+*.tsbuildinfo
+
+# Tests
+/coverage
