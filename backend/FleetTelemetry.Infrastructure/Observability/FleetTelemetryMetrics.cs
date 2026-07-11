@@ -32,6 +32,11 @@ public sealed class FleetTelemetryMetrics
                 "fleet.sse.subscribers",
                 () => new Measurement<int>(sseBroker.SubscriberCount),
                 description: "Suscriptores SSE activos");
+
+            _meter.CreateObservableCounter(
+                "fleet.sse.events_dropped_total",
+                () => new Measurement<long>(sseBroker.DroppedEvents),
+                description: "Eventos SSE descartados por suscriptores lentos");
         }
     }
 }
