@@ -25,7 +25,7 @@ resource "aws_vpc" "main" {
   cidr_block           = "10.20.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
-  tags = { Name = "${var.project_name}-${var.environment}-vpc" }
+  tags                 = { Name = "${var.project_name}-${var.environment}-vpc" }
 }
 
 resource "aws_subnet" "public" {
@@ -34,7 +34,7 @@ resource "aws_subnet" "public" {
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  tags = { Name = "${var.project_name}-public-${count.index}" }
+  tags                    = { Name = "${var.project_name}-public-${count.index}" }
 }
 
 resource "aws_subnet" "private" {
@@ -42,7 +42,7 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 10)
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags = { Name = "${var.project_name}-private-${count.index}" }
+  tags              = { Name = "${var.project_name}-private-${count.index}" }
 }
 
 resource "aws_internet_gateway" "igw" {
@@ -122,7 +122,7 @@ resource "aws_db_instance" "fleet" {
   skip_final_snapshot     = true
   publicly_accessible     = false
   backup_retention_period = 7
-  tags = { Name = "${var.project_name}-postgresql" }
+  tags                    = { Name = "${var.project_name}-postgresql" }
 }
 
 resource "aws_ecs_cluster" "fleet" {
