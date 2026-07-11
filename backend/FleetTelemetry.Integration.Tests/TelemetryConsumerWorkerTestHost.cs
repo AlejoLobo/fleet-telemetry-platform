@@ -18,6 +18,8 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
 {
     private readonly IHost _host;
     private readonly CancellationTokenSource _runCts = new();
+    private readonly KafkaIntegrationFixture? _kafka;
+    private readonly string[] _topicsToCleanup;
 
     public string BootstrapServers { get; }
     public string Topic { get; }
@@ -29,6 +31,8 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
 
     private TelemetryConsumerWorkerTestHost(
         IHost host,
+        KafkaIntegrationFixture? kafka,
+        string[] topicsToCleanup,
         string bootstrapServers,
         string topic,
         string deadLetterTopic,
@@ -38,6 +42,8 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
         ControllableDeadLetterPublisher? deadLetterPublisher)
     {
         _host = host;
+        _kafka = kafka;
+        _topicsToCleanup = topicsToCleanup;
         BootstrapServers = bootstrapServers;
         Topic = topic;
         DeadLetterTopic = deadLetterTopic;
@@ -58,12 +64,19 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
         var topic = options.ExistingTopic ?? kafka.NewTopicName(topicPrefix);
         var deadLetterTopic = options.ExistingDeadLetterTopic ?? kafka.NewTopicName($"{topicPrefix}-dlq");
         var groupId = options.ExistingGroupId ?? kafka.NewGroupId(groupPrefix);
+        var topicsToCleanup = new List<string>(capacity: 2);
 
         if (options.ExistingTopic is null)
+        {
             await kafka.CreateTopicAsync(topic, partitions: 1);
+            topicsToCleanup.Add(topic);
+        }
 
         if (options.ExistingDeadLetterTopic is null)
+        {
             await kafka.CreateTopicAsync(deadLetterTopic, partitions: 1);
+            topicsToCleanup.Add(deadLetterTopic);
+        }
 
         ControllableTelemetryProcessingUnitOfWork? processing = null;
         if (!options.UseRealTimescaleProcessing)
@@ -133,6 +146,8 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
 
         return new TelemetryConsumerWorkerTestHost(
             host,
+            kafka,
+            topicsToCleanup.ToArray(),
             kafka.BootstrapServers,
             topic,
             deadLetterTopic,
@@ -166,6 +181,9 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
         _host.Dispose();
         _runCts.Dispose();
         DeadLetterPublisher?.Dispose();
+
+        if (_topicsToCleanup.Length > 0 && _kafka is not null)
+            await _kafka.DeleteTrackedTopicsAsync(_topicsToCleanup);
     }
 }
 
