@@ -121,7 +121,8 @@ public class TelemetryMessageProcessor
             return TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message);
+                exceptionMessage: ex.Message,
+                attemptNumber: currentAttempt);
         }
     }
 
@@ -164,7 +165,8 @@ public class TelemetryMessageProcessor
             return Task.FromResult(TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message));
+                exceptionMessage: ex.Message,
+                attemptNumber: currentAttempt));
         }
 
         _logger.LogWarning(
@@ -184,9 +186,10 @@ public class TelemetryMessageProcessor
     private TelemetryMessageProcessingOutcome TerminalDeadLetterOutcome(
         KafkaConsumedMessage message,
         string reason,
-        string exceptionMessage)
+        string exceptionMessage,
+        int attemptNumber = 1)
     {
-        var deadLetterMessage = BuildDeadLetterMessage(message, reason, exceptionMessage);
+        var deadLetterMessage = BuildDeadLetterMessage(message, reason, exceptionMessage, attemptNumber);
         return new TelemetryMessageProcessingOutcome(
             TelemetryMessageProcessingResult.RequiresDeadLetterPublish,
             deadLetterMessage);
@@ -195,13 +198,57 @@ public class TelemetryMessageProcessor
     private static DeadLetterMessage BuildDeadLetterMessage(
         KafkaConsumedMessage message,
         string reason,
-        string exceptionMessage) =>
-        new(
-            OriginalPayload: message.Payload ?? string.Empty,
-            Reason: reason,
-            ExceptionMessage: exceptionMessage,
+        string exceptionMessage,
+        int attemptNumber)
+    {
+        var category = reason switch
+        {
+            "invalid_payload" => "validation",
+            "processing_failure" => "processing",
+            _ => "unknown"
+        };
+
+        Guid? correlationId = null;
+        try
+        {
+            var parsed = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            correlationId = parsed.EventId;
+        }
+        catch
+        {
+            // Payload inválido: no hay correlationId confiable.
+        }
+
+        var sanitizedDetail = SanitizeTechnicalDetail(exceptionMessage);
+
+        return new DeadLetterMessage(
+            DeadLetterId: Guid.NewGuid(),
+            SchemaVersion: 1,
+            Category: category,
+            ErrorCode: reason,
+            AttemptNumber: attemptNumber,
+            OccurredAt: DateTimeOffset.UtcNow,
+            ProcessedAt: null,
             OriginalTopic: message.Topic,
             Partition: message.Partition,
             Offset: message.Offset,
-            OccurredAt: DateTimeOffset.UtcNow);
+            MessageKey: message.Key,
+            CorrelationId: correlationId,
+            OriginalPayload: message.Payload ?? string.Empty,
+            TechnicalDetail: sanitizedDetail,
+            Reason: reason,
+            ExceptionMessage: sanitizedDetail);
+    }
+
+    private static string SanitizeTechnicalDetail(string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+            return "unknown";
+
+        const int maxLength = 500;
+        var normalized = detail.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..maxLength];
+    }
 }
