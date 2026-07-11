@@ -88,6 +88,7 @@ public class AiToolRouterTests
     {
         public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
             bool liveOnly = false,
+            bool excludeSimulated = false,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<VehicleLatestStatusResponse>>(
             [

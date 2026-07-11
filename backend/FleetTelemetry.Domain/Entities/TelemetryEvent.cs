@@ -13,4 +13,5 @@ public class TelemetryEvent
     public double SpeedKmh { get; set; }
     public double? FuelLevelPercent { get; set; }
     public double? BatteryPercent { get; set; }
+    public string LocationSource { get; set; } = "gps";
 }
