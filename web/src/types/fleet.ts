@@ -10,6 +10,7 @@ export type VehicleStatus = {
   lastLatitude: number | null;
   lastLongitude: number | null;
   headingDegrees?: number | null;
+  lastLocationSource?: string | null;
 };
 
 /** Alerta operativa de un vehículo. */

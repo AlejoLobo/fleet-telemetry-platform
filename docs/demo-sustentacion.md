@@ -83,7 +83,7 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | k6/JMeter | `load-tests/` (k6) | Cumple |
 | Docker Compose | Infra + profile `app` | Cumple |
 | Terraform/AWS CDK | Blueprint en `infra/terraform/` | Blueprint |
-| AI Audit | Sección en README + casos de offsets, intentos en memoria y payload vacío | Cumple |
+| Documentación DLQ/Kafka | [worker-and-dlq.md](worker-and-dlq.md) + pruebas de offsets e idempotencia | Cumple |
 | OpenTelemetry | No implementado | No implementado |
 
 ## 7. Limitaciones conscientes

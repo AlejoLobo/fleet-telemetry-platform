@@ -1,8 +1,11 @@
 namespace FleetTelemetry.Worker;
 
-// Cálculo de backoff exponencial con jitter; el resultado final nunca supera maxDelay.
+// Cálculo de backoff exponencial con jitter acotado al 25 % del delay base.
 public static class KafkaProcessingRetryBackoff
 {
+    private const int MaxExponent = 20;
+    private const double JitterFraction = 0.25;
+
     public static TimeSpan ComputeDelay(
         int attempt,
         int initialDelayMilliseconds,
@@ -20,14 +23,16 @@ public static class KafkaProcessingRetryBackoff
                 nameof(initialDelayMilliseconds),
                 "initialDelayMilliseconds debe ser <= maxDelayMilliseconds.");
 
-        var exponent = Math.Min(attempt - 1, 20);
+        var exponent = Math.Min(attempt - 1, MaxExponent);
         var exponential = (double)initialDelayMilliseconds * Math.Pow(2, exponent);
         var baseDelay = (int)Math.Min(maxDelayMilliseconds, exponential);
 
-        // Jitter dentro del presupuesto restante hasta el máximo (nunca excede max).
         var rng = random ?? Random.Shared;
-        var jitterBudget = maxDelayMilliseconds - baseDelay;
-        var jitter = jitterBudget <= 0 ? 0 : rng.Next(0, jitterBudget + 1);
+        var jitterBudget = (int)Math.Floor(baseDelay * JitterFraction);
+        var remainingBudget = maxDelayMilliseconds - baseDelay;
+        var jitterCap = Math.Min(jitterBudget, remainingBudget);
+        var jitter = jitterCap <= 0 ? 0 : rng.Next(0, jitterCap + 1);
+
         return TimeSpan.FromMilliseconds(baseDelay + jitter);
     }
 }

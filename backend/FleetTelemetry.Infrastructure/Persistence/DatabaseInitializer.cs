@@ -1,4 +1,4 @@
-using FleetTelemetry.Infrastructure.Persistence;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,18 +9,88 @@ namespace FleetTelemetry.Infrastructure.Persistence;
 // Crea extensiones, tablas e índices si no existen.
 public static class DatabaseInitializer
 {
+    private const long SchemaAdvisoryLockKey = 742001;
+
     // Ejecuta DDL idempotente para hypertables e índices.
-    public static async Task InitializeAsync(IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+    public static async Task InitializeAsync(
+        IServiceProvider serviceProvider,
+        bool useAdvisoryLock = true,
+        CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<FleetDbContext>>();
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        var connection = dbContext.Database.GetDbConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        Exception? initializationException = null;
+
+        try
+        {
+            if (useAdvisoryLock)
+                await SetAdvisoryLockAsync(connection, acquire: true, cancellationToken);
+
+            try
+            {
+                await InitializeSchemaAsync(connection, logger, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                initializationException = ex;
+                throw;
+            }
+        }
+        finally
+        {
+            if (useAdvisoryLock)
+            {
+                try
+                {
+                    await SetAdvisoryLockAsync(connection, acquire: false, CancellationToken.None);
+                }
+                catch (Exception unlockException)
+                {
+                    logger.LogError(
+                        unlockException,
+                        "No se pudo liberar pg_advisory_unlock({LockKey}).",
+                        SchemaAdvisoryLockKey);
+
+                    if (initializationException is not null)
+                        throw initializationException;
+
+                    throw;
+                }
+            }
+
+            await connection.CloseAsync();
+        }
+    }
+
+    private static async Task SetAdvisoryLockAsync(
+        DbConnection connection,
+        bool acquire,
+        CancellationToken cancellationToken)
+    {
+        var function = acquire ? "pg_advisory_lock" : "pg_advisory_unlock";
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {function}({SchemaAdvisoryLockKey});";
+        await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    private static async Task InitializeSchemaAsync(
+        DbConnection connection,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
             "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;",
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             CREATE TABLE IF NOT EXISTS processed_events (
                 "EventId" uuid NOT NULL,
@@ -30,7 +100,8 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             CREATE TABLE IF NOT EXISTS fleet_alerts (
                 "AlertId" uuid NOT NULL,
@@ -45,14 +116,16 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             CREATE INDEX IF NOT EXISTS ix_fleet_alerts_vehicle_created
             ON fleet_alerts ("VehicleId", "CreatedAt" DESC);
             """,
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             CREATE TABLE IF NOT EXISTS telemetry_events (
                 "EventId" uuid NOT NULL,
@@ -70,19 +143,60 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             SELECT create_hypertable('telemetry_events', 'Timestamp', if_not_exists => TRUE);
             """,
             cancellationToken);
 
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await ExecuteSqlAsync(
+            connection,
             """
             CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp
             ON telemetry_events ("VehicleId", "Timestamp" DESC);
             """,
             cancellationToken);
 
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS schema_versions (
+                "Version" integer NOT NULL,
+                "AppliedAt" timestamp with time zone NOT NULL,
+                "Description" character varying(256) NOT NULL,
+                CONSTRAINT "PK_schema_versions" PRIMARY KEY ("Version")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+            VALUES (1, NOW(), 'Initial TimescaleDB schema with hypertable telemetry_events')
+            ON CONFLICT ("Version") DO NOTHING;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            ALTER TABLE telemetry_events
+            ADD COLUMN IF NOT EXISTS "LocationSource" character varying(16) NOT NULL DEFAULT 'gps';
+            """,
+            cancellationToken);
+
         logger.LogInformation("TimescaleDB schema initialized successfully.");
+    }
+
+    private static async Task ExecuteSqlAsync(
+        DbConnection connection,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

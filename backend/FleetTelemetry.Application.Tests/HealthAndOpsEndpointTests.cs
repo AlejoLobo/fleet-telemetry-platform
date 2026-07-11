@@ -64,8 +64,8 @@ public class HealthAndOpsEndpointTests
             new VehicleLatestStatusResponse("VH-002", "VH-002", "offline", DateTimeOffset.UtcNow.AddHours(-1), 0, 4.7, -74.1, null)
         ]);
         var alerts = new FakeAlertRepository([
-            new FleetAlert { AlertId = Guid.NewGuid(), VehicleId = "VH-001", Severity = "critical", AlertType = "overspeed", Message = "x", CreatedAt = DateTimeOffset.UtcNow },
-            new FleetAlert { AlertId = Guid.NewGuid(), VehicleId = "VH-002", Severity = "warning", AlertType = "low_fuel", Message = "y", CreatedAt = DateTimeOffset.UtcNow }
+            FleetAlert.Create(Guid.NewGuid(), "VH-001", "overspeed", "critical", "x", DateTimeOffset.UtcNow),
+            FleetAlert.Create(Guid.NewGuid(), "VH-002", "low_fuel", "warning", "y", DateTimeOffset.UtcNow)
         ]);
         var kafka = Options.Create(new KafkaOptions
         {
@@ -109,6 +109,7 @@ public class HealthAndOpsEndpointTests
     {
         public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
             bool liveOnly = false,
+            bool excludeSimulated = false,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(vehicles);
 
@@ -122,6 +123,20 @@ public class HealthAndOpsEndpointTests
     {
         public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(alerts);
+
+        public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAfterCursorAsync(
+            AlertStreamCursor cursor,
+            DateTimeOffset upperBound,
+            int limit,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FleetAlert>>(alerts
+                .Where(a => !a.IsAcknowledged && a.CreatedAt <= upperBound)
+                .Where(a => a.CreatedAt > cursor.CreatedAt
+                    || (a.CreatedAt == cursor.CreatedAt && a.AlertId.CompareTo(cursor.AlertId) > 0))
+                .OrderBy(a => a.CreatedAt)
+                .ThenBy(a => a.AlertId)
+                .Take(limit)
+                .ToList());
 
         public Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
