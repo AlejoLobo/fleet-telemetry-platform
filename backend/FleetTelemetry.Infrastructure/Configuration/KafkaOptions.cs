@@ -9,6 +9,8 @@ public class KafkaOptions
     public string BootstrapServers { get; set; } = "localhost:19092";
     public string TelemetryTopic { get; set; } = "telemetry.raw";
     public string DeadLetterTopic { get; set; } = "telemetry.dead-letter";
+    public string RealtimeTopic { get; set; } = "fleet.realtime";
+    public string RealtimeConsumerGroup { get; set; } = "fleet-realtime-sse";
     public string ConsumerGroup { get; set; } = "telemetry-processor";
 
     // Intentos de procesamiento del mismo mensaje antes de DLQ.

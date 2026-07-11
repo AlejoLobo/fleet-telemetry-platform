@@ -69,7 +69,14 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddSingleton<ITelemetryEventPublisher, KafkaTelemetryEventPublisher>();
-            services.AddSingleton<FleetSseBroker>(sp => new FleetSseBroker(sp.GetRequiredService<TimeProvider>()));
+            services.AddSingleton<FleetSseBroker>(sp =>
+            {
+                var sseOptions = sp.GetRequiredService<IOptions<SseOptions>>().Value;
+                return new FleetSseBroker(
+                    sp.GetRequiredService<TimeProvider>(),
+                    sseOptions.SubscriberChannelCapacity,
+                    sseOptions.ReplayBufferSize);
+            });
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
@@ -102,6 +109,7 @@ public static class DependencyInjection
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
             services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
+            services.AddSingleton<IFleetRealtimePublisher, KafkaFleetRealtimePublisher>();
         }
 
         return services;
@@ -111,6 +119,26 @@ public static class DependencyInjection
     public static IServiceCollection AddFleetSsePolling(this IServiceCollection services)
     {
         services.AddHostedService<FleetSsePollerHostedService>();
+        return services;
+    }
+
+    // Consume fleet.realtime y empuja al broker SSE (modo kafka-push).
+    public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
+    {
+        services.AddHostedService<FleetSseKafkaPushHostedService>();
+        return services;
+    }
+
+    public static IServiceCollection AddFleetSseDelivery(this IServiceCollection services, IConfiguration configuration)
+    {
+        var mode = configuration.GetSection(SseOptions.SectionName).Get<SseOptions>()?.Mode
+            ?? SseDeliveryMode.Polling;
+
+        if (mode == SseDeliveryMode.KafkaPush)
+            services.AddFleetSseKafkaPush();
+        else
+            services.AddFleetSsePolling();
+
         return services;
     }
 
