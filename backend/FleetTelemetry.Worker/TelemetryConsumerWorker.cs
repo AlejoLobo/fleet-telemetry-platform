@@ -59,22 +59,21 @@ public class TelemetryConsumerWorker : BackgroundService
             GroupId = _kafkaOptions.ConsumerGroup,
             AutoOffsetReset = AutoOffsetReset.Earliest,
             EnableAutoCommit = false,
-            MaxPollIntervalMs = _kafkaOptions.MaxPollIntervalMilliseconds
+            MaxPollIntervalMs = _kafkaOptions.MaxPollIntervalMilliseconds,
+            PartitionAssignmentStrategy = PartitionAssignmentStrategy.CooperativeSticky
         };
 
         using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
         consumer.Subscribe(_kafkaOptions.TelemetryTopic);
 
         _logger.LogInformation(
-            "Telemetry consumer started. Topic={Topic} DeadLetterTopic={DeadLetterTopic} Group={Group} MaxProcessingAttempts={MaxProcessingAttempts} MaxDeadLetterPublishAttempts={MaxDeadLetterPublishAttempts} MaxPollIntervalMs={MaxPollIntervalMs} RetryInitialDelayMs={RetryInitialDelayMs} RetryMaxDelayMs={RetryMaxDelayMs}",
+            "Telemetry consumer started. Topic={Topic} DeadLetterTopic={DeadLetterTopic} Group={Group} MaxProcessingAttempts={MaxProcessingAttempts} MaxDeadLetterPublishAttempts={MaxDeadLetterPublishAttempts} MaxPollIntervalMs={MaxPollIntervalMs}",
             _kafkaOptions.TelemetryTopic,
             _kafkaOptions.DeadLetterTopic,
             _kafkaOptions.ConsumerGroup,
             _kafkaOptions.MaxProcessingAttempts,
             _kafkaOptions.MaxDeadLetterPublishAttempts,
-            _kafkaOptions.MaxPollIntervalMilliseconds,
-            _kafkaOptions.RetryInitialDelayMilliseconds,
-            _kafkaOptions.RetryMaxDelayMilliseconds);
+            _kafkaOptions.MaxPollIntervalMilliseconds);
 
         try
         {

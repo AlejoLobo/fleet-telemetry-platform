@@ -1,5 +1,4 @@
 using System.Data.Common;
-using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
