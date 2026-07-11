@@ -108,34 +108,15 @@ fleet-telemetry-platform/
 └── .env.example
 ```
 
-## Auditoría de IA y criterio arquitectónico
+## Diseño del consumidor Kafka
 
-Documentación de propuestas deficientes de IA y correcciones con criterio senior (no confundir con auditoría de paquetes NuGet).
+El Worker implementa at-least-once con commit manual, DLQ obligatoria y processor stateless:
 
-### Caso 1: offsets Kafka
+- **Mismo offset hasta resultado terminal:** reintentos de negocio y backoff sobre el mismo `ConsumeResult`; el commit solo ocurre tras éxito, duplicado tratado o publicación DLQ exitosa.
+- **Coordinación DLQ:** `TelemetryMessageCoordinator` separa procesamiento y publicación; los fallos de DLQ reintentan solo la publicación sin reprocesar el evento.
+- **Payloads inválidos:** null, vacío o whitespace → DLQ `invalid_payload`, luego commit.
 
-- **Enfoque inicial:** ante `RetryWithoutCommit`, hacer `Task.Delay` y volver a `Consume()`.
-- **Riesgo:** no hacer commit no reposiciona el cursor local; consumir el offset N+1 y confirmarlo puede confirmar indirectamente offsets anteriores y perder N.
-- **Decisión:** mantener el mismo `ConsumeResult` hasta un resultado terminal (éxito, duplicado, DLQ o apagado), con backoff configurable.
-- **Archivos:** `TelemetryConsumerWorker.cs`, `KafkaProcessingRetryBackoff.cs`, `KafkaOptions`.
-- **Pruebas:** Worker unitarios + integración Kafka (`Failed_first_offset_is_retried_before_second_offset_is_processed`).
-- **Commit:** `e557210` (`fix(worker): garantizar at-least-once reintentando el mismo offset`) y commits posteriores de endurecimiento.
-
-### Caso 2: intentos en memoria
-
-- **Enfoque inicial:** `Dictionary<string, int> _processingAttempts` en el processor.
-- **Riesgo:** estado no durable, se pierde al reiniciar, incorrecto con múltiples réplicas, crecimiento potencial.
-- **Decisión:** processor stateless; el ciclo del mensaje administra `currentAttempt`.
-- **Archivos:** `TelemetryMessageProcessor.cs`.
-- **Pruebas:** intentos explícitos en `TelemetryMessageProcessorTests`.
-
-### Caso 3: payload vacío ignorado
-
-- **Enfoque inicial:** `IgnoreWithoutCommit` para payloads vacíos (avance potencial sin DLQ ni commit explícito).
-- **Riesgo:** pérdida silenciosa al confirmar offsets posteriores.
-- **Decisión:** eliminar `IgnoreWithoutCommit`; null/vacío/whitespace → DLQ `invalid_payload`.
-- **Archivos:** `TelemetryMessageProcessingResult.cs`, `TelemetryMessageProcessor.cs`, `TelemetryConsumerWorker.cs`.
-- **Pruebas:** payloads nulos, whitespace, JSON `null`, fallo de DLQ.
+Detalle: [docs/worker-and-dlq.md](docs/worker-and-dlq.md) · Pruebas: `FleetTelemetry.Worker.Tests`, `FleetTelemetry.Integration.Tests`.
 
 ## Limitaciones MVP (conscientes)
 
