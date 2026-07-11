@@ -55,6 +55,7 @@ services:
         }
         ensure_topic telemetry.raw
         ensure_topic telemetry.dead-letter
+        ensure_topic fleet.realtime
         echo "Kafka topics ready"
     restart: "no"
 

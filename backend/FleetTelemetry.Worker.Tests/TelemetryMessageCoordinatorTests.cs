@@ -175,18 +175,17 @@ public class TelemetryMessageCoordinatorTests
             new CircuitBreakerStateRegistry(),
             NullLogger<ResiliencePipelineFactory>.Instance);
 
-    private static TelemetryEvent CreateValidEvent() => new()
-    {
-        EventId = Guid.NewGuid(),
-        VehicleId = "VH-COORD",
-        DriverId = "DRV-001",
-        Timestamp = DateTimeOffset.UtcNow,
-        Latitude = 4.65,
-        Longitude = -74.08,
-        SpeedKmh = 40,
-        FuelLevelPercent = 70,
-        BatteryPercent = 80
-    };
+    private static TelemetryEvent CreateValidEvent() =>
+        TelemetryEvent.Create(
+            Guid.NewGuid(),
+            "VH-COORD",
+            "DRV-001",
+            DateTimeOffset.UtcNow,
+            4.65,
+            -74.08,
+            40,
+            70,
+            80);
 
     private sealed class FlakyDeadLetterPublisher : IDeadLetterPublisher
     {
