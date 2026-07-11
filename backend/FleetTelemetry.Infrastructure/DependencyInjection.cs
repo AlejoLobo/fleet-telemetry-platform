@@ -62,6 +62,7 @@ public static class DependencyInjection
             services.AddScoped<IOpsQueryService, OpsQueryService>();
             services.AddScoped<IReadinessCheckService, ReadinessCheckService>();
             services.AddScoped<AiOperationalTools>();
+            services.AddScoped<AiToolRouter>();
             services.AddScoped<OperationalAiAgentService>();
             services.AddHttpClient<OpenAiPolishService>(client =>
             {
