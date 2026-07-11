@@ -8,4 +8,7 @@ public class TimescaleDbOptions
 
     public string ConnectionString { get; set; } =
         "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet";
+
+    // Permite DDL automático fuera de Development (desaconsejado en producción).
+    public bool AllowAutoSchemaInitialization { get; set; }
 }
