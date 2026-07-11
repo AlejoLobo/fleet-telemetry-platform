@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 // Enrutador determinista de intenciones a herramientas operativas.
@@ -41,6 +42,23 @@ public class AiToolRouter
         }
 
         var toolName = MapIntentToTool(intent.Intent);
+        return await ExecuteByNameAsync(toolName, intent, cancellationToken);
+    }
+
+    // Ejecuta herramienta del catálogo por nombre con intent ya mapeado.
+    public async Task<AiToolRoutingResult> ExecuteByNameAsync(
+        string toolName,
+        AiQuestionIntent intent,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(toolName) || !AiToolCatalog.IsSupported(toolName))
+        {
+            return Reject(
+                toolName,
+                "unsupported_tool",
+                "La herramienta solicitada no está disponible en el catálogo operativo.");
+        }
+
         if (!AiToolCatalog.TryGet(toolName, out var definition))
         {
             return Reject(
@@ -84,6 +102,19 @@ public class AiToolRouter
                 "tool_error",
                 "No se pudo completar la consulta operativa. Intenta de nuevo en unos segundos.");
         }
+    }
+
+    // Ejecuta herramienta a partir de tool call estructurado (OpenAI).
+    public Task<AiToolRoutingResult> ExecuteToolCallAsync(
+        string toolName,
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        CancellationToken cancellationToken = default)
+    {
+        var intent = AiToolIntentMapper.FromToolCall(toolName, arguments);
+        if (intent.Intent == AiQueryIntent.UnsupportedQuery)
+            return Task.FromResult(Reject(toolName, "unsupported_tool", "Herramienta no soportada en el catálogo operativo."));
+
+        return ExecuteByNameAsync(toolName, intent, cancellationToken);
     }
 
     private static string MapIntentToTool(AiQueryIntent intent) =>
