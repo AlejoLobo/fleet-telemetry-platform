@@ -4,6 +4,7 @@ using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Realtime;
 using FleetTelemetry.Infrastructure.Repositories;
@@ -37,6 +38,14 @@ public static class DependencyInjection
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
         services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
+
+        services.AddSingleton(sp =>
+        {
+            var sseBroker = profile == InfrastructureProfile.Api
+                ? sp.GetService<FleetSseBroker>()
+                : null;
+            return new FleetTelemetryMetrics(sseBroker);
+        });
 
         services.AddSingleton(TimeProvider.System);
 
