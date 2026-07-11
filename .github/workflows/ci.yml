@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -85,6 +85,32 @@ jobs:
           done
           exit $failed
 
+  infra:
+    name: Infra validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.6.0"
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: infra/terraform
+        run: terraform validate
+
+      - name: Docker Compose config
+        run: docker compose config --quiet
+
   web:
     name: Web (Next.js)
     runs-on: ubuntu-latest
@@ -103,6 +129,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefix web
+
+      - name: Lint
+        run: npm run lint --prefix web
+
+      - name: Typecheck
+        run: npm run typecheck --prefix web
 
       - name: Build
         run: npm run build --prefix web

@@ -80,6 +80,7 @@ Ver [docs/demo-sustentacion.md](docs/demo-sustentacion.md) para el guion de eval
 | [docs/api-and-ops.md](docs/api-and-ops.md) | Endpoints, auth, health/ops |
 | [docs/worker-and-dlq.md](docs/worker-and-dlq.md) | Processor, validación, DLQ |
 | [docs/testing.md](docs/testing.md) | Unitarios, integración, smoke, CI |
+| [docs/database-migrations.md](docs/database-migrations.md) | DDL, `schema_versions`, EF migrations |
 | [docs/realtime-sse.md](docs/realtime-sse.md) | SSE por polling (decisión MVP) |
 | [infra/README.md](infra/README.md) | Terraform blueprint AWS |
 | [web/README.md](web/README.md) / [mobile/README.md](mobile/README.md) | Frontend y app |
@@ -118,14 +119,32 @@ El Worker implementa at-least-once con commit manual, DLQ obligatoria y processo
 
 Detalle: [docs/worker-and-dlq.md](docs/worker-and-dlq.md) · Pruebas: `FleetTelemetry.Worker.Tests`, `FleetTelemetry.Integration.Tests`.
 
+## Matriz de production readiness
+
+| Área | Implementado y probado | Limitación consciente | Blueprint / mock | Pendiente |
+|------|------------------------|----------------------|------------------|-----------|
+| Ingesta HTTP → Kafka | Sí (smoke + integración) | At-least-once, sin exactly-once E2E | — | Rate limit por API key |
+| Worker + DLQ | Sí (unit + integración) | Consumo serial por partición | — | Parallel consumer tuning |
+| TimescaleDB local | Sí (Docker Compose + tests) | DDL auto solo Development | RDS PG16 sin Timescale | Timescale Cloud en AWS |
+| Dashboard Next.js | Sí (build + mock mode) | SSE por polling DB | — | Hosting productivo |
+| Mobile offline | Sí (typecheck + SQLite) | Sin tiendas / EAS manual | — | Sync conflict resolution |
+| Agente IA | Sí (tools + mock) | OpenAI opcional | Druid mock (`IAnalyticsQueryService`) | Druid real |
+| Seguridad API | Sí (JWT opcional, rate limit, CORS) | Auth parcial en MVP | — | OAuth2 / mTLS |
+| Observabilidad | Sí (OTLP opt-in, métricas básicas) | Sin collector en Compose | — | Dashboards Grafana/Tempo |
+| CI/CD | Sí (develop + main, fmt/validate) | Sin deploy automático | Terraform blueprint | MSK, ALB, ECS services |
+| Migraciones DB | Sí (`schema_versions`, guard prod) | EF migrations no generadas aún | `docs/database-migrations.md` | Pipeline SQL versionado |
+
+Detalle de limitaciones históricas: sección siguiente y [docs/demo-sustentacion.md](docs/demo-sustentacion.md).
+
 ## Limitaciones MVP (conscientes)
 
-- Terraform es **blueprint** (sin MSK, ALB completo, tasks productivas ni deploy del dashboard). Ver [infra/README.md](infra/README.md).
+- Terraform es **blueprint** (RDS = PostgreSQL estándar, sin MSK, ALB completo, tasks productivas ni deploy del dashboard). Persistencia Timescale en AWS: **Timescale Cloud o self-hosted**. Ver [infra/README.md](infra/README.md).
 - Analytics Druid: **no desplegado**; solo contrato `IAnalyticsQueryService` con implementación Timescale. Ver [docs/analytics-druid-mock.md](docs/analytics-druid-mock.md).
 - SSE por **polling** a DB (no push Kafka→SSE). Ver [docs/realtime-sse.md](docs/realtime-sse.md).
 - JWT opcional y parcial; OpenAI opcional (pulido de texto).
 - Preview mobile EAS manual (`mobile-preview.yml`), sin tiendas.
-- OpenTelemetry **no implementado** (siguiente paso productivo).
+- OpenTelemetry **opt-in** vía `OpenTelemetry:Enabled` y endpoint OTLP configurable.
+- DDL automático **deshabilitado en producción**; ver [docs/database-migrations.md](docs/database-migrations.md).
 - Worker serial: un mensaje bloqueado puede detener particiones asignadas a la instancia.
 - Kafka es **at-least-once**, no exactly-once end-to-end.
 

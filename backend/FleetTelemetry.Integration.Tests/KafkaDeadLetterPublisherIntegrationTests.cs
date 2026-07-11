@@ -5,6 +5,7 @@ using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -153,6 +154,7 @@ public class KafkaDeadLetterPublisherIntegrationTests
 
         services.AddSingleton<ICircuitBreakerStateRegistry, CircuitBreakerStateRegistry>();
         services.AddSingleton<ResiliencePipelineFactory>();
+        services.AddSingleton(_ => new FleetTelemetryMetrics());
         services.AddSingleton<KafkaDeadLetterPublisher>();
 
         return services.BuildServiceProvider().GetRequiredService<KafkaDeadLetterPublisher>();

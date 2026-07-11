@@ -26,7 +26,8 @@ public sealed class TelemetryDomainEventValidatorService : ITelemetryDomainEvent
                 telemetryEvent.FuelLevelPercent,
                 telemetryEvent.BatteryPercent,
                 out var validated,
-                out var error))
+                out var error,
+                locationSource: telemetryEvent.LocationSource))
         {
             return Result<TelemetryEvent>.Failure(
                 new ValidationError("domain_event_invalid", error ?? "Invalid telemetry event."));

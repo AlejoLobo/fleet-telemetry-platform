@@ -9,17 +9,15 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// MVP: alimenta SSE por polling a TimescaleDB (activo ~3s / idle ~10s), no por push desde Kafka.
-// Suficiente para demo; en producción preferir Worker→broker o consumidor Kafka dedicado. Ver docs/realtime-sse.md.
+// Alimenta SSE por polling a TimescaleDB con cursor estable de alertas.
 public class FleetSsePollerHostedService : BackgroundService
 {
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
-
     private readonly FleetSseBroker _broker;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SseOptions _sseOptions;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<FleetSsePollerHostedService> _logger;
-    private DateTimeOffset _lastAlertCheck = DateTimeOffset.UtcNow;
+    private AlertStreamCursor _alertCursor = AlertStreamCursor.Origin;
     private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private string _lastFleetHash = string.Empty;
     private bool _fleetChangedLastPoll;
@@ -28,11 +26,13 @@ public class FleetSsePollerHostedService : BackgroundService
         FleetSseBroker broker,
         IServiceScopeFactory scopeFactory,
         IOptions<SseOptions> sseOptions,
+        TimeProvider timeProvider,
         ILogger<FleetSsePollerHostedService> logger)
     {
         _broker = broker;
         _scopeFactory = scopeFactory;
         _sseOptions = sseOptions.Value;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -42,6 +42,8 @@ public class FleetSsePollerHostedService : BackgroundService
         {
             try
             {
+                _broker.PruneStaleSubscribers();
+
                 if (_broker.SubscriberCount == 0)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(_sseOptions.ActivePollIntervalSeconds), stoppingToken);
@@ -75,7 +77,10 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
-        var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(liveOnly: false, cancellationToken);
+        var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(
+            liveOnly: false,
+            excludeSimulated: false,
+            cancellationToken);
         var hash = string.Join('|', vehicles.Select(v =>
             $"{v.VehicleId}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}:{v.LastLatitude}:{v.LastLongitude}"));
 
@@ -84,21 +89,24 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        await _broker.PublishAsync(new FleetSseEvent(
+        _broker.Publish(new FleetSseEvent(
             "fleet-update",
             vehicles,
-            DateTimeOffset.UtcNow), cancellationToken);
+            _timeProvider.GetUtcNow()));
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
     {
-        var alerts = await alertRepository.GetOpenAlertsAsync(cancellationToken);
-        var newAlerts = alerts.Where(a => a.CreatedAt > _lastAlertCheck).ToList();
-        _lastAlertCheck = DateTimeOffset.UtcNow;
+        var upperBound = _timeProvider.GetUtcNow();
+        var newAlerts = await alertRepository.GetOpenAlertsAfterCursorAsync(
+            _alertCursor,
+            upperBound,
+            _sseOptions.AlertBatchSize,
+            cancellationToken);
 
         foreach (var alert in newAlerts)
         {
-            await _broker.PublishAsync(new FleetSseEvent(
+            _broker.Publish(new FleetSseEvent(
                 "alert",
                 new FleetAlertResponse(
                     alert.AlertId,
@@ -108,19 +116,24 @@ public class FleetSsePollerHostedService : BackgroundService
                     alert.Message,
                     alert.CreatedAt,
                     alert.IsAcknowledged),
-                DateTimeOffset.UtcNow), cancellationToken);
+                _timeProvider.GetUtcNow()));
+
+            _alertCursor = AlertStreamCursor.FromAlert(alert.CreatedAt, alert.AlertId);
         }
     }
 
-    private async Task PublishHeartbeatIfNeededAsync(CancellationToken cancellationToken)
+    private Task PublishHeartbeatIfNeededAsync(CancellationToken cancellationToken)
     {
-        if (DateTimeOffset.UtcNow - _lastHeartbeat < HeartbeatInterval)
-            return;
+        var heartbeatInterval = TimeSpan.FromSeconds(_sseOptions.HeartbeatIntervalSeconds);
+        if (_timeProvider.GetUtcNow() - _lastHeartbeat < heartbeatInterval)
+            return Task.CompletedTask;
 
-        _lastHeartbeat = DateTimeOffset.UtcNow;
-        await _broker.PublishAsync(new FleetSseEvent(
+        _lastHeartbeat = _timeProvider.GetUtcNow();
+        _broker.Publish(new FleetSseEvent(
             "heartbeat",
-            new { status = "ok" },
-            _lastHeartbeat), cancellationToken);
+            new { status = "ok", subscribers = _broker.SubscriberCount },
+            _lastHeartbeat));
+
+        return Task.CompletedTask;
     }
 }

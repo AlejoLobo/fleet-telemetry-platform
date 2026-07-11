@@ -1,5 +1,7 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 // Parte de consulta histórica de telemetría por vehículo.
@@ -9,6 +11,7 @@ public partial class TelemetryController
 {
     // Eventos de un vehículo en rango temporal (por defecto 24 h).
     [HttpGet("{vehicleId}")]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<IReadOnlyList<TelemetryEventResponse>>> GetByVehicle(
         string vehicleId,
         [FromQuery] DateTimeOffset? from,

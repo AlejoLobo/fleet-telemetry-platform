@@ -48,6 +48,29 @@ Un servicio (o proceso en la API) consume `telemetry.raw` (o un tópico de “fl
 
 En ambos casos el endpoint `GET /api/events/stream` y los tipos de evento pueden mantenerse; solo cambia la **fuente** que alimenta el broker.
 
+
+## Autenticación segura para SSE
+
+`EventSource` nativo del navegador **no permite** enviar cabeceras personalizadas (p. ej. `Authorization: Bearer …`). Por eso **no se debe** pasar el JWT en query string (`?token=…`): queda en logs de proxy, historial del navegador y referrers.
+
+### Enfoque recomendado (producción)
+
+1. **Ticket de corta duración (preferido)**  
+   - El cliente autenticado llama `POST /api/auth/sse-ticket` con JWT en cabecera.  
+   - La API devuelve un ticket opaco de un solo uso, TTL ~60 s, ligado al usuario y al endpoint SSE.  
+   - El cliente abre SSE con `fetch` + `ReadableStream` (o polyfill) y envía `Authorization: Bearer <ticket>` o `X-Sse-Ticket: <ticket>`.  
+   - El ticket se invalida al cerrar la conexión o al expirar.
+
+2. **Cabecera vía fetch-stream (sin ticket)**  
+   - Usar `fetch('/api/events/stream', { headers: { Authorization: 'Bearer …' } })` y parsear el stream manualmente.  
+   - Válido cuando el token JWT tiene vida corta y rotación controlada; menos seguro que ticket de un solo uso.
+
+### Estado MVP
+
+- Con `Auth:Enabled=false` (default), SSE permanece abierto para demo local.  
+- Con `Auth:Enabled=true`, el endpoint exige política `FleetRead` vía `AuthorizeWhenEnabled`; el dashboard debe migrar a **fetch-stream + cabecera** o al flujo de **sse-ticket** antes de producción.  
+- No implementar `?access_token=` en la URL.
+
 ## Qué no se hace ahora
 
 - No se reescribe la arquitectura SSE completa.

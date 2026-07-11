@@ -62,5 +62,6 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
             record.Longitude,
             record.SpeedKmh,
             record.FuelLevelPercent,
-            record.BatteryPercent);
+            record.BatteryPercent,
+            record.LocationSource);
 }
