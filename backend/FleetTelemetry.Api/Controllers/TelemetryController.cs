@@ -2,6 +2,7 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 // Controlador de ingesta y consulta de telemetría.
@@ -24,7 +25,7 @@ public partial class TelemetryController : ControllerBase
 
     // Acepta un evento de telemetría para procesamiento asíncrono.
     [HttpPost]
-    [AuthorizeWhenEnabled]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
     public async Task<IActionResult> IngestSingle(
         [FromBody] TelemetryEventRequest request,
         CancellationToken cancellationToken)
@@ -46,7 +47,7 @@ public partial class TelemetryController : ControllerBase
 
     // Acepta un lote de eventos de telemetría.
     [HttpPost("batch")]
-    [AuthorizeWhenEnabled]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
     public async Task<IActionResult> IngestBatch(
         [FromBody] TelemetryBatchRequest request,
         CancellationToken cancellationToken)

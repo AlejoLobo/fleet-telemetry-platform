@@ -14,6 +14,7 @@ public sealed class TelemetryEvent
     public double SpeedKmh => _speed.Value;
     public double? FuelLevelPercent => _fuelLevel?.Value;
     public double? BatteryPercent => _batteryLevel?.Value;
+    public string LocationSource { get; }
 
     private readonly EventId _eventId;
     private readonly VehicleId _vehicleId;
@@ -30,7 +31,8 @@ public sealed class TelemetryEvent
         GeoCoordinate coordinate,
         SpeedKmh speed,
         PercentLevel? fuelLevel,
-        PercentLevel? batteryLevel)
+        PercentLevel? batteryLevel,
+        string locationSource)
     {
         _eventId = eventId;
         _vehicleId = vehicleId;
@@ -40,6 +42,7 @@ public sealed class TelemetryEvent
         _speed = speed;
         _fuelLevel = fuelLevel;
         _batteryLevel = batteryLevel;
+        LocationSource = locationSource;
     }
 
     public static bool TryCreate(
@@ -53,7 +56,8 @@ public sealed class TelemetryEvent
         double? fuelLevelPercent,
         double? batteryPercent,
         out TelemetryEvent? telemetryEvent,
-        out string? error)
+        out string? error,
+        string? locationSource = null)
     {
         telemetryEvent = null;
         error = null;
@@ -82,6 +86,9 @@ public sealed class TelemetryEvent
         if (!PercentLevel.TryCreate(batteryPercent, out var batteryLevel, out error))
             return false;
 
+        if (!TryNormalizeLocationSource(locationSource, out var normalizedSource, out error))
+            return false;
+
         telemetryEvent = new TelemetryEvent(
             domainEventId!,
             domainVehicleId!,
@@ -90,7 +97,8 @@ public sealed class TelemetryEvent
             coordinate!,
             speed!,
             fuelLevel,
-            batteryLevel);
+            batteryLevel,
+            normalizedSource!);
 
         return true;
     }
@@ -104,7 +112,8 @@ public sealed class TelemetryEvent
         double longitude,
         double speedKmh,
         double? fuelLevelPercent = null,
-        double? batteryPercent = null) =>
+        double? batteryPercent = null,
+        string? locationSource = null) =>
         TryCreate(
             eventId,
             vehicleId,
@@ -116,7 +125,8 @@ public sealed class TelemetryEvent
             fuelLevelPercent,
             batteryPercent,
             out var telemetryEvent,
-            out var error)
+            out var error,
+            locationSource)
             ? telemetryEvent!
             : throw new ArgumentException(error);
 
@@ -130,7 +140,8 @@ public sealed class TelemetryEvent
         double longitude,
         double speedKmh,
         double? fuelLevelPercent,
-        double? batteryPercent) =>
+        double? batteryPercent,
+        string? locationSource = null) =>
         new(
             ValueObjects.EventId.Create(eventId),
             ValueObjects.VehicleId.Create(vehicleId),
@@ -139,5 +150,25 @@ public sealed class TelemetryEvent
             GeoCoordinate.Create(latitude, longitude),
             ValueObjects.SpeedKmh.Create(speedKmh),
             PercentLevel.CreateOptional(fuelLevelPercent),
-            PercentLevel.CreateOptional(batteryPercent));
+            PercentLevel.CreateOptional(batteryPercent),
+            NormalizeLocationSource(locationSource));
+
+    private static bool TryNormalizeLocationSource(string? source, out string? normalized, out string? error)
+    {
+        normalized = string.IsNullOrWhiteSpace(source) ? "gps" : source.Trim().ToLowerInvariant();
+        if (normalized is not ("gps" or "simulated"))
+        {
+            error = "LocationSource must be gps or simulated.";
+            normalized = null;
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static string NormalizeLocationSource(string? source) =>
+        TryNormalizeLocationSource(source, out var normalized, out var error)
+            ? normalized!
+            : throw new ArgumentException(error);
 }

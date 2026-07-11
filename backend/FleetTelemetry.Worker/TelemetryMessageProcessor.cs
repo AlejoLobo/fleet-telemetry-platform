@@ -156,7 +156,8 @@ public class TelemetryMessageProcessor
             return Task.FromResult(TerminalDeadLetterOutcome(
                 message,
                 reason: "processing_failure",
-                exceptionMessage: ex.Message));
+                exceptionMessage: ex.Message,
+                attemptNumber: currentAttempt));
         }
 
         _logger.LogWarning(

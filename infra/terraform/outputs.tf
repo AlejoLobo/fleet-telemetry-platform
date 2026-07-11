@@ -19,7 +19,7 @@ output "ecs_cluster_name" {
 }
 
 output "db_endpoint" {
-  description = "Endpoint RDS PostgreSQL (host:port)"
+  description = "Endpoint RDS PostgreSQL 16 (host:port) — NO incluye TimescaleDB; ver infra/README.md"
   value       = aws_db_instance.fleet.endpoint
 }
 
