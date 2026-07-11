@@ -136,6 +136,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck --prefix web
 
+      - name: Tests
+        run: npm run test --prefix web
+
       - name: Build
         run: npm run build --prefix web
 

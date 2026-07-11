@@ -105,3 +105,61 @@ describe("sse-fetch-client FT-001", () => {
     expect(computeReconnectDelayMs(3)).toBeGreaterThan(computeReconnectDelayMs(0));
   });
 });
+
+describe("SseParser.flush FT-001", () => {
+  it("publica un único evento cuando el stream termina sin salto de línea final", () => {
+    const parser = new SseParser();
+    parser.feed("event: alert\ndata: line-1\ndata: line-2");
+    const events = parser.flush();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ event: "alert", data: "line-1\nline-2" });
+  });
+
+  it("publica múltiples líneas data sin separador final como un solo evento", () => {
+    const parser = new SseParser();
+    parser.feed("event: heartbeat\ndata: a\ndata: b\ndata: c");
+    const events = parser.flush();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].data).toBe("a\nb\nc");
+  });
+
+  it("incorpora línea final dividida entre dos chunks", () => {
+    const parser = new SseParser();
+    parser.feed("event: alert\ndata: line-");
+    parser.feed("1\ndata: line-2");
+    const events = parser.flush();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ event: "alert", data: "line-1\nline-2" });
+  });
+
+  it("ignora comentarios SSE iniciados con :", () => {
+    const parser = new SseParser();
+    parser.feed(": comentario\nevent: connected\ndata: ok");
+    const events = parser.flush();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ event: "connected", data: "ok" });
+  });
+
+  it("procesa líneas CRLF correctamente", () => {
+    const parser = new SseParser();
+    const events = [...parser.feed("event: connected\r\ndata: {}\r\n\r\n"), ...parser.flush()];
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ event: "connected", data: "{}" });
+  });
+
+  it("flush repetido no genera eventos duplicados", () => {
+    const parser = new SseParser();
+    parser.feed("event: heartbeat\ndata: ping");
+    const first = parser.flush();
+    const second = parser.flush();
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(0);
+  });
+});
+
