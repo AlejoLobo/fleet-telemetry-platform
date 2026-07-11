@@ -52,16 +52,15 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         return records.Select(MapToDomain).ToList();
     }
 
-    private static TelemetryEvent MapToDomain(TelemetryEventRecord record) => new()
-    {
-        EventId = record.EventId,
-        VehicleId = record.VehicleId,
-        DriverId = record.DriverId,
-        Timestamp = record.Timestamp,
-        Latitude = record.Latitude,
-        Longitude = record.Longitude,
-        SpeedKmh = record.SpeedKmh,
-        FuelLevelPercent = record.FuelLevelPercent,
-        BatteryPercent = record.BatteryPercent
-    };
+    private static TelemetryEvent MapToDomain(TelemetryEventRecord record) =>
+        TelemetryEvent.FromPersistence(
+            record.EventId,
+            record.VehicleId,
+            record.DriverId,
+            record.Timestamp,
+            record.Latitude,
+            record.Longitude,
+            record.SpeedKmh,
+            record.FuelLevelPercent,
+            record.BatteryPercent);
 }

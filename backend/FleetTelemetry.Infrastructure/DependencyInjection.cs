@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
+using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
@@ -42,6 +43,8 @@ public static class DependencyInjection
         services.AddSingleton<ICircuitBreakerStateRegistry, CircuitBreakerStateRegistry>();
         services.AddSingleton<ResiliencePipelineFactory>();
         services.AddSingleton<JwtTokenService>();
+        services.AddSingleton<ITelemetryEventValidator, TelemetryEventValidatorService>();
+        services.AddSingleton<ITelemetryDomainEventValidator, TelemetryDomainEventValidatorService>();
 
         if (profile == InfrastructureProfile.Api)
         {
