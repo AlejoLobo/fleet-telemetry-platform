@@ -177,3 +177,60 @@ jobs:
 
       - name: Export Android bundle
         run: npm run export
+
+  docker-images:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Build API image
+        run: docker build -f backend/Dockerfile -t fleet-api:ci backend
+
+      - name: Build Worker image
+        run: docker build -f backend/Dockerfile.worker -t fleet-worker:ci backend
+
+      - name: Build Web image
+        run: docker build -f web/Dockerfile -t fleet-web:ci web
+
+  e2e-smoke:
+    name: E2E smoke + k6 reducido
+    runs-on: ubuntu-latest
+    needs: [backend, docker-images]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Levantar stack app
+        run: docker compose --profile app up -d --build
+
+      - name: Esperar readiness API
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5000/health/ready >/dev/null 2>&1; then
+              echo "API ready"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "API no respondió a tiempo"
+          docker compose ps
+          exit 1
+
+      - name: Smoke test bash
+        run: bash scripts/smoke-test.sh
+
+      - name: Instalar k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A4302C0D35EEA6A4E37929A1
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: k6 smoke ingest
+        run: k6 run load-tests/telemetry-smoke.js
+
+      - name: Publicar logs si falla
+        if: failure()
+        run: docker compose logs --no-color api worker | tail -200
