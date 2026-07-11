@@ -14,5 +14,4 @@ public class AuthOptions
     public int TokenExpirationMinutes { get; set; } = 480;
     public string DemoUsername { get; set; } = "admin";
     public string DemoPassword { get; set; } = string.Empty;
-    public int SseTicketLifetimeSeconds { get; set; } = 120;
 }

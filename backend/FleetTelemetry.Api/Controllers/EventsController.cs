@@ -1,11 +1,8 @@
 using FleetTelemetry.Application.DTOs;
-using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Infrastructure.Auth;
-using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 // Controlador de eventos SSE en tiempo real.
@@ -21,30 +18,15 @@ public class EventsController : ControllerBase
     };
 
     private readonly FleetSseBroker _broker;
-    private readonly AuthOptions _authOptions;
 
-    public EventsController(FleetSseBroker broker, IOptions<AuthOptions> authOptions)
+    public EventsController(FleetSseBroker broker)
     {
         _broker = broker;
-        _authOptions = authOptions.Value;
-    }
-
-    // Emite ticket efímero para EventSource; requiere JWT en Authorization.
-    [HttpPost("stream/ticket")]
-    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
-    public ActionResult<SseStreamTicketResponse> IssueStreamTicket()
-    {
-        if (!_authOptions.Enabled)
-            return BadRequest(new { error = "Autenticación deshabilitada; no se requiere ticket SSE." });
-
-        var ticketService = HttpContext.RequestServices.GetRequiredService<ISseStreamTicketService>();
-        var ticket = ticketService.IssueTicket(User);
-        return Ok(new SseStreamTicketResponse(ticket, _authOptions.SseTicketLifetimeSeconds));
     }
 
     // Mantiene conexión SSE y reenvía eventos del broker.
     [HttpGet("stream")]
-    [SseStreamAuthorize]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
     {
         Response.Headers.ContentType = "text/event-stream";

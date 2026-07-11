@@ -2,7 +2,6 @@
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
 import { normalizeVehicles } from "@/lib/fleet-normalize";
-import { resolveSseStreamUrl, type SseTicketResponse } from "@/lib/sse-auth";
 
 type LoginResponse = {
   token: string;
@@ -62,20 +61,9 @@ export const apiClient = {
     return `${getApiBaseUrl()}/api/events/stream`;
   },
 
-  async resolveSseStreamUrl(): Promise<string> {
-    const authStatus = await apiClient.fetchAuthStatus();
-    return resolveSseStreamUrl({
-      baseUrl: getApiBaseUrl(),
-      authStatus,
-      hasToken: apiClient.hasAuthToken(),
-      fetchTicket: () => apiClient.fetchSseStreamTicket(),
-    });
-  },
-
-  async fetchSseStreamTicket(): Promise<SseTicketResponse> {
-    return fetchJson<SseTicketResponse>("/api/events/stream/ticket", {
-      method: "POST",
-    });
+  getAuthToken(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("fleet_api_token");
   },
 
   async fetchAuthStatus(): Promise<AuthStatusResponse> {
@@ -91,8 +79,6 @@ export const apiClient = {
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
-    // Todos los vehículos con última telemetría (no solo "online" últimos 5 min).
-    // liveOnly=true dejaba mapa/flota vacíos si los eventos eran más antiguos.
     const data = await fetchJson<VehicleStatus[]>("/api/fleet");
     return normalizeVehicles(data);
   },
@@ -128,7 +114,6 @@ export const apiClient = {
   },
 
   hasAuthToken(): boolean {
-    if (typeof window === "undefined") return false;
-    return Boolean(localStorage.getItem("fleet_api_token"));
+    return Boolean(apiClient.getAuthToken());
   },
 };
