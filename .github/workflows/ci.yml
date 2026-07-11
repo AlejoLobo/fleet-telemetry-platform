@@ -44,7 +44,6 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: "10.0.x"
-          include-prerelease: true
 
       - name: Restore
         run: dotnet restore backend/FleetTelemetry.sln
@@ -62,7 +61,7 @@ jobs:
         env:
           FLEET_INTEGRATION_KAFKA_BOOTSTRAP: localhost:9092
           FLEET_INTEGRATION_DB_CONNECTION: Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet
-        run: dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build --verbosity normal
+        run: dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build --verbosity normal --blame-hang-timeout 5m --blame-crash
 
       - name: Vulnerable packages audit
         run: |
