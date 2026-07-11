@@ -129,4 +129,31 @@ public static class AiToolCatalog
 
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
+
+    // Esquema de herramientas compatible con OpenAI function calling.
+    public static IReadOnlyList<object> ToOpenAiToolDefinitions() =>
+        All.Select(tool => new
+        {
+            type = "function",
+            function = new
+            {
+                name = tool.Name,
+                description = tool.Description,
+                parameters = new
+                {
+                    type = "object",
+                    properties = tool.Parameters.ToDictionary(
+                        p => p.Name,
+                        p => (object)new Dictionary<string, object?>
+                        {
+                            ["type"] = p.Type,
+                            ["description"] = p.Description,
+                            ["minimum"] = p.Minimum,
+                            ["maximum"] = p.Maximum
+                        }.Where(kv => kv.Value is not null)
+                         .ToDictionary(kv => kv.Key, kv => kv.Value!)),
+                    required = tool.Parameters.Where(p => p.Required).Select(p => p.Name).ToArray()
+                }
+            }
+        }).ToList();
 }
