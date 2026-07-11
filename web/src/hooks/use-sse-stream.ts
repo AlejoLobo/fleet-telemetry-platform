@@ -3,21 +3,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { normalizeVehicles } from "@/lib/fleet-normalize";
+import { parseAlertPayload, parseFleetUpdatePayload } from "@/lib/sse-parser";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
+
 type SseHandlers = {
   enabled?: boolean;
   onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
   onAlert?: (alert: FleetAlert) => void;
 };
 
-/** Mantiene conexión SSE con reconexión automática. */
 export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHandlers) {
   const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
   const handlersRef = useRef({ onFleetUpdate, onAlert });
   handlersRef.current = { onFleetUpdate, onAlert };
 
-  /** Abre o reabre la conexión EventSource. */
   const connect = useCallback(() => {
     if (!enabled) {
       setConnectionState("disconnected");
@@ -37,22 +36,15 @@ export function useSseStream({ enabled = true, onFleetUpdate, onAlert }: SseHand
       });
 
       eventSource.addEventListener("fleet-update", (event) => {
-        try {
-          const vehicles = normalizeVehicles(JSON.parse(event.data) as VehicleStatus[]);
-          if (vehicles.length > 0) {
-            handlersRef.current.onFleetUpdate?.(vehicles);
-          }
-        } catch {
-          /* ignorar payload inválido */
+        const vehicles = parseFleetUpdatePayload(event.data);
+        if (vehicles !== null) {
+          handlersRef.current.onFleetUpdate?.(vehicles);
         }
       });
+
       eventSource.addEventListener("alert", (event) => {
-        try {
-          const alert = JSON.parse(event.data) as FleetAlert;
-          handlersRef.current.onAlert?.(alert);
-        } catch {
-          /* ignorar payload inválido */
-        }
+        const alert = parseAlertPayload(event.data);
+        if (alert) handlersRef.current.onAlert?.(alert);
       });
 
       eventSource.addEventListener("heartbeat", () => {
