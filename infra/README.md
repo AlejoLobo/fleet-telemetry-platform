@@ -11,7 +11,7 @@ Terraform en `infra/terraform/` describe la **base** de red y cómputo para Flee
 | VPC + subnets públicas/privadas | Red base |
 | Internet Gateway + route table pública | Salida a Internet desde subnets públicas |
 | Security groups API / datos | HTTP 80 y PostgreSQL 5432 (solo desde SG API) |
-| RDS PostgreSQL 16 | Persistencia (TimescaleDB vía extensión manual o Timescale Cloud) |
+| RDS PostgreSQL 16 | **Solo PostgreSQL estándar** — AWS RDS no ofrece TimescaleDB como extensión administrada |
 | ECS cluster Fargate | Contenedores API/Worker (sin services aún) |
 | ECR (`api`, `worker`) | Imágenes Docker |
 | Task definitions de ejemplo | Plantilla; placeholders de Kafka/secrets |
@@ -27,7 +27,21 @@ Tras `terraform apply`:
 | `public_subnet_ids` | Futuro ALB / ingress |
 | `private_subnet_ids` | RDS y tasks Fargate |
 | `ecs_cluster_name` | Cluster ECS |
-| `db_endpoint` | Connection string hacia RDS |
+| `db_endpoint` | Endpoint RDS PostgreSQL (no TimescaleDB) |
+
+## Persistencia de series de tiempo en AWS
+
+El blueprint crea **RDS PostgreSQL 16** como placeholder de red/seguridad. **No es TimescaleDB** y no soporta `CREATE EXTENSION timescaledb` en RDS estándar.
+
+Opciones honestas para producción:
+
+| Opción | Cuándo usarla | Notas |
+|--------|---------------|-------|
+| [Timescale Cloud](https://www.timescale.com/cloud) | Recomendado para MVP productivo | Servicio gestionado, hypertables nativas, connection string en Secrets Manager |
+| TimescaleDB self-hosted (EC2/ECS/EKS) | Control total del motor | Imagen `timescale/timescaledb-ha` o paquetes oficiales; operación propia |
+| RDS PostgreSQL (este blueprint) | Solo demostrar red/IAM/ECS | Válido para tablas relacionales sin hypertables; **no** para el pipeline actual sin cambios |
+
+Las task definitions usan `TimescaleDb__ConnectionString` como nombre de configuración de la app; el valor debe apuntar al endpoint Timescale real, no al RDS del blueprint si se esperan hypertables.
 
 También: URLs ECR y ARNs de task definitions de ejemplo.
 
