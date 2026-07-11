@@ -104,7 +104,8 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
                 ["Kafka:RetryMaxDelayMilliseconds"] = "200",
                 ["Kafka:MaxDeadLetterPublishAttempts"] = "3",
                 ["Kafka:MaxPollIntervalMilliseconds"] = "300000",
-                ["TimescaleDb:ConnectionString"] = connectionString
+                ["TimescaleDb:ConnectionString"] = connectionString,
+                ["TimescaleDb:AllowAutoSchemaInitialization"] = options.UseRealTimescaleProcessing ? "true" : "false"
             })
             .Build();
 
