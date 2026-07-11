@@ -8,23 +8,25 @@ using Microsoft.Extensions.Options;
 namespace FleetTelemetry.Infrastructure.Services;
 
 /// <summary>
-/// Agente híbrido: consulta tools operativas de forma determinista y opcionalmente pule la respuesta con OpenAI.
-/// Las consultas rechazadas o no soportadas nunca pasan por el LLM.
+/// Agente híbrido: intenta selección OpenAI con tool calls; si falla usa enrutador determinista.
 /// </summary>
 public class HybridAiAgentService : IAiAgentService
 {
     private readonly OperationalAiAgentService _operational;
+    private readonly OpenAiToolSelectionService _toolSelection;
     private readonly OpenAiPolishService _polish;
     private readonly OpenAiOptions _openAiOptions;
     private readonly ILogger<HybridAiAgentService> _logger;
 
     public HybridAiAgentService(
         OperationalAiAgentService operational,
+        OpenAiToolSelectionService toolSelection,
         OpenAiPolishService polish,
         IOptions<OpenAiOptions> openAiOptions,
         ILogger<HybridAiAgentService> logger)
     {
         _operational = operational;
+        _toolSelection = toolSelection;
         _polish = polish;
         _openAiOptions = openAiOptions.Value;
         _logger = logger;
@@ -34,19 +36,49 @@ public class HybridAiAgentService : IAiAgentService
         AiQueryRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await _operational.QueryAsync(request, cancellationToken);
+        var guard = AiPromptGuard.Inspect(request.Question);
+        if (!guard.IsSafe)
+        {
+            return new AiQueryResponse(
+                guard.RejectionReason ?? "Consulta no permitida.",
+                ["prompt_guard"]);
+        }
 
-        if (!ShouldPolishWithLlm(request.Question, response, _openAiOptions.Enabled))
+        var question = guard.SanitizedQuestion;
+        if (string.IsNullOrWhiteSpace(question))
+            return new AiQueryResponse("Escribe una pregunta operativa sobre la flota.", ["validation"]);
+
+        AiQueryResponse response;
+
+        if (_openAiOptions.Enabled)
+        {
+            var llmResponse = await _toolSelection.TryQueryAsync(question, cancellationToken);
+            if (llmResponse is not null)
+            {
+                response = llmResponse;
+            }
+            else
+            {
+                _logger.LogInformation("Fallback determinista para consulta IA");
+                response = await _operational.QueryAsync(request with { Question = question }, cancellationToken);
+            }
+        }
+        else
+        {
+            response = await _operational.QueryAsync(request with { Question = question }, cancellationToken);
+        }
+
+        if (!ShouldPolishWithLlm(question, response, _openAiOptions.Enabled))
             return response;
 
         try
         {
-            var polished = await _polish.PolishAsync(request.Question, response.Answer, cancellationToken);
+            var polished = await _polish.PolishAsync(question, response.Answer, cancellationToken);
             return response with { Answer = polished };
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "No se pudo pulir respuesta con LLM; se devuelve respuesta operativa determinista");
+            _logger.LogWarning(ex, "No se pudo pulir respuesta con LLM; se devuelve respuesta operativa");
             return response;
         }
     }
@@ -58,6 +90,7 @@ public class HybridAiAgentService : IAiAgentService
 
         if (response.Sources.Contains("prompt_guard", StringComparer.Ordinal)
             || response.Sources.Contains("unsupported_query", StringComparer.Ordinal)
+            || response.Sources.Contains("unsupported_tool", StringComparer.Ordinal)
             || response.Sources.Contains("validation", StringComparer.Ordinal))
         {
             return false;

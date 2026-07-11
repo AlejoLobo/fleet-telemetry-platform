@@ -89,6 +89,10 @@ public static class DependencyInjection
             {
                 client.Timeout = TimeSpan.FromSeconds(20);
             });
+            services.AddHttpClient<OpenAiToolSelectionService>(client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(25);
+            });
             services.AddScoped<IAiAgentService, HybridAiAgentService>();
 
             services.AddScoped<IngestTelemetryEventUseCase>();
