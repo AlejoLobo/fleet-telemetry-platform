@@ -15,6 +15,7 @@ using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 // Registro de dependencias de infraestructura.
 namespace FleetTelemetry.Infrastructure;
@@ -40,6 +41,7 @@ public static class DependencyInjection
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
         services.Configure<StoppedVehicleQueryOptions>(configuration.GetSection(StoppedVehicleQueryOptions.SectionName));
+        services.AddSingleton<IValidateOptions<StoppedVehicleQueryOptions>, StoppedVehicleQueryOptionsValidator>();
 
         services.AddSingleton(sp =>
         {
