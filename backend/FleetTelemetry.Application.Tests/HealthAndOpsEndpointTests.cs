@@ -64,8 +64,8 @@ public class HealthAndOpsEndpointTests
             new VehicleLatestStatusResponse("VH-002", "VH-002", "offline", DateTimeOffset.UtcNow.AddHours(-1), 0, 4.7, -74.1, null)
         ]);
         var alerts = new FakeAlertRepository([
-            new FleetAlert { AlertId = Guid.NewGuid(), VehicleId = "VH-001", Severity = "critical", AlertType = "overspeed", Message = "x", CreatedAt = DateTimeOffset.UtcNow },
-            new FleetAlert { AlertId = Guid.NewGuid(), VehicleId = "VH-002", Severity = "warning", AlertType = "low_fuel", Message = "y", CreatedAt = DateTimeOffset.UtcNow }
+            FleetAlert.Create(Guid.NewGuid(), "VH-001", "overspeed", "critical", "x", DateTimeOffset.UtcNow),
+            FleetAlert.Create(Guid.NewGuid(), "VH-002", "low_fuel", "warning", "y", DateTimeOffset.UtcNow)
         ]);
         var kafka = Options.Create(new KafkaOptions
         {
