@@ -10,4 +10,5 @@ public record VehicleLatestStatusResponse(
     double? LastSpeedKmh,
     double? LastLatitude,
     double? LastLongitude,
-    double? LastHeadingDegrees);
+    double? LastHeadingDegrees,
+    string? LastLocationSource = null);

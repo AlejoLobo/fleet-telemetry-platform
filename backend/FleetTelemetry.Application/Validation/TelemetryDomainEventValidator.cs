@@ -27,5 +27,14 @@ public static class TelemetryDomainEventValidator
 
         if (telemetryEvent.SpeedKmh < 0)
             throw new ArgumentException("SpeedKmh must be >= 0.");
+
+        var source = string.IsNullOrWhiteSpace(telemetryEvent.LocationSource)
+            ? "gps"
+            : telemetryEvent.LocationSource.Trim().ToLowerInvariant();
+
+        if (source is not ("gps" or "simulated"))
+            throw new ArgumentException("LocationSource must be gps or simulated.");
+
+        telemetryEvent.LocationSource = source;
     }
 }

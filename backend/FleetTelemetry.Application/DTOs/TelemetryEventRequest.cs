@@ -1,6 +1,3 @@
-// DTO de evento de telemetría entrante.
-namespace FleetTelemetry.Application.DTOs;
-
 // Payload de un evento individual desde dispositivos o simuladores.
 public record TelemetryEventRequest(
     Guid EventId,
@@ -11,4 +8,5 @@ public record TelemetryEventRequest(
     double Longitude,
     double SpeedKmh,
     double? FuelLevelPercent = null,
-    double? BatteryPercent = null);
+    double? BatteryPercent = null,
+    string? LocationSource = null);
