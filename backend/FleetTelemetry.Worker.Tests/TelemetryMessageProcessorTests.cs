@@ -4,6 +4,7 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Worker;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -284,6 +285,7 @@ public class TelemetryMessageProcessorTests
         return new TelemetryMessageProcessor(
             dlq,
             options,
+            new FleetTelemetryMetrics(),
             NullLogger<TelemetryMessageProcessor>.Instance);
     }
 

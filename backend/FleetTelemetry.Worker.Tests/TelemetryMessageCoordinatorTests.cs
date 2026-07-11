@@ -5,6 +5,7 @@ using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Resilience;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Worker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -157,7 +158,7 @@ public class TelemetryMessageCoordinatorTests
             RetryMaxDelayMilliseconds = retryMaxMs
         });
 
-        var processor = new TelemetryMessageProcessor(dlq, options, NullLogger<TelemetryMessageProcessor>.Instance);
+        var processor = new TelemetryMessageProcessor(dlq, options, new FleetTelemetryMetrics(), NullLogger<TelemetryMessageProcessor>.Instance);
 
         return new TelemetryMessageCoordinator(
             new NoOpScopeFactory(),
