@@ -37,9 +37,9 @@ resource "aws_ecs_task_definition" "api" {
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
 
   container_definitions = jsonencode([{
-    name      = "api"
-    image     = var.container_image_api != "" ? var.container_image_api : "${aws_ecr_repository.api.repository_url}:latest"
-    essential = true
+    name         = "api"
+    image        = var.container_image_api != "" ? var.container_image_api : "${aws_ecr_repository.api.repository_url}:latest"
+    essential    = true
     portMappings = [{ containerPort = 5000, protocol = "tcp" }]
     logConfiguration = {
       logDriver = "awslogs"
