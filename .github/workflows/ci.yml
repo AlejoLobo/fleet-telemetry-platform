@@ -14,11 +14,34 @@ jobs:
   backend:
     name: Backend (.NET 10)
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: confluentinc/confluent-local:7.6.1
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "kafka-broker-api-versions --bootstrap-server localhost:9092"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+      timescaledb:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: fleet
+          POSTGRES_PASSWORD: fleet
+          POSTGRES_DB: fleet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fleet -d fleet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: "10.0.x"
           include-prerelease: true
@@ -36,6 +59,9 @@ jobs:
         run: dotnet test backend/FleetTelemetry.Worker.Tests --configuration Release --no-build --verbosity normal
 
       - name: Integration tests (TimescaleDB + Kafka)
+        env:
+          FLEET_INTEGRATION_KAFKA_BOOTSTRAP: localhost:9092
+          FLEET_INTEGRATION_DB_CONNECTION: Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet
         run: dotnet test backend/FleetTelemetry.Integration.Tests --configuration Release --no-build --verbosity normal
 
       - name: Vulnerable packages audit
@@ -64,13 +90,13 @@ jobs:
     name: Web (Next.js)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Verify package-lock.json
         run: test -f web/package-lock.json
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -93,13 +119,13 @@ jobs:
       EXPO_PUBLIC_VEHICLE_ID: VH-001
       EXPO_PUBLIC_DRIVER_ID: DRV-001
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Verify package-lock.json
         run: test -f package-lock.json
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
