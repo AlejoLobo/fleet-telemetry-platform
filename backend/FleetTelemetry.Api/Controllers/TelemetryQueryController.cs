@@ -1,40 +1,107 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Services;
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Infrastructure.Auth;
+using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 // Parte de consulta histórica de telemetría por vehículo.
 namespace FleetTelemetry.Api.Controllers;
 
 public partial class TelemetryController
 {
-    // Eventos de un vehículo en rango temporal (por defecto 24 h).
     [HttpGet("{vehicleId}")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
-    public async Task<ActionResult<IReadOnlyList<TelemetryEventResponse>>> GetByVehicle(
+    public async Task<ActionResult<CursorPage<TelemetryEventResponse>>> GetByVehicle(
         string vehicleId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
+        [FromQuery] int? pageSize,
+        [FromQuery] string? cursor,
         [FromServices] ITelemetryRepository telemetryRepository,
+        [FromServices] TimeProvider timeProvider,
+        [FromServices] IOptions<QueryLimitsOptions> queryLimits,
         CancellationToken cancellationToken)
     {
-        var toValue = to ?? DateTimeOffset.UtcNow;
-        var fromValue = from ?? toValue.AddHours(-24);
+        var limits = queryLimits.Value;
+        var resolvedPageSize = pageSize ?? limits.HistoryDefaultPageSize;
+        if (resolvedPageSize < 1 || resolvedPageSize > limits.HistoryMaxPageSize)
+        {
+            return BadRequest(CreateProblem(
+                StatusCodes.Status400BadRequest,
+                "pageSize inválido.",
+                $"pageSize debe estar entre 1 y {limits.HistoryMaxPageSize}."));
+        }
 
-        var events = await telemetryRepository.GetByVehicleAsync(vehicleId, fromValue, toValue, cancellationToken);
+        DateTimeOffset toValue;
+        DateTimeOffset fromValue;
 
-        var response = events.Select(e => new TelemetryEventResponse(
-            e.EventId,
-            e.VehicleId,
-            e.DriverId,
-            e.Timestamp,
-            e.Latitude,
-            e.Longitude,
-            e.SpeedKmh,
-            e.FuelLevelPercent,
-            e.BatteryPercent)).ToList();
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            try
+            {
+                var cursorPayload = CursorCodec.Decode<TelemetryHistoryCursorPayload>(cursor);
+                toValue = cursorPayload.To;
+                fromValue = cursorPayload.From;
+            }
+            catch (InvalidCursorException ex)
+            {
+                return BadRequest(CreateProblem(StatusCodes.Status400BadRequest, "Cursor inválido.", ex.Message));
+            }
+        }
+        else
+        {
+            toValue = to ?? timeProvider.GetUtcNow();
+            fromValue = from ?? toValue.AddHours(-24);
+        }
 
-        return Ok(response);
+        try
+        {
+            var page = await telemetryRepository.GetVehicleHistoryPageAsync(
+                vehicleId,
+                fromValue,
+                toValue,
+                resolvedPageSize,
+                cursor,
+                cancellationToken);
+
+            var response = new CursorPage<TelemetryEventResponse>(
+                page.Items.Select(e => new TelemetryEventResponse(
+                    e.EventId,
+                    e.VehicleId,
+                    e.DriverId,
+                    e.Timestamp,
+                    e.Latitude,
+                    e.Longitude,
+                    e.SpeedKmh,
+                    e.FuelLevelPercent,
+                    e.BatteryPercent)).ToList(),
+                page.NextCursor,
+                page.HasMore);
+
+            return Ok(response);
+        }
+        catch (InvalidCursorException ex)
+        {
+            return BadRequest(CreateProblem(StatusCodes.Status400BadRequest, "Cursor inválido.", ex.Message));
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(CreateProblem(StatusCodes.Status400BadRequest, "Parámetros inválidos.", ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(CreateProblem(StatusCodes.Status400BadRequest, "Parámetros inválidos.", ex.Message));
+        }
     }
+
+    private static ProblemDetails CreateProblem(int status, string title, string detail) =>
+        new()
+        {
+            Status = status,
+            Title = title,
+            Detail = detail
+        };
 }

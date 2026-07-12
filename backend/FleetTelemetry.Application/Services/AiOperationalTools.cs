@@ -57,7 +57,7 @@ public class AiOperationalTools
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetStoppedVehiclesAsync(
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
+        var vehicles = await _fleetQueryService.GetAllFleetStatusesAsync(cancellationToken: cancellationToken);
         var stopped = vehicles
             .Where(v => v.LastSpeedKmh is <= StoppedSpeedThresholdKmh)
             .ToList();
@@ -140,7 +140,7 @@ public class AiOperationalTools
         double thresholdKmh,
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
+        var vehicles = await _fleetQueryService.GetAllFleetStatusesAsync(cancellationToken: cancellationToken);
         var above = vehicles.Where(v => v.LastSpeedKmh > thresholdKmh).ToList();
 
         if (above.Count == 0)
@@ -155,7 +155,7 @@ public class AiOperationalTools
         string? vehicleId,
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
+        var vehicles = await _fleetQueryService.GetAllFleetStatusesAsync(cancellationToken: cancellationToken);
         if (vehicles.Count == 0)
             return ("No hay datos de flota para generar analítica.", ["GetAnalyticsSummary"]);
 
@@ -178,7 +178,7 @@ public class AiOperationalTools
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetFleetOverviewAsync(
         CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(cancellationToken: cancellationToken);
+        var vehicles = await _fleetQueryService.GetAllFleetStatusesAsync(cancellationToken: cancellationToken);
         var alerts = await _alertRepository.GetOpenAlertsAsync(cancellationToken);
         var stoppedLong = await _operationalQueryService.GetVehiclesStoppedLongerThanAsync(
             TimeSpan.FromMinutes(20),
