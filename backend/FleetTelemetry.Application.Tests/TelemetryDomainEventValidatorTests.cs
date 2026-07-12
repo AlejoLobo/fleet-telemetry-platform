@@ -1,3 +1,4 @@
+using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 
@@ -83,12 +84,13 @@ public class TelemetryDomainEventValidatorTests
     [Fact]
     public void Partial_json_deserialized_event_is_classified_as_invalid_payload()
     {
-        const string invalidPayloadReason = "invalid_payload";
-        var partialException = Assert.Throws<InvalidOperationException>(() =>
+        const string invalidDomainReason = "invalid_domain";
+        var partialException = Assert.Throws<TelemetryKafkaContractException>(() =>
             FleetTelemetry.Infrastructure.Kafka.TelemetryEventJsonSerializer.Deserialize("""{"vehicleId":"VH-001"}"""));
 
         Assert.Contains("EventId", partialException.Message);
-        Assert.Equal("invalid_payload", invalidPayloadReason);
+        Assert.Equal("invalid_domain", partialException.ErrorCode);
+        Assert.Equal("invalid_domain", invalidDomainReason);
     }
 
     private static TelemetryEvent ValidEvent() =>
