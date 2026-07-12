@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [authEnabled, setAuthEnabled] = useState(false);
 
   const [hasToken, setHasToken] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
 
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
@@ -74,10 +75,12 @@ export default function DashboardPage() {
       setAuthEnabled(status.enabled);
 
       setHasToken(apiClient.hasAuthToken());
+      setAuthToken(apiClient.getAuthToken());
 
     } catch {
 
       setAuthEnabled(false);
+      setAuthToken(null);
 
     }
 
@@ -123,6 +126,7 @@ export default function DashboardPage() {
   const { connectionState } = useSseStream({
 
     enabled: dataSource === "api",
+    authToken,
 
     onFleetUpdate: setLiveVehicles,
 
@@ -343,6 +347,7 @@ export default function DashboardPage() {
               onAuthChange={() => {
 
                 setHasToken(apiClient.hasAuthToken());
+                setAuthToken(apiClient.getAuthToken());
 
                 setAuthNotice(null);
 

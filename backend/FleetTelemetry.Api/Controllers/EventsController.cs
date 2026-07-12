@@ -1,5 +1,4 @@
 using FleetTelemetry.Application.DTOs;
-using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Realtime;
