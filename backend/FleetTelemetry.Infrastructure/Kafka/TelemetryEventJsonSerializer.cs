@@ -43,38 +43,21 @@ public static class TelemetryEventJsonSerializer
         using (document)
         {
             var root = document.RootElement;
-            var hasEnvelopeStructure = HasEnvelopeStructure(root);
 
             if (useEventEnvelope)
-            {
-                if (!hasEnvelopeStructure)
-                {
-                    throw new TelemetryKafkaContractException(
-                        "invalid_envelope",
-                        "Envelope mode requires schemaVersion and payload properties.");
-                }
+                return DeserializeEnvelopeV1(root, json);
 
-                return DeserializeEnvelopeV1(json);
-            }
-
-            if (hasEnvelopeStructure)
-            {
-                throw new TelemetryKafkaContractException(
-                    "invalid_envelope",
-                    "Legacy mode does not accept versioned envelopes.");
-            }
-
+            TelemetryEnvelopeContractInspector.EnsureLegacyHasNoReservedFields(root);
             return DeserializeLegacy(json);
         }
     }
 
-    private static bool HasEnvelopeStructure(JsonElement root) =>
-        root.ValueKind == JsonValueKind.Object
-        && root.TryGetProperty("schemaVersion", out _)
-        && root.TryGetProperty("payload", out _);
-
-    private static TelemetryEvent DeserializeEnvelopeV1(string json)
+    private static TelemetryEvent DeserializeEnvelopeV1(JsonElement root, string json)
     {
+        TelemetryEnvelopeContractInspector.EnsureEnvelopeObject(root);
+        TelemetryEnvelopeContractInspector.ReadAndValidateSchemaVersion(root);
+        TelemetryEnvelopeContractInspector.EnsureEnvelopeRequiredMetadataPresent(root);
+
         TelemetryEventEnvelopeV1? envelope;
         try
         {
