@@ -4,7 +4,6 @@ using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Kafka;
 using FleetTelemetry.Infrastructure.Persistence;
-using FleetTelemetry.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -15,6 +14,7 @@ namespace FleetTelemetry.Integration.Tests;
 public class TelemetryProcessingIntegrationTests : IAsyncLifetime
 {
     private readonly IntegrationTestDatabase _database = new();
+    private readonly FakeTimeProvider _timeProvider = new();
     private IServiceProvider _services = null!;
 
     public async Task InitializeAsync()
@@ -22,11 +22,10 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         await _database.InitializeAsync();
 
         var services = new ServiceCollection();
-        services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
-        services.AddDbContext<FleetDbContext>(options =>
-            options.UseNpgsql(_database.ConnectionString));
-        services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
-        services.AddSingleton<IFleetRealtimePublisher, NoOpFleetRealtimePublisher>();
+        IntegrationTestServiceBootstrap.AddFleetTelemetryIntegrationServices(
+            services,
+            _database.ConnectionString,
+            _timeProvider);
 
         _services = services.BuildServiceProvider();
         await DatabaseInitializer.InitializeAsync(_services);

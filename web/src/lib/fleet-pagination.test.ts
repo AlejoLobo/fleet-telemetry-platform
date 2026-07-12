@@ -242,6 +242,88 @@ describe("fleet pagination client", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("maxEvents_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.partial).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("maxEvents_igual_al_total_no_marca_truncated", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.truncated).toBe(false);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it("no_descarta_eventos_sin_marcar_partial", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.truncated).toBe(true);
+  });
+
+  it("resultado_nunca_supera_maxEvents", async () => {
+    let counter = 0;
+    mockFetch.mockImplementation(async () => {
+      counter += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            { eventId: `e-${counter}-1`, vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+            { eventId: `e-${counter}-2`, vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          ],
+          nextCursor: counter < 5 ? `c-${counter}` : null,
+          hasMore: counter < 5,
+        }),
+      };
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 2, maxEvents: 3 });
+    expect(snapshot.events.length).toBeLessThanOrEqual(3);
+    expect(snapshot.events).toHaveLength(3);
+  });
+
   it("Historial_respeta_limite_total", async () => {
     let counter = 0;
     mockFetch.mockImplementation(async () => {
@@ -283,7 +365,8 @@ describe("fleet pagination client", () => {
 describe("analytics with truncated snapshot", () => {
   it("Analitica_no_presenta_5000_como_total_si_hay_mas", () => {
     const analytics = computeGlobalAnalyticsFromOps(
-      { totalVehicles: 12000, activeVehicles: 8000, criticalAlerts: 5 },
+      { totalVehicles: 12000, activeVehicles: 8000 },
+      5,
       "api",
       { partial: true },
     );
