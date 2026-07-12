@@ -171,6 +171,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Tests
+        run: npm run test:ci
+
       - name: Export Android bundle
         run: npm run export
 
