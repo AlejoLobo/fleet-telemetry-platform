@@ -1,22 +1,24 @@
 // Política de reanudación de sincronización al cambiar sesión/red.
 
 export function shouldTriggerSyncResume(
-  previousCanSync: boolean,
-  nextCanSync: boolean,
+  previousReadyToSync: boolean,
+  canSync: boolean,
   isOnline: boolean,
 ): boolean {
-  return isOnline && nextCanSync && !previousCanSync;
+  const readyToSync = canSync && isOnline;
+  return readyToSync && !previousReadyToSync;
 }
 
 export function runSyncResumeEffect(
-  previousCanSync: boolean,
+  previousReadyToSync: boolean,
   canSync: boolean,
   isOnline: boolean,
   syncNow: () => void | Promise<unknown>,
-): { nextPreviousCanSync: boolean; triggered: boolean } {
-  const triggered = shouldTriggerSyncResume(previousCanSync, canSync, isOnline);
+): { nextPreviousReadyToSync: boolean; triggered: boolean } {
+  const readyToSync = canSync && isOnline;
+  const triggered = readyToSync && !previousReadyToSync;
   if (triggered) {
     void Promise.resolve(syncNow()).catch(() => undefined);
   }
-  return { nextPreviousCanSync: canSync, triggered };
+  return { nextPreviousReadyToSync: readyToSync, triggered };
 }
