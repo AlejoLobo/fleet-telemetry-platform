@@ -21,6 +21,7 @@ const AUTH_STATUS_LABELS: Record<string, string> = {
   session_expired: "Sesión vencida",
   forbidden: "Permiso insuficiente",
   status_error: "Error temporal al consultar auth status",
+  auth_status_error: "Auth status desconocido — sincronización bloqueada",
 };
 
 export function DriverDashboard() {

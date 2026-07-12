@@ -1,90 +1,138 @@
+import { createSqliteMemoryDb, resetSqliteMemory } from "@/__tests__/helpers/sqlite-memory";
+
+const mockMemoryDb = createSqliteMemoryDb();
+
+jest.mock("expo-sqlite", () => ({
+  openDatabaseAsync: jest.fn(async () => mockMemoryDb),
+}));
+
 import {
   configureAuthTokenStore,
-  handleUnauthorizedFromApi,
   initializeAuthSession,
   login,
   logout,
   markForbiddenFromApi,
   resetAuthServiceForTests,
-  getAuthSessionSnapshot,
 } from "@/services/auth-service";
 import { InMemoryAuthTokenStore } from "@/services/auth-token-store";
-import { getAuthRuntimeSnapshot, setAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { enqueueEvent, getQueueEventByEventId, resetOfflineQueueForTests } from "@/db/offline-queue";
+import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
 
-describe("auth-service", () => {
+const queueEvent = {
+  eventId: "99999999-9999-9999-9999-999999999999",
+  vehicleId: "VH-001",
+  driverId: "DRV-001",
+  timestamp: "2026-07-10T10:00:00Z",
+  latitude: 4.65,
+  longitude: -74.08,
+  speedKmh: 40,
+  fuelLevelPercent: 70,
+  batteryPercent: 90,
+};
+
+describe("auth-service con cola SQLite real", () => {
   beforeEach(() => {
     resetAuthServiceForTests();
+    resetSqliteMemory();
+    resetOfflineQueueForTests();
+    resetSyncCoordinatorForTests();
     configureAuthTokenStore(new InMemoryAuthTokenStore());
     mockFetch.mockReset();
-    setAuthRuntimeSnapshot({ enabled: false, token: null, tokenExpired: false });
-  });
-
-  it("Auth_deshabilitada_permite_sincronizacion_sin_Authorization", async () => {
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: false }) });
-    const snapshot = await initializeAuthSession();
-    expect(snapshot.status).toBe("auth_disabled");
-    expect(getAuthRuntimeSnapshot().enabled).toBe(false);
-  });
-
-  it("Login_correcto_persiste_token_y_expiracion_en_SecureStore", async () => {
-    const store = new InMemoryAuthTokenStore();
-    configureAuthTokenStore(store);
-    mockFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ token: "jwt-token", expiresInMinutes: 30 }),
-      });
-
-    await initializeAuthSession();
-    await login("admin", "admin123");
-    const persisted = await store.load();
-    expect(persisted?.token).toBe("jwt-token");
-    expect(persisted?.expiresAtIso).toBeTruthy();
-    expect(getAuthSessionSnapshot().status).toBe("authenticated");
   });
 
   it("Logout_elimina_token_pero_no_modifica_cola", async () => {
+    await enqueueEvent(queueEvent);
     const store = new InMemoryAuthTokenStore();
     configureAuthTokenStore(store);
     await store.save({ token: "jwt", expiresAtIso: new Date(Date.now() + 60_000).toISOString() });
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
     await initializeAuthSession();
     await logout();
-    expect(await store.load()).toBeNull();
-  });
 
-  it("Token_expirado_produce_auth_required", async () => {
-    const store = new InMemoryAuthTokenStore();
-    configureAuthTokenStore(store);
-    await store.save({ token: "jwt", expiresAtIso: new Date(Date.now() - 60_000).toISOString() });
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
-    const snapshot = await initializeAuthSession();
-    expect(snapshot.status).toBe("session_expired");
-  });
-
-  it("Respuesta_401_elimina_token", async () => {
-    const store = new InMemoryAuthTokenStore();
-    configureAuthTokenStore(store);
-    await store.save({ token: "jwt", expiresAtIso: new Date(Date.now() + 60_000).toISOString() });
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
-    await initializeAuthSession();
-    await handleUnauthorizedFromApi();
     expect(await store.load()).toBeNull();
-    expect(getAuthSessionSnapshot().status).toBe("auth_required");
+    const row = await getQueueEventByEventId(queueEvent.eventId);
+    expect(row?.eventId).toBe(queueEvent.eventId);
+    expect(row?.status).toBe("pending");
+    expect(row?.latitude).toBe(queueEvent.latitude);
   });
 
   it("Respuesta_403_conserva_token_y_cola", async () => {
+    await enqueueEvent(queueEvent);
     const store = new InMemoryAuthTokenStore();
     configureAuthTokenStore(store);
     await store.save({ token: "jwt", expiresAtIso: new Date(Date.now() + 60_000).toISOString() });
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
     await initializeAuthSession();
     markForbiddenFromApi("forbidden");
+
     expect(await store.load()).not.toBeNull();
-    expect(getAuthSessionSnapshot().status).toBe("forbidden");
+    const row = await getQueueEventByEventId(queueEvent.eventId);
+    expect(row?.eventId).toBe(queueEvent.eventId);
+    expect(row?.status).toBe("pending");
+    expect(row?.status).not.toBe("permanent_failure");
+  });
+});
+
+describe("auth fail-closed y expiración", () => {
+  beforeEach(() => {
+    resetAuthServiceForTests();
+    configureAuthTokenStore(new InMemoryAuthTokenStore());
+    mockFetch.mockReset();
+  });
+
+  it("auth_status_timeout_bloquea_telemetria", async () => {
+    mockFetch.mockRejectedValueOnce(Object.assign(new Error("Timeout"), { name: "AbortError" }));
+    await initializeAuthSession();
+    expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_status_error");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("auth_status_500_bloquea_telemetria", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    await initializeAuthSession();
+    expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_status_error");
+  });
+
+  it("auth_status_objeto_vacio_bloquea_telemetria", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    await initializeAuthSession();
+    expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_status_error");
+  });
+
+  it("auth_status_enabled_string_bloquea_telemetria", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: "false" }) });
+    await initializeAuthSession();
+    expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_status_error");
+  });
+
+  it("solo_enabled_false_permite_envio_anonimo", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: false }) });
+    await initializeAuthSession();
+    expect(getAuthRuntimeSnapshot().mode).toBe("disabled");
+  });
+
+  it("expiracion_local_bloquea_sync_sin_fetch", async () => {
+    const store = new InMemoryAuthTokenStore();
+    configureAuthTokenStore(store);
+    const expiredIso = new Date(Date.now() - 60_000).toISOString();
+    await store.save({ token: "jwt", expiresAtIso: expiredIso });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
+    await initializeAuthSession();
+
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_required");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

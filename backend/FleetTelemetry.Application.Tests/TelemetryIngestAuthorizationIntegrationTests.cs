@@ -108,6 +108,31 @@ public class TelemetryIngestAuthorizationIntegrationTests
     }
 
     [Fact]
+    public async Task Single_auth_enabled_with_invalid_token_returns_401()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid.jwt.token");
+        using var response = await PostSingleAsync(client, CreateValidEvent());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
+    }
+
+    [Fact]
+    public async Task Single_auth_enabled_with_token_without_telemetry_write_returns_403()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        var token = CreateJwtWithoutTelemetryWrite(factory);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await PostSingleAsync(client, CreateValidEvent());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
+    }
+
+    [Fact]
     public async Task Single_auth_enabled_with_valid_token_returns_202()
     {
         using var factory = CreateFactory(authEnabled: true);
