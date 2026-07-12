@@ -32,12 +32,12 @@ sequenceDiagram
     Worker->>Kafka: produce telemetry.dead-letter
     Worker->>Kafka: commit offset
   else válido
-    Worker->>Db: processed_events + telemetry_events + alerts
+    Worker->>Db: processed_events + telemetry_events + alerts + fleet_vehicle_state
     Worker->>Kafka: commit offset
   end
-  Client->>Api: GET /api/fleet
-  Api->>Db: query
-  Api-->>Client: JSON
+  Client->>Api: GET /api/fleet?pageSize=100
+  Api->>Db: fleet_vehicle_state (cursor, filtros SQL)
+  Api-->>Client: CursorPage JSON
 ```
 
 ## Decisiones clave
@@ -50,7 +50,8 @@ sequenceDiagram
   - Worker: `TelemetryDomainEventValidator` (entidad tras deserializar JSON de Kafka).
 - **SSE:** polling a TimescaleDB (`FleetSsePollerHostedService`), no push desde Kafka. Ver [realtime-sse.md](realtime-sse.md).
 - **Resiliencia:** circuit breaker + retry en Kafka produce, DB (solo transitorios vía `DatabaseTransientFailureClassifier`) y OpenAI. Estado en `GET /health`.
-- **Kafka at-least-once:** mismo `ConsumeResult` hasta terminal; sin exactly-once end-to-end; orden solo por partición; Worker serial.
+- **Read model de flota:** `fleet_vehicle_state` (1 fila/vehículo), actualizado en la misma transacción del Worker con UPSERT protegido ante eventos fuera de orden. Consultas `GET /api/fleet` paginadas por cursor sobre esta tabla (no `DISTINCT ON` global).
+- **Historial paginado:** `GET /api/telemetry/{vehicleId}` usa keyset (`Timestamp DESC`, `EventId DESC`) con límite superior estable en el cursor.
 
 ## Alertas (Worker)
 

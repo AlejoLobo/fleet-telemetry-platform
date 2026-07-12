@@ -11,8 +11,8 @@
 | `GET` | `/api/ops/summary` | Si Auth on | Resumen operativo |
 | `POST` | `/api/telemetry` | Si Auth on | Ingesta un evento → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Si Auth on | Lote (sync mobile) |
-| `GET` | `/api/telemetry/{vehicleId}` | No | Historial (`?from=&to=`) |
-| `GET` | `/api/fleet` | No | Flota (`?liveOnly=true` = últimos 5 min) |
+| `GET` | `/api/telemetry/{vehicleId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
+| `GET` | `/api/fleet` | No | Flota paginada (`?pageSize=&cursor=&liveOnly=&excludeSimulated=`) |
 | `GET` | `/api/fleet/{vehicleId}` | No | Estado de un vehículo |
 | `GET` | `/api/alerts` | No | Alertas abiertas |
 | `PATCH` | `/api/alerts/{id}/acknowledge` | Si Auth on | Confirmar alerta |
@@ -41,9 +41,9 @@ Comprueba `CanConnect` a TimescaleDB y metadata Kafka (sin publicar). `503` si a
 
 ### `GET /api/ops/summary`
 
-Campos: `totalVehicles`, `activeVehicles`, `criticalAlerts`, `lastTelemetryAt`, `sseMode` (`polling`), `telemetryTopic`, `deadLetterTopic`.
+Campos: `totalVehicles`, `activeVehicles`, `criticalAlerts`, `lastTelemetryAt`, `sseMode` (`polling` | `kafka-push`), `telemetryTopic`, `deadLetterTopic`.
 
-Implementación: `IOpsQueryService` / `OpsQueryService` (reusa flota + alertas).
+Implementación: agregados SQL sobre `fleet_vehicle_state` y `COUNT` de alertas críticas abiertas (`IFleetStateAggregateRepository`).
 
 ```bash
 curl http://localhost:5000/health/live
@@ -82,10 +82,24 @@ Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y pu
 ### Consulta
 
 ```bash
-curl http://localhost:5000/api/fleet
+curl "http://localhost:5000/api/fleet?pageSize=100"
+curl "http://localhost:5000/api/fleet?pageSize=100&cursor=<opaco>"
 curl http://localhost:5000/api/alerts
-curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z"
+curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z&pageSize=200"
 ```
+
+#### Paginación por cursor
+
+- `GET /api/fleet` devuelve `CursorPage<VehicleLatestStatusResponse>`: `{ items, nextCursor, hasMore }`.
+- Orden estable: `VehicleId` ascendente. `pageSize` default 100, máximo 500.
+- `liveOnly`: filtra en SQL `LastTimestamp >= now - OnlineThresholdMinutes`.
+- `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).
+- El cursor es opaco (Base64URL + JSON validado). Reutilizarlo con filtros distintos → `400`.
+
+- `GET /api/telemetry/{vehicleId}` devuelve `CursorPage<TelemetryEventResponse>`.
+- Orden: `Timestamp DESC`, `EventId DESC` (keyset, sin OFFSET).
+- En la primera página sin `to`, el servidor fija un límite superior estable incluido en el cursor.
+- Rango máximo configurable (`QueryLimits:HistoryMaxRangeDays`, default 7 días).
 
 ### Agente IA
 
