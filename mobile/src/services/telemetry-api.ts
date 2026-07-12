@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from "@/config/env";
 import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { handleSessionExpiredBeforeRequest } from "@/services/auth-service";
 import type { TelemetryEventPayload } from "@/types/telemetry";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -54,13 +55,26 @@ export function categorizeHttpStatus(status: number): TelemetryApiErrorCategory 
   return "protocol";
 }
 
-function buildAuthHeaders(): Record<string, string> {
+async function ensureTelemetryTransportReady(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const auth = getAuthRuntimeSnapshot();
-  if (!auth.enabled) return headers;
-  if (!auth.token || auth.tokenExpired) {
+
+  if (auth.mode === "unknown") {
+    throw new TelemetryApiError(0, "protocol", "Auth status desconocido");
+  }
+  if (auth.mode === "disabled") {
+    return headers;
+  }
+
+  if (!auth.token) {
     throw new TelemetryApiError(401, "auth_required", "Autenticación requerida");
   }
+
+  if (auth.expiresAtIso && new Date(auth.expiresAtIso).getTime() <= Date.now()) {
+    await handleSessionExpiredBeforeRequest();
+    throw new TelemetryApiError(401, "auth_required", "Sesión vencida");
+  }
+
   headers.Authorization = `Bearer ${auth.token}`;
   return headers;
 }
@@ -70,9 +84,10 @@ async function postJson(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const headers = await ensureTelemetryTransportReady();
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: "POST",
-      headers: buildAuthHeaders(),
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
