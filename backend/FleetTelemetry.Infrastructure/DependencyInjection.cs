@@ -122,6 +122,9 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
+            services.AddSingleton<FleetConnectivityPublishTracker>();
+            services.AddSingleton<FleetConnectivityExpiryState>();
+            services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
             services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
@@ -144,6 +147,13 @@ public static class DependencyInjection
     public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
     {
         services.AddHostedService<FleetSseKafkaPushHostedService>();
+        return services;
+    }
+
+    // Publica transiciones offline sin telemetría nueva (Worker).
+    public static IServiceCollection AddFleetConnectivityExpiry(this IServiceCollection services)
+    {
+        services.AddHostedService<FleetConnectivityExpiryHostedService>();
         return services;
     }
 

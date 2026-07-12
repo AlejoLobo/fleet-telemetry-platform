@@ -26,6 +26,24 @@ Versión inicial: `1` — esquema base con hypertable `telemetry_events`.
 
 Versión `2` — tabla de lectura `fleet_vehicle_state` (un registro por vehículo), índices de paginación e historial, backfill determinista desde `telemetry_events`.
 
+Versión `3` — verificación y reparación del read model para instalaciones que ya tenían v2 registrada. En una **instalación nueva** (v2 aplicada en el mismo `InitializeAsync`), v3 **no repite** el backfill completo; solo registra la versión. En una **instalación heredada** (v2 previa, v3 ausente), v3 ejecuta el backfill reparador.
+
+### Política v2 + v3 (sin doble backfill)
+
+```
+InitializeAsync:
+  v2AppliedNow = ApplyReadModelMigrationV2Async()
+  ApplyReadModelVerificationV3Async(v2AppliedNow)
+```
+
+| Escenario | Backfills ejecutados |
+|-----------|---------------------|
+| Instalación nueva | 1 (solo v2) |
+| v2 heredada, v3 pendiente | 1 (reparación v3) |
+| v2 y v3 ya registradas | 0 |
+
+`DatabaseInitializer` usa **advisory lock** (`pg_advisory_lock`) en cualquier entorno que habilite inicialización automática.
+
 ### `fleet_vehicle_state`
 
 | Campo | Descripción |

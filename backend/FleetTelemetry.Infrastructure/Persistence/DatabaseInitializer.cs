@@ -39,8 +39,17 @@ public static class DatabaseInitializer
             try
             {
                 await InitializeBaseSchemaAsync(connection, logger, cancellationToken);
-                await ApplyReadModelMigrationV2Async(connection, logger, migrationHooks, cancellationToken);
-                await ApplyReadModelVerificationV3Async(connection, logger, migrationHooks, cancellationToken);
+                var v2AppliedNow = await ApplyReadModelMigrationV2Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
+                await ApplyReadModelVerificationV3Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    v2AppliedNow,
+                    cancellationToken);
             }
             catch (Exception ex)
             {
@@ -205,7 +214,7 @@ public static class DatabaseInitializer
         logger.LogInformation("TimescaleDB base schema initialized successfully.");
     }
 
-    private static async Task ApplyReadModelMigrationV2Async(
+    private static async Task<bool> ApplyReadModelMigrationV2Async(
         DbConnection connection,
         ILogger logger,
         ISchemaMigrationHooks migrationHooks,
@@ -216,7 +225,7 @@ public static class DatabaseInitializer
             logger.LogInformation(
                 "Read model migration v{Version} already applied; preserving historical record.",
                 ReadModelSchemaVersion);
-            return;
+            return false;
         }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -239,6 +248,7 @@ public static class DatabaseInitializer
 
             await transaction.CommitAsync(cancellationToken);
             logger.LogInformation("Read model migration v{Version} applied successfully.", ReadModelSchemaVersion);
+            return true;
         }
         catch
         {
@@ -251,6 +261,7 @@ public static class DatabaseInitializer
         DbConnection connection,
         ILogger logger,
         ISchemaMigrationHooks migrationHooks,
+        bool v2AppliedNow,
         CancellationToken cancellationToken)
     {
         if (await SchemaVersionExistsAsync(connection, ReadModelVerificationSchemaVersion, cancellationToken))
@@ -266,8 +277,19 @@ public static class DatabaseInitializer
         try
         {
             await EnsureFleetVehicleStateSchemaAsync(connection, transaction, cancellationToken);
-            await migrationHooks.OnBackfillStartingAsync(cancellationToken);
-            await ExecuteDeterministicBackfillAsync(connection, transaction, cancellationToken);
+
+            if (v2AppliedNow)
+            {
+                logger.LogInformation(
+                    "Read model verification v{Version} skipping repair backfill because v2 was applied in this run.",
+                    ReadModelVerificationSchemaVersion);
+            }
+            else
+            {
+                await migrationHooks.OnBackfillStartingAsync(cancellationToken);
+                await ExecuteDeterministicBackfillAsync(connection, transaction, cancellationToken);
+            }
+
             await migrationHooks.OnBeforeRegisterVersionAsync(
                 ReadModelVerificationSchemaVersion,
                 cancellationToken);

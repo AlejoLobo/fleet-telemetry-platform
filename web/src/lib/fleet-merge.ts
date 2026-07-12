@@ -6,18 +6,31 @@ function parseLastSeenAt(value: string | null | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function parseEventId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function compareEventId(left: string | null, right: string | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return -1;
+  if (right === null) return 1;
+  return left.localeCompare(right);
+}
+
 function compareVehicleRecency(left: VehicleStatus, right: VehicleStatus): number {
   const leftMs = parseLastSeenAt(left.lastSeenAt);
   const rightMs = parseLastSeenAt(right.lastSeenAt);
 
   if (leftMs === null && rightMs === null) {
-    return left.vehicleId.localeCompare(right.vehicleId);
+    return compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
   }
   if (leftMs === null) return -1;
   if (rightMs === null) return 1;
   if (leftMs !== rightMs) return leftMs - rightMs;
 
-  return left.vehicleId.localeCompare(right.vehicleId);
+  return compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
 }
 
 function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): VehicleStatus {
@@ -73,4 +86,4 @@ export function pruneVehiclePatches(
   });
 }
 
-export { compareVehicleRecency, parseLastSeenAt, pickNewerVehicle };
+export { compareVehicleRecency, parseLastSeenAt, parseEventId, compareEventId, pickNewerVehicle };
