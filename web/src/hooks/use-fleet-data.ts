@@ -82,12 +82,20 @@ export function useFleetData(selectedVehicleId: string | null) {
       if (fleetSnapshot.truncated) {
         try {
           const summary = await apiClient.fetchOpsSummary();
-          globalAnalytics = computeGlobalAnalyticsFromOps(summary, "api", { partial: true });
+          globalAnalytics = computeGlobalAnalyticsFromOps(
+            {
+              totalVehicles: summary.totalVehicles,
+              activeVehicles: summary.activeVehicles,
+            },
+            alerts.length,
+            "api",
+            { partial: true },
+          );
         } catch {
-          globalAnalytics = {
-            ...computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api"),
+          globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api", {
             partial: true,
-          };
+            aggregationSource: "snapshot",
+          });
         }
       } else {
         globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api");

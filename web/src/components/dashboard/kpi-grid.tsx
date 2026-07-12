@@ -20,7 +20,26 @@ export function KpiGrid({ globalAnalytics, selectedAnalytics, telemetryLoading }
   const selectedSpeed = telemetryLoading
     ? "…"
     : String(selectedAnalytics?.averageSpeedKmh ?? 0);
-  const partialSuffix = globalAnalytics.partial ? " · agregados globales Ops" : "";
+
+  const fleetScopeSuffix =
+    globalAnalytics.aggregationSource === "ops"
+      ? " · agregados globales Ops"
+      : globalAnalytics.partial
+        ? " · métricas parciales del snapshot"
+        : "";
+
+  const alertsLabel = "Alertas abiertas";
+  const alertsSublabel =
+    globalAnalytics.openAlerts === 0
+      ? `Sin incidentes${fleetScopeSuffix}`
+      : `Requieren atención${fleetScopeSuffix}`;
+
+  const sourceSublabel =
+    globalAnalytics.aggregationSource === "ops"
+      ? "Analítica parcial (agregados Ops)"
+      : globalAnalytics.partial
+        ? "Analítica parcial (snapshot)"
+        : "Analítica operativa global";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -35,25 +54,21 @@ export function KpiGrid({ globalAnalytics, selectedAnalytics, telemetryLoading }
         icon={Truck}
         label="Flota activa"
         value={`${globalAnalytics.activeVehicles}/${globalAnalytics.totalVehicles}`}
-        sublabel={`${onlinePercent}% en línea · global${partialSuffix}`}
+        sublabel={`${onlinePercent}% en línea · global${fleetScopeSuffix}`}
         accent="emerald"
       />
       <KpiCard
         icon={AlertTriangle}
-        label="Alertas abiertas"
+        label={alertsLabel}
         value={String(globalAnalytics.openAlerts)}
-        sublabel={
-          globalAnalytics.openAlerts === 0
-            ? `Sin incidentes${partialSuffix}`
-            : `Requieren atención${partialSuffix}`
-        }
+        sublabel={alertsSublabel}
         accent="amber"
       />
       <KpiCard
         icon={Activity}
         label="Fuente de datos"
         value={etiquetaFuenteAnalitica(globalAnalytics.source)}
-        sublabel={globalAnalytics.partial ? "Analítica parcial (Ops)" : "Analítica operativa global"}
+        sublabel={sourceSublabel}
         accent="violet"
       />
     </div>

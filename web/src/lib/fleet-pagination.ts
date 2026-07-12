@@ -193,7 +193,6 @@ export async function fetchTelemetrySnapshot(
   let partial = false;
   let truncated = false;
   let lastError: string | undefined;
-  let stoppedByLimitWithMore = false;
 
   while (events.length < maxEvents) {
     if (options.signal?.aborted) {
@@ -218,12 +217,19 @@ export async function fetchTelemetrySnapshot(
         signal: options.signal,
       });
 
-      events.push(...page.items);
+      const slotsRemaining = maxEvents - events.length;
+      let addedFromPage = 0;
 
-      if (events.length >= maxEvents) {
-        if (page.hasMore) {
-          stoppedByLimitWithMore = true;
-        }
+      for (const event of page.items) {
+        if (addedFromPage >= slotsRemaining) break;
+        events.push(event);
+        addedFromPage += 1;
+      }
+
+      const discardedInPage = page.items.length > addedFromPage;
+      if (events.length >= maxEvents && (page.hasMore || discardedInPage)) {
+        partial = true;
+        truncated = true;
         break;
       }
 
@@ -236,13 +242,8 @@ export async function fetchTelemetrySnapshot(
     }
   }
 
-  if (stoppedByLimitWithMore) {
-    partial = true;
-    truncated = true;
-  }
-
   return {
-    events: events.slice(0, maxEvents),
+    events,
     partial,
     truncated,
     error: lastError,

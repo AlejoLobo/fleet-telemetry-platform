@@ -10,7 +10,7 @@ import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 
 import { useSseStream } from "@/hooks/use-sse-stream";
-import { mergeVehicleUpdates } from "@/lib/fleet-merge";
+import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 
@@ -203,7 +203,7 @@ export default function DashboardPage() {
 
 
   useEffect(() => {
-    setLiveVehiclePatches([]);
+    setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
   }, [vehicles]);
 
   // Combina datos del API con actualizaciones SSE

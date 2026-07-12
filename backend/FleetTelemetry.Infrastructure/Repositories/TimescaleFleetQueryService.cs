@@ -141,13 +141,15 @@ public class TimescaleFleetQueryService : IFleetQueryService
         double? headingDegrees,
         DateTimeOffset now)
     {
-        var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
-        var isOnline = record.LastTimestamp >= onlineThreshold;
+        var connectivityStatus = VehicleConnectivityStatus.Resolve(
+            record.LastTimestamp,
+            now,
+            _queryLimits.OnlineThresholdMinutes);
 
         return new VehicleLatestStatusResponse(
             VehicleId: record.VehicleId,
             Name: record.VehicleId,
-            Status: isOnline ? "online" : "offline",
+            Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
             LastLatitude: record.Latitude,

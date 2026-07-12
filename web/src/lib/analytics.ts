@@ -1,6 +1,7 @@
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 
 export type FleetDataSource = "api" | "demo";
+export type AggregationSource = "snapshot" | "ops";
 
 export type GlobalAnalytics = {
   activeVehicles: number;
@@ -8,12 +9,12 @@ export type GlobalAnalytics = {
   openAlerts: number;
   source: string;
   partial?: boolean;
+  aggregationSource?: AggregationSource;
 };
 
-export type OpsSummaryCounts = {
+export type OpsFleetCounts = {
   totalVehicles: number;
   activeVehicles: number;
-  criticalAlerts: number;
 };
 
 export type SelectedVehicleAnalytics = {
@@ -26,26 +27,31 @@ export function computeGlobalAnalytics(
   vehicles: VehicleStatus[],
   alerts: FleetAlert[],
   dataSource: FleetDataSource,
+  options?: { partial?: boolean; aggregationSource?: AggregationSource },
 ): GlobalAnalytics {
   return {
     activeVehicles: vehicles.filter((v) => v.status === "online").length,
     totalVehicles: vehicles.length,
     openAlerts: alerts.length,
     source: dataSource === "demo" ? "Demostración" : "TimescaleDB",
+    partial: options?.partial,
+    aggregationSource: options?.aggregationSource ?? "snapshot",
   };
 }
 
 export function computeGlobalAnalyticsFromOps(
-  summary: OpsSummaryCounts,
+  summary: OpsFleetCounts,
+  openAlerts: number,
   dataSource: FleetDataSource,
   options?: { partial?: boolean },
 ): GlobalAnalytics {
   return {
     activeVehicles: summary.activeVehicles,
     totalVehicles: summary.totalVehicles,
-    openAlerts: summary.criticalAlerts,
-    source: dataSource === "demo" ? "Demostración" : "TimescaleDB (agregados Ops)",
+    openAlerts,
+    source: dataSource === "demo" ? "Demostración" : "TimescaleDB",
     partial: options?.partial,
+    aggregationSource: "ops",
   };
 }
 

@@ -2,10 +2,12 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
+using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 // Unidad de trabajo transaccional para procesar telemetría.
@@ -21,15 +23,21 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
     private readonly FleetDbContext _dbContext;
     private readonly IFleetRealtimePublisher _realtimePublisher;
+    private readonly TimeProvider _timeProvider;
+    private readonly QueryLimitsOptions _queryLimits;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
 
     public TimescaleTelemetryProcessingUnitOfWork(
         FleetDbContext dbContext,
         IFleetRealtimePublisher realtimePublisher,
+        TimeProvider timeProvider,
+        IOptions<QueryLimitsOptions> queryLimits,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
         _realtimePublisher = realtimePublisher;
+        _timeProvider = timeProvider;
+        _queryLimits = queryLimits.Value;
         _logger = logger;
     }
 
@@ -153,10 +161,16 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         {
             if (publishVehicleUpdate)
             {
+                var now = _timeProvider.GetUtcNow();
+                var connectivityStatus = VehicleConnectivityStatus.Resolve(
+                    telemetryEvent.Timestamp,
+                    now,
+                    _queryLimits.OnlineThresholdMinutes);
+
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     telemetryEvent.VehicleId,
                     telemetryEvent.VehicleId,
-                    telemetryEvent.SpeedKmh <= 1 ? "stopped" : "online",
+                    connectivityStatus,
                     telemetryEvent.Timestamp,
                     telemetryEvent.SpeedKmh,
                     telemetryEvent.Latitude,
