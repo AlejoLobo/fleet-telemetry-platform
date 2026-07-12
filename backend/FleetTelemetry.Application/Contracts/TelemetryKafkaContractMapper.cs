@@ -16,6 +16,9 @@ public static class TelemetryKafkaContractMapper
         if (string.IsNullOrWhiteSpace(payload.VehicleId))
             throw new TelemetryKafkaContractException("invalid_envelope", "Payload VehicleId is required.");
 
+        if (payload.Timestamp == default)
+            throw new TelemetryKafkaContractException("invalid_envelope", "Payload timestamp is required.");
+
         if (!TelemetryEvent.TryCreate(
                 payload.EventId,
                 payload.VehicleId,
@@ -40,12 +43,14 @@ public static class TelemetryKafkaContractMapper
     {
         ArgumentNullException.ThrowIfNull(envelope);
 
-        if (envelope.SchemaVersion != TelemetryEventEnvelopeV1.SupportedSchemaVersion)
-        {
-            throw new TelemetryKafkaContractException(
-                "unsupported_schema_version",
-                $"Unsupported schema version {envelope.SchemaVersion}.");
-        }
+        if (envelope.EventId == Guid.Empty)
+            throw new TelemetryKafkaContractException("invalid_envelope", "Envelope EventId is required.");
+
+        if (envelope.OccurredAt == default)
+            throw new TelemetryKafkaContractException("invalid_envelope", "Envelope occurredAt is required.");
+
+        if (string.IsNullOrWhiteSpace(envelope.EventType))
+            throw new TelemetryKafkaContractException("invalid_envelope", "Envelope eventType is required.");
 
         if (!string.Equals(envelope.EventType, TelemetryEventEnvelopeV1.TelemetryEventType, StringComparison.Ordinal))
         {
@@ -57,13 +62,23 @@ public static class TelemetryKafkaContractMapper
         if (envelope.Payload is null)
             throw new TelemetryKafkaContractException("null_payload", "Envelope payload is null.");
 
-        if (envelope.EventId != Guid.Empty && envelope.EventId != envelope.Payload.EventId)
+        if (envelope.EventId != envelope.Payload.EventId)
         {
             throw new TelemetryKafkaContractException(
                 "invalid_envelope",
                 "Envelope EventId does not match payload EventId.");
         }
 
+        if (!RepresentsSameUtcInstant(envelope.OccurredAt, envelope.Payload.Timestamp))
+        {
+            throw new TelemetryKafkaContractException(
+                "invalid_envelope",
+                "Envelope occurredAt does not match payload timestamp.");
+        }
+
         return MapPayloadV1ToDomain(envelope.Payload);
     }
+
+    internal static bool RepresentsSameUtcInstant(DateTimeOffset left, DateTimeOffset right) =>
+        left.ToUniversalTime().UtcDateTime == right.ToUniversalTime().UtcDateTime;
 }
