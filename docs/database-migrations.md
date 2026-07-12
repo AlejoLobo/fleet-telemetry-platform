@@ -24,6 +24,24 @@ El Worker evalúa `DatabaseInitializationPolicy`:
 
 Versión inicial: `1` — esquema base con hypertable `telemetry_events`.
 
+Versión `2` — tabla de lectura `fleet_vehicle_state` (un registro por vehículo), índices de paginación e historial, backfill determinista desde `telemetry_events`.
+
+### `fleet_vehicle_state`
+
+| Campo | Descripción |
+|-------|-------------|
+| `VehicleId` | PK |
+| `LastEventId`, `LastTimestamp` | Último evento aplicado al estado |
+| `Latitude`, `Longitude`, `SpeedKmh`, … | Snapshot operativo |
+| `LocationSource` | `gps` / `simulated` del último evento |
+| `UpdatedAt` | Momento de UPSERT |
+
+Actualización transaccional en el Worker (misma transacción que `telemetry_events`, `processed_events`, `fleet_alerts`). UPSERT con protección ante eventos fuera de orden:
+
+- Solo reemplaza si `incoming.Timestamp > stored.LastTimestamp`, o mismo timestamp y `EventId` mayor.
+
+Backfill idempotente en `DatabaseInitializer` (`ORDER BY VehicleId, Timestamp DESC, EventId DESC`).
+
 ## Ruta recomendada con EF Core Migrations
 
 Para producción, migrar del DDL en código a migraciones versionadas:

@@ -5,51 +5,38 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
-// Agrega métricas operativas reutilizando consultas de flota y alertas.
+// Agrega métricas operativas mediante consultas SQL agregadas.
 public class OpsQueryService : IOpsQueryService
 {
-    private readonly IFleetQueryService _fleetQueryService;
-    private readonly IAlertRepository _alertRepository;
+    private readonly IFleetStateAggregateRepository _aggregateRepository;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly SseOptions _sseOptions;
 
     public OpsQueryService(
-        IFleetQueryService fleetQueryService,
-        IAlertRepository alertRepository,
-        IOptions<KafkaOptions> kafkaOptions)
+        IFleetStateAggregateRepository aggregateRepository,
+        IOptions<KafkaOptions> kafkaOptions,
+        IOptions<SseOptions> sseOptions)
     {
-        _fleetQueryService = fleetQueryService;
-        _alertRepository = alertRepository;
+        _aggregateRepository = aggregateRepository;
         _kafkaOptions = kafkaOptions.Value;
+        _sseOptions = sseOptions.Value;
     }
 
     public async Task<OpsSummaryResponse> GetSummaryAsync(CancellationToken cancellationToken = default)
     {
-        var vehicles = await _fleetQueryService.GetLatestVehicleStatusesAsync(
-            liveOnly: false,
-            excludeSimulated: false,
-            cancellationToken);
-        var alerts = await _alertRepository.GetOpenAlertsAsync(cancellationToken);
-
-        var activeVehicles = vehicles.Count(v => v.Status == "online");
-        var criticalAlerts = alerts.Count(a =>
-            string.Equals(a.Severity, "critical", StringComparison.OrdinalIgnoreCase));
-
-        DateTimeOffset? lastTelemetry = null;
-        foreach (var vehicle in vehicles)
-        {
-            if (vehicle.LastSeenAt is not { } seenAt)
-                continue;
-            if (lastTelemetry is null || seenAt > lastTelemetry)
-                lastTelemetry = seenAt;
-        }
+        var snapshot = await _aggregateRepository.GetFleetAggregateSnapshotAsync(cancellationToken);
+        var criticalAlerts = await _aggregateRepository.CountOpenCriticalAlertsAsync(cancellationToken);
 
         return new OpsSummaryResponse(
-            TotalVehicles: vehicles.Count,
-            ActiveVehicles: activeVehicles,
+            TotalVehicles: snapshot.TotalVehicles,
+            ActiveVehicles: snapshot.ActiveVehicles,
             CriticalAlerts: criticalAlerts,
-            LastTelemetryAt: lastTelemetry,
-            SseMode: "polling",
+            LastTelemetryAt: snapshot.LastTelemetryAt,
+            SseMode: MapSseMode(_sseOptions.Mode),
             TelemetryTopic: _kafkaOptions.TelemetryTopic,
             DeadLetterTopic: _kafkaOptions.DeadLetterTopic);
     }
+
+    private static string MapSseMode(SseDeliveryMode mode) =>
+        mode == SseDeliveryMode.KafkaPush ? "kafka-push" : "polling";
 }

@@ -77,7 +77,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
-        var vehicles = await fleetQuery.GetLatestVehicleStatusesAsync(
+        var vehicles = await fleetQuery.GetAllFleetStatusesAsync(
             liveOnly: false,
             excludeSimulated: true,
             cancellationToken);

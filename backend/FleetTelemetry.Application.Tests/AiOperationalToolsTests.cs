@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Tests.TestHelpers;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
@@ -29,7 +30,7 @@ public class AiOperationalToolsTests
     {
         var operational = new FakeOperationalQueryService();
         var tools = new AiOperationalTools(
-            new FakeFleetQueryService(),
+            new TestHelpers.FakeFleetQueryService([]),
             operational,
             new FakeAlertRepository(),
             new FakeAnalyticsQueryService());
@@ -57,20 +58,6 @@ public class AiOperationalToolsTests
                 new("VH-002", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-30),
                     TimeSpan.FromMinutes(30), 4.711, -74.032, null),
             ]);
-    }
-
-    private sealed class FakeFleetQueryService : IFleetQueryService
-    {
-        public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
-            bool liveOnly = false,
-            bool excludeSimulated = false,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<VehicleLatestStatusResponse>>([]);
-
-        public Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-            string vehicleId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<VehicleLatestStatusResponse?>(null);
     }
 
     private sealed class FakeAlertRepository : IAlertRepository
