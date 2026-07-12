@@ -69,6 +69,8 @@ Las pruebas de integración desactivan paralelismo xUnit por estabilidad del esq
 
 `TelemetryProcessingIntegrationTests` valida idempotencia, alertas y consistencia transaccional contra TimescaleDB real.
 
+FT-004 (read model + paginación): `FleetVehicleStateIntegrationTests`, `FleetPaginationIntegrationTests`, `TelemetryHistoryPaginationIntegrationTests`, `OpsAggregateIntegrationTests` (32 escenarios con TimescaleDB real). Web: `web/src/lib/fleet-pagination.test.ts`.
+
 ## Smoke / k6
 
 ```bash

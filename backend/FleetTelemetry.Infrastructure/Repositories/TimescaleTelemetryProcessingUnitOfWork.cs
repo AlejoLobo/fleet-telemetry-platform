@@ -92,6 +92,45 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 alert.VehicleId);
         }
 
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO fleet_vehicle_state (
+                "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
+                "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource", "UpdatedAt"
+            )
+            VALUES (
+                {telemetryEvent.VehicleId},
+                {telemetryEvent.EventId},
+                {telemetryEvent.DriverId},
+                {telemetryEvent.Timestamp},
+                {telemetryEvent.Latitude},
+                {telemetryEvent.Longitude},
+                {telemetryEvent.SpeedKmh},
+                {telemetryEvent.FuelLevelPercent},
+                {telemetryEvent.BatteryPercent},
+                {telemetryEvent.LocationSource},
+                {processedAt}
+            )
+            ON CONFLICT ("VehicleId") DO UPDATE
+            SET
+                "LastEventId" = EXCLUDED."LastEventId",
+                "DriverId" = EXCLUDED."DriverId",
+                "LastTimestamp" = EXCLUDED."LastTimestamp",
+                "Latitude" = EXCLUDED."Latitude",
+                "Longitude" = EXCLUDED."Longitude",
+                "SpeedKmh" = EXCLUDED."SpeedKmh",
+                "FuelLevelPercent" = EXCLUDED."FuelLevelPercent",
+                "BatteryPercent" = EXCLUDED."BatteryPercent",
+                "LocationSource" = EXCLUDED."LocationSource",
+                "UpdatedAt" = EXCLUDED."UpdatedAt"
+            WHERE EXCLUDED."LastTimestamp" > fleet_vehicle_state."LastTimestamp"
+               OR (
+                   EXCLUDED."LastTimestamp" = fleet_vehicle_state."LastTimestamp"
+                   AND EXCLUDED."LastEventId" > fleet_vehicle_state."LastEventId"
+               );
+            """,
+            cancellationToken);
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

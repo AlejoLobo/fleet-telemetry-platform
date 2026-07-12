@@ -1,7 +1,7 @@
 /** Cliente HTTP para comunicarse con el backend .NET. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
-import { normalizeVehicles } from "@/lib/fleet-normalize";
+import { fetchFleetSnapshot, fetchTelemetrySnapshot } from "@/lib/fleet-pagination";
 
 type LoginResponse = {
   token: string;
@@ -79,19 +79,15 @@ export const apiClient = {
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
-    const data = await fetchJson<VehicleStatus[]>("/api/fleet");
-    return normalizeVehicles(data);
+    const snapshot = await fetchFleetSnapshot();
+    return snapshot.vehicles;
   },
   async fetchAlertsLive(): Promise<FleetAlert[]> {
     return fetchJson<FleetAlert[]>("/api/alerts");
   },
 
   async fetchTelemetryLive(vehicleId: string): Promise<TelemetryEvent[]> {
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    return fetchJson<TelemetryEvent[]>(
-      `/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
-    );
+    return fetchTelemetrySnapshot(vehicleId);
   },
 
   async queryAi(question: string): Promise<AiQueryResponse> {

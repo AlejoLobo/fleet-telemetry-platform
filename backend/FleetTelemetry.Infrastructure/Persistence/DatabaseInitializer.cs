@@ -187,6 +187,105 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp_event
+            ON telemetry_events ("VehicleId", "Timestamp" DESC, "EventId" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_vehicle_state (
+                "VehicleId" character varying(64) NOT NULL,
+                "LastEventId" uuid NOT NULL,
+                "DriverId" character varying(64),
+                "LastTimestamp" timestamp with time zone NOT NULL,
+                "Latitude" double precision NOT NULL,
+                "Longitude" double precision NOT NULL,
+                "SpeedKmh" double precision NOT NULL,
+                "FuelLevelPercent" double precision,
+                "BatteryPercent" double precision,
+                "LocationSource" character varying(16) NOT NULL DEFAULT 'gps',
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_vehicle_state" PRIMARY KEY ("VehicleId")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp
+            ON fleet_vehicle_state ("LastTimestamp" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_location_source_timestamp
+            ON fleet_vehicle_state ("LocationSource", "LastTimestamp" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+            VALUES (2, NOW(), 'fleet_vehicle_state read model with deterministic backfill')
+            ON CONFLICT ("Version") DO NOTHING;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            INSERT INTO fleet_vehicle_state (
+                "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
+                "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource", "UpdatedAt"
+            )
+            SELECT
+                latest."VehicleId",
+                latest."EventId",
+                latest."DriverId",
+                latest."Timestamp",
+                latest."Latitude",
+                latest."Longitude",
+                latest."SpeedKmh",
+                latest."FuelLevelPercent",
+                latest."BatteryPercent",
+                latest."LocationSource",
+                NOW()
+            FROM (
+                SELECT DISTINCT ON ("VehicleId")
+                    "EventId", "VehicleId", "DriverId", "Timestamp", "Latitude", "Longitude",
+                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource"
+                FROM telemetry_events
+                ORDER BY "VehicleId", "Timestamp" DESC, "EventId" DESC
+            ) AS latest
+            ON CONFLICT ("VehicleId") DO UPDATE
+            SET
+                "LastEventId" = EXCLUDED."LastEventId",
+                "DriverId" = EXCLUDED."DriverId",
+                "LastTimestamp" = EXCLUDED."LastTimestamp",
+                "Latitude" = EXCLUDED."Latitude",
+                "Longitude" = EXCLUDED."Longitude",
+                "SpeedKmh" = EXCLUDED."SpeedKmh",
+                "FuelLevelPercent" = EXCLUDED."FuelLevelPercent",
+                "BatteryPercent" = EXCLUDED."BatteryPercent",
+                "LocationSource" = EXCLUDED."LocationSource",
+                "UpdatedAt" = EXCLUDED."UpdatedAt"
+            WHERE EXCLUDED."LastTimestamp" > fleet_vehicle_state."LastTimestamp"
+               OR (
+                   EXCLUDED."LastTimestamp" = fleet_vehicle_state."LastTimestamp"
+                   AND EXCLUDED."LastEventId" > fleet_vehicle_state."LastEventId"
+               );
+            """,
+            cancellationToken);
+
         logger.LogInformation("TimescaleDB schema initialized successfully.");
     }
 
