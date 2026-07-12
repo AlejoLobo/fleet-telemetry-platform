@@ -50,6 +50,9 @@ public static class DatabaseInitializer
                     migrationHooks,
                     v2AppliedNow,
                     cancellationToken);
+                await using var ensureTransaction = await connection.BeginTransactionAsync(cancellationToken);
+                await EnsureFleetVehicleStateSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await ensureTransaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -235,14 +238,6 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await ExecuteSqlAsync(
-            connection,
-            """
-            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
-            ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
-            """,
-            cancellationToken);
-
         logger.LogInformation("TimescaleDB base schema initialized successfully.");
     }
 
@@ -388,6 +383,15 @@ public static class DatabaseInitializer
             """
             CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_location_source_timestamp
             ON fleet_vehicle_state ("LocationSource", "LastTimestamp" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
+            ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
             """,
             cancellationToken);
     }
