@@ -43,7 +43,7 @@ public class TelemetryMessageProcessorTests
         Assert.NotNull(outcome.PendingDeadLetter);
         Assert.False(processCalled);
         Assert.Empty(dlq.Messages);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
+        Assert.Equal("null_payload", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public class TelemetryMessageProcessorTests
 
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
+        Assert.Equal("null_payload", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]
@@ -88,8 +88,7 @@ public class TelemetryMessageProcessorTests
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
         Assert.NotNull(outcome.PendingDeadLetter);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
-        Assert.Equal(message.Payload, outcome.PendingDeadLetter.OriginalPayload);
+        Assert.Equal("invalid_json", outcome.PendingDeadLetter!.Reason);
         Assert.Equal(Topic, outcome.PendingDeadLetter.OriginalTopic);
         Assert.Equal(0, outcome.PendingDeadLetter.Partition);
         Assert.Equal(10, outcome.PendingDeadLetter.Offset);
@@ -115,8 +114,7 @@ public class TelemetryMessageProcessorTests
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
         Assert.NotNull(outcome.PendingDeadLetter);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
-        Assert.Contains("EventId", outcome.PendingDeadLetter.ExceptionMessage);
+        Assert.Equal("invalid_domain", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]

@@ -104,7 +104,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
     {
         var headers = new Headers
         {
-            { "schema-version", BitConverter.GetBytes(TelemetryEventEnvelope.CurrentSchemaVersion) },
+            { "schema-version", BitConverter.GetBytes(TelemetryEventEnvelopeV1.SupportedSchemaVersion) },
             { "event-id", telemetryEvent.EventId.ToByteArray() },
             { "correlation-id", telemetryEvent.EventId.ToByteArray() }
         };
