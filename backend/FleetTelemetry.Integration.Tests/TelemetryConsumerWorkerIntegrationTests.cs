@@ -138,7 +138,7 @@ public class TelemetryConsumerWorkerIntegrationTests
             host.DeadLetterTopic,
             TimeSpan.FromSeconds(30));
 
-        AssertDlqMessage(dlqResult, host.Topic, payload, "invalid_payload");
+        AssertDlqMessage(dlqResult, host.Topic, payload, "invalid_json");
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, expectedOffset: 1, TimeSpan.FromSeconds(15));
     }
 
@@ -164,7 +164,7 @@ public class TelemetryConsumerWorkerIntegrationTests
             host.DeadLetterTopic,
             TimeSpan.FromSeconds(30));
 
-        AssertDlqMessage(dlqResult, host.Topic, payload, "invalid_payload");
+        AssertDlqMessage(dlqResult, host.Topic, payload, "null_payload");
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, expectedOffset: 1, TimeSpan.FromSeconds(15));
     }
 

@@ -105,6 +105,9 @@ export default function DashboardPage() {
     telemetry,
 
     analytics,
+    globalAnalytics,
+    selectedAnalytics,
+    telemetryLoading,
 
     loading,
 
@@ -377,7 +380,11 @@ export default function DashboardPage() {
 
         <section className="animate-fade-up">
 
-          <KpiGrid analytics={analytics} />
+          <KpiGrid
+            globalAnalytics={globalAnalytics}
+            selectedAnalytics={selectedAnalytics}
+            telemetryLoading={telemetryLoading}
+          />
 
         </section>
 
