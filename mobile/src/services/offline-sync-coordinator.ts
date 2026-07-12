@@ -176,11 +176,20 @@ async function syncBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumul
   }
 }
 
+async function markIndividualPayloadTooLarge(
+  eventId: string,
+  resolvedIds: Set<string>,
+  accumulator: SyncAccumulator,
+): Promise<void> {
+  await markEventPermanentFailure(eventId, "Payload demasiado grande");
+  resolvedIds.add(eventId);
+  accumulator.permanentFailures += 1;
+  accumulator.failed += 1;
+}
+
 async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
   if (batch.length === 1) {
-    await markEventPermanentFailure(batch[0].eventId, "Payload demasiado grande");
-    accumulator.permanentFailures += 1;
-    accumulator.failed += 1;
+    await markIndividualPayloadTooLarge(batch[0].eventId, new Set(), accumulator);
     return { stop: false };
   }
 
@@ -218,6 +227,11 @@ async function isolateValidationBatch(batch: QueuedTelemetryEvent[], accumulator
         resolvedIds.add(item.eventId);
         accumulator.permanentFailures += 1;
         accumulator.failed += 1;
+        continue;
+      }
+
+      if (classification.action === "split_payload") {
+        await markIndividualPayloadTooLarge(item.eventId, resolvedIds, accumulator);
         continue;
       }
 
