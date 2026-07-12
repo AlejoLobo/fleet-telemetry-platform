@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { enqueueEvent, countPendingEvents } from "@/db/offline-queue";
 import { getCurrentReading, runCaptureLoop } from "@/services/location-provider";
 import { syncPendingQueue } from "@/services/offline-sync-coordinator";
+import { runSyncResumeEffect } from "@/services/sync-resume-policy";
 import { generateEventId } from "@/utils/id";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { LocationReading, SyncResult } from "@/types/telemetry";
@@ -9,6 +10,7 @@ import type { LocationReading, SyncResult } from "@/types/telemetry";
 export function useDriverTelemetry(vehicleId: string, driverId: string, canSync: boolean) {
   const { isOnline, status: networkStatus } = useNetworkStatus();
   const trackingRef = useRef(false);
+  const previousCanSyncRef = useRef(canSync);
   const [state, setState] = useState({
     tracking: false,
     pendingCount: 0,
@@ -46,7 +48,7 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
     await refreshPendingCount();
     setState((p) => ({ ...p, lastSync: result, error: null }));
     return result;
-  }, [isOnline, canSync, refreshPendingCount]);
+  }, [isOnline, refreshPendingCount]);
 
   const stopTracking = useCallback(() => {
     trackingRef.current = false;
@@ -84,7 +86,13 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
   }, [refreshPendingCount]);
 
   useEffect(() => {
-    if (isOnline && canSync) syncNow().catch(() => undefined);
+    const resume = runSyncResumeEffect(
+      previousCanSyncRef.current,
+      canSync,
+      isOnline,
+      () => syncNow(),
+    );
+    previousCanSyncRef.current = resume.nextPreviousCanSync;
   }, [isOnline, canSync, syncNow]);
 
   useEffect(() => () => {

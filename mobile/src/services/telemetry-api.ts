@@ -1,6 +1,7 @@
 import { getApiBaseUrl } from "@/config/env";
-import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { parseExpiration } from "@/services/auth-expiration";
 import { handleSessionExpiredBeforeRequest } from "@/services/auth-service";
+import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
 import type { TelemetryEventPayload } from "@/types/telemetry";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -70,7 +71,8 @@ async function ensureTelemetryTransportReady(): Promise<Record<string, string>> 
     throw new TelemetryApiError(401, "auth_required", "Autenticación requerida");
   }
 
-  if (auth.expiresAtIso && new Date(auth.expiresAtIso).getTime() <= Date.now()) {
+  const expiration = parseExpiration(auth.expiresAtIso);
+  if (!expiration.valid) {
     await handleSessionExpiredBeforeRequest();
     throw new TelemetryApiError(401, "auth_required", "Sesión vencida");
   }

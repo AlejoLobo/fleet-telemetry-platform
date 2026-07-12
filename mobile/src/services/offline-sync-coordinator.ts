@@ -31,6 +31,13 @@ type SyncAccumulator = {
   retryAt?: string;
 };
 
+type StepOutcome = {
+  stop: boolean;
+  classification?: SyncErrorClassification;
+  error?: unknown;
+  retryAt?: string;
+};
+
 function emptyAccumulator(status: SyncStatus = "completed"): SyncAccumulator {
   return { synced: 0, failed: 0, retried: 0, permanentFailures: 0, status };
 }
@@ -113,7 +120,43 @@ async function runSync(batchSize: number): Promise<SyncResult> {
   return toSyncResult(accumulator, await countPendingEvents());
 }
 
-type StepOutcome = { stop: boolean };
+function buildStoppedOutcome(
+  classification: SyncErrorClassification,
+  error: unknown,
+  retryAt?: string,
+): StepOutcome {
+  return { stop: true, classification, error, retryAt };
+}
+
+async function resolveUnvisitedSiblings(
+  unvisited: QueuedTelemetryEvent[],
+  stoppingOutcome: StepOutcome,
+  accumulator: SyncAccumulator,
+): Promise<StepOutcome> {
+  if (!unvisited.length) {
+    return stoppingOutcome;
+  }
+
+  if (!stoppingOutcome.classification || stoppingOutcome.error === undefined) {
+    await releaseClaimedEvents(
+      unvisited.map((item) => item.eventId),
+      "Error de sincronización",
+    );
+    accumulator.status = accumulator.status === "completed" ? "failed" : accumulator.status;
+    return buildStoppedOutcome(
+      { action: "stop_unexpected", category: "protocol", status: 0 },
+      stoppingOutcome.error ?? new Error("Error de sincronización"),
+      stoppingOutcome.retryAt,
+    );
+  }
+
+  return handleGlobalBatchFailure(
+    unvisited,
+    stoppingOutcome.classification,
+    stoppingOutcome.error,
+    accumulator,
+  );
+}
 
 async function syncBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
   try {
@@ -142,9 +185,20 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
   }
 
   const midpoint = Math.ceil(batch.length / 2);
-  const first = await syncBatch(batch.slice(0, midpoint), accumulator);
-  if (first.stop) return first;
-  return syncBatch(batch.slice(midpoint), accumulator);
+  const firstHalf = batch.slice(0, midpoint);
+  const secondHalf = batch.slice(midpoint);
+
+  const firstOutcome = await syncBatch(firstHalf, accumulator);
+  if (firstOutcome.stop) {
+    return resolveUnvisitedSiblings(secondHalf, firstOutcome, accumulator);
+  }
+
+  const secondOutcome = await syncBatch(secondHalf, accumulator);
+  if (secondOutcome.stop) {
+    return secondOutcome;
+  }
+
+  return { stop: false };
 }
 
 async function isolateValidationBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
@@ -181,7 +235,7 @@ async function handleGlobalBatchFailure(
   error: unknown,
   accumulator: SyncAccumulator,
 ): Promise<StepOutcome> {
-  if (!batch.length) return { stop: true };
+  if (!batch.length) return { stop: true, classification, error };
 
   const eventIds = batch.map((item) => item.eventId);
   const message = sanitizeError(error);
@@ -190,26 +244,26 @@ async function handleGlobalBatchFailure(
     await releaseClaimedEvents(eventIds, message);
     await handleUnauthorizedFromApi();
     accumulator.status = "auth_required";
-    return { stop: true };
+    return buildStoppedOutcome(classification, error);
   }
 
   if (classification.action === "stop_forbidden") {
     await releaseClaimedEvents(eventIds, message);
     markForbiddenFromApi(message);
     accumulator.status = "forbidden";
-    return { stop: true };
+    return buildStoppedOutcome(classification, error);
   }
 
   if (classification.action === "stop_configuration") {
     await releaseClaimedEvents(eventIds, message);
     accumulator.status = "configuration_error";
-    return { stop: true };
+    return buildStoppedOutcome(classification, error);
   }
 
   if (classification.action === "stop_unexpected") {
     await releaseClaimedEvents(eventIds, message);
     accumulator.status = "failed";
-    return { stop: true };
+    return buildStoppedOutcome(classification, error);
   }
 
   if (classification.action === "stop_transient") {
@@ -217,12 +271,12 @@ async function handleGlobalBatchFailure(
     accumulator.retried += batch.length;
     accumulator.status = "deferred";
     accumulator.retryAt = retryAt;
-    return { stop: true };
+    return buildStoppedOutcome(classification, error, retryAt);
   }
 
   await releaseClaimedEvents(eventIds, message);
   accumulator.status = "failed";
-  return { stop: true };
+  return buildStoppedOutcome(classification, error);
 }
 
 async function markTransientBatchRetry(
@@ -252,10 +306,7 @@ async function syncSingleEvent(item: QueuedTelemetryEvent, accumulator: SyncAccu
       return { stop: false };
     }
     if (classification.action === "split_payload") {
-      await markEventPermanentFailure(item.eventId, "Payload demasiado grande");
-      accumulator.permanentFailures += 1;
-      accumulator.failed += 1;
-      return { stop: false };
+      return splitAndSendBatch([item], accumulator);
     }
     return handleGlobalBatchFailure([item], classification, error, accumulator);
   }
