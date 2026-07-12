@@ -226,6 +226,268 @@ public class TelemetryEnvelopeIntegrationTests
         Assert.True(committed is null or < 0);
     }
 
+    [Fact]
+    public async Task Envelope_con_occurredAt_contradictorio_no_persiste_y_dlq_invalid_envelope()
+    {
+        await using var database = new IntegrationTestDatabase();
+        await database.InitializeAsync();
+
+        var topic = _kafka.NewTopicName("envelope-occurred-at");
+        var dlqTopic = _kafka.NewTopicName("envelope-occurred-at-dlq");
+        var group = _kafka.NewGroupId("envelope-occurred-at-group");
+        await _kafka.CreateTopicAsync(topic);
+        await _kafka.CreateTopicAsync(dlqTopic);
+
+        try
+        {
+            var original = CreateSampleEvent();
+            const string contradictoryEnvelope = """
+                {
+                  "schemaVersion": 1,
+                  "eventType": "fleet.telemetry.received",
+                  "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                  "occurredAt": "2026-07-12T08:30:00Z",
+                  "payload": {
+                    "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "vehicleId": "VH-ENV",
+                    "driverId": "DRV-ENV",
+                    "timestamp": "2026-07-12T09:00:00Z",
+                    "latitude": 4.71,
+                    "longitude": -74.07,
+                    "speedKmh": 55.5,
+                    "fuelLevelPercent": 60.0,
+                    "batteryPercent": 75.0
+                  }
+                }
+                """;
+
+            await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "envelope-occurred-at-host",
+                "envelope-occurred-at-host-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConnectionString = database.ConnectionString,
+                    UseRealTimescaleProcessing = true,
+                    UseProductionDeadLetterPublisher = true,
+                    UseEventEnvelope = true
+                });
+
+            await host.StartAsync();
+            Produce(topic, contradictoryEnvelope, original.VehicleId, _kafka.BootstrapServers);
+            await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
+
+            using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
+            var dlqMessage = ConsumeOne(dlqConsumer, TimeSpan.FromSeconds(30));
+            Assert.NotNull(dlqMessage);
+
+            var dlqJson = KafkaDlqTestHelper.ParseDlqPayload(dlqMessage!.Message.Value!);
+            Assert.Equal("invalid_envelope", dlqJson.GetProperty("reason").GetString());
+
+            using var scope = CreateDbScope(database.ConnectionString);
+            var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
+            var contradictoryEventId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.EventId == contradictoryEventId));
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
+    }
+
+    [Fact]
+    public async Task Envelope_sin_metadata_obligatoria_no_persiste_y_dlq_invalid_envelope()
+    {
+        await using var database = new IntegrationTestDatabase();
+        await database.InitializeAsync();
+
+        var topic = _kafka.NewTopicName("envelope-missing-meta");
+        var dlqTopic = _kafka.NewTopicName("envelope-missing-meta-dlq");
+        var group = _kafka.NewGroupId("envelope-missing-meta-group");
+        await _kafka.CreateTopicAsync(topic);
+        await _kafka.CreateTopicAsync(dlqTopic);
+
+        try
+        {
+            const string missingMetadataEnvelope = """
+                {
+                  "schemaVersion": 1,
+                  "eventType": "fleet.telemetry.received",
+                  "occurredAt": "2026-07-12T08:30:00Z",
+                  "payload": {
+                    "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "vehicleId": "VH-ENV",
+                    "driverId": "DRV-ENV",
+                    "timestamp": "2026-07-12T08:30:00Z",
+                    "latitude": 4.71,
+                    "longitude": -74.07,
+                    "speedKmh": 55.5,
+                    "fuelLevelPercent": 60.0,
+                    "batteryPercent": 75.0
+                  }
+                }
+                """;
+
+            await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "envelope-missing-meta-host",
+                "envelope-missing-meta-host-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConnectionString = database.ConnectionString,
+                    UseRealTimescaleProcessing = true,
+                    UseProductionDeadLetterPublisher = true,
+                    UseEventEnvelope = true
+                });
+
+            await host.StartAsync();
+            Produce(topic, missingMetadataEnvelope, key: null, _kafka.BootstrapServers);
+            await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
+
+            using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
+            var dlqMessage = ConsumeOne(dlqConsumer, TimeSpan.FromSeconds(30));
+            Assert.NotNull(dlqMessage);
+
+            var dlqJson = KafkaDlqTestHelper.ParseDlqPayload(dlqMessage!.Message.Value!);
+            Assert.Equal("invalid_envelope", dlqJson.GetProperty("reason").GetString());
+
+            using var scope = CreateDbScope(database.ConnectionString);
+            var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
+            var contradictoryEventId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.EventId == contradictoryEventId));
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
+    }
+
+    [Fact]
+    public async Task SchemaVersion_futura_con_payload_incompatible_dlq_unsupported_schema_version()
+    {
+        await using var database = new IntegrationTestDatabase();
+        await database.InitializeAsync();
+
+        var topic = _kafka.NewTopicName("envelope-v2");
+        var dlqTopic = _kafka.NewTopicName("envelope-v2-dlq");
+        var group = _kafka.NewGroupId("envelope-v2-group");
+        await _kafka.CreateTopicAsync(topic);
+        await _kafka.CreateTopicAsync(dlqTopic);
+
+        try
+        {
+            const string futureVersionEnvelope = """
+                {
+                  "schemaVersion": 2,
+                  "eventType": "fleet.telemetry.received.v2",
+                  "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                  "occurredAt": "2026-07-12T08:30:00Z",
+                  "payload": {
+                    "telemetry": {
+                      "vehicleRef": "VH-ENV",
+                      "coords": [4.71, -74.07]
+                    }
+                  }
+                }
+                """;
+
+            await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "envelope-v2-host",
+                "envelope-v2-host-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConnectionString = database.ConnectionString,
+                    UseRealTimescaleProcessing = true,
+                    UseProductionDeadLetterPublisher = true,
+                    UseEventEnvelope = true
+                });
+
+            await host.StartAsync();
+            Produce(topic, futureVersionEnvelope, key: null, _kafka.BootstrapServers);
+            await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
+
+            using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
+            var dlqMessage = ConsumeOne(dlqConsumer, TimeSpan.FromSeconds(30));
+            Assert.NotNull(dlqMessage);
+
+            var dlqJson = KafkaDlqTestHelper.ParseDlqPayload(dlqMessage!.Message.Value!);
+            Assert.Equal("unsupported_schema_version", dlqJson.GetProperty("reason").GetString());
+
+            using var scope = CreateDbScope(database.ConnectionString);
+            var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
+            var futureVersionEventId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.EventId == futureVersionEventId));
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
+    }
+
+    [Fact]
+    public async Task Legacy_con_schemaVersion_agregado_dlq_invalid_envelope_cuando_use_event_envelope_false()
+    {
+        await using var database = new IntegrationTestDatabase();
+        await database.InitializeAsync();
+
+        var topic = _kafka.NewTopicName("legacy-reserved");
+        var dlqTopic = _kafka.NewTopicName("legacy-reserved-dlq");
+        var group = _kafka.NewGroupId("legacy-reserved-group");
+        await _kafka.CreateTopicAsync(topic);
+        await _kafka.CreateTopicAsync(dlqTopic);
+
+        try
+        {
+            var original = CreateSampleEvent();
+            var legacyWithReserved = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: false);
+            legacyWithReserved = legacyWithReserved.TrimEnd('}') + ",\"schemaVersion\":1}";
+
+            await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
+                _kafka,
+                "legacy-reserved-host",
+                "legacy-reserved-host-group",
+                new TelemetryConsumerWorkerHostOptions
+                {
+                    ExistingTopic = topic,
+                    ExistingDeadLetterTopic = dlqTopic,
+                    ExistingGroupId = group,
+                    ConnectionString = database.ConnectionString,
+                    UseRealTimescaleProcessing = true,
+                    UseProductionDeadLetterPublisher = true,
+                    UseEventEnvelope = false
+                });
+
+            await host.StartAsync();
+            Produce(topic, legacyWithReserved, original.VehicleId, _kafka.BootstrapServers);
+            await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
+
+            using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
+            var dlqMessage = ConsumeOne(dlqConsumer, TimeSpan.FromSeconds(30));
+            Assert.NotNull(dlqMessage);
+
+            var dlqJson = KafkaDlqTestHelper.ParseDlqPayload(dlqMessage!.Message.Value!);
+            Assert.Equal("invalid_envelope", dlqJson.GetProperty("reason").GetString());
+
+            using var scope = CreateDbScope(database.ConnectionString);
+            var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
+            Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.EventId == original.EventId));
+        }
+        finally
+        {
+            await _kafka.DeleteTrackedTopicsAsync(topic, dlqTopic);
+        }
+    }
+
     private static TelemetryEvent CreateSampleEvent(Guid? eventId = null)
     {
         return TelemetryEvent.Create(
