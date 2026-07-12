@@ -47,22 +47,32 @@ public class TelemetryMessageProcessor
             _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
-                reason: "invalid_payload",
+                reason: "null_payload",
                 exceptionMessage: "Payload nulo, vacío o whitespace.");
         }
 
         TelemetryEvent telemetryEvent;
         try
         {
-            telemetryEvent = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            telemetryEvent = TelemetryEventJsonSerializer.Deserialize(
+                message.Payload,
+                _kafkaOptions.UseEventEnvelope);
             TelemetryDomainEventValidator.Validate(telemetryEvent);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
+        catch (TelemetryKafkaContractException ex)
         {
             _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
-                reason: "invalid_payload",
+                reason: ex.ErrorCode,
+                exceptionMessage: ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            _metrics.TelemetryInvalidTotal.Add(1);
+            return TerminalDeadLetterOutcome(
+                message,
+                reason: "invalid_domain",
                 exceptionMessage: ex.Message);
         }
 
@@ -203,6 +213,8 @@ public class TelemetryMessageProcessor
     {
         var category = reason switch
         {
+            "invalid_json" or "null_payload" or "invalid_envelope" or "unknown_event_type" or "invalid_domain" => "validation",
+            "unsupported_schema_version" => "contract",
             "invalid_payload" => "validation",
             "processing_failure" => "processing",
             _ => "unknown"
@@ -211,12 +223,34 @@ public class TelemetryMessageProcessor
         Guid? correlationId = null;
         try
         {
-            var parsed = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            var parsed = TelemetryEventJsonSerializer.Deserialize(
+                message.Payload,
+                useEventEnvelope: false);
             correlationId = parsed.EventId;
         }
         catch
         {
-            // Payload inválido: no hay correlationId confiable.
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(message.Payload);
+                if (doc.RootElement.TryGetProperty("eventId", out var eventIdProp)
+                    && eventIdProp.ValueKind == System.Text.Json.JsonValueKind.String
+                    && Guid.TryParse(eventIdProp.GetString(), out var envelopeEventId))
+                {
+                    correlationId = envelopeEventId;
+                }
+                else if (doc.RootElement.TryGetProperty("payload", out var payloadProp)
+                         && payloadProp.TryGetProperty("eventId", out var nestedEventId)
+                         && nestedEventId.ValueKind == System.Text.Json.JsonValueKind.String
+                         && Guid.TryParse(nestedEventId.GetString(), out var payloadEventId))
+                {
+                    correlationId = payloadEventId;
+                }
+            }
+            catch
+            {
+                // Payload inválido: no hay correlationId confiable.
+            }
         }
 
         var sanitizedDetail = SanitizeTechnicalDetail(exceptionMessage);
