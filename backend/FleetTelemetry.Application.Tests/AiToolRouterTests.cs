@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Tests.TestHelpers;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
@@ -80,7 +81,10 @@ public class AiToolRouterTests
     private static AiToolRouter CreateRouter()
     {
         var tools = new AiOperationalTools(
-            new FakeFleetQueryService(),
+            new TestHelpers.FakeFleetQueryService(
+            [
+                new("VH-001", "Vehículo 1", "online", DateTimeOffset.UtcNow, 0, 4.65, -74.08, 90)
+            ]),
             new FakeOperationalQueryService(),
             new FakeAlertRepository(),
             new FakeAnalyticsQueryService());
@@ -95,23 +99,6 @@ public class AiToolRouterTests
             double stoppedSpeedThresholdKmh = 1,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<StoppedVehicleStatusDto>>([]);
-    }
-
-    private sealed class FakeFleetQueryService : IFleetQueryService
-    {
-        public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
-            bool liveOnly = false,
-            bool excludeSimulated = false,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<VehicleLatestStatusResponse>>(
-            [
-                new("VH-001", "Vehículo 1", "online", DateTimeOffset.UtcNow, 0, 4.65, -74.08, 90)
-            ]);
-
-        public Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-            string vehicleId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<VehicleLatestStatusResponse?>(null);
     }
 
     private sealed class FakeAlertRepository : IAlertRepository

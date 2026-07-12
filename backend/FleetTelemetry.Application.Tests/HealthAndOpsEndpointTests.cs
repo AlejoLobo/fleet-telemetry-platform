@@ -1,7 +1,7 @@
 using FleetTelemetry.Api.Controllers;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
-using FleetTelemetry.Domain.Entities;
+using FleetTelemetry.Application.Tests.TestHelpers;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
@@ -59,20 +59,16 @@ public class HealthAndOpsEndpointTests
     [Fact]
     public async Task Ops_summary_returns_expected_fields()
     {
-        var fleet = new FakeFleetQueryService([
-            new VehicleLatestStatusResponse("VH-001", "VH-001", "online", DateTimeOffset.UtcNow, 40, 4.6, -74.0, null),
-            new VehicleLatestStatusResponse("VH-002", "VH-002", "offline", DateTimeOffset.UtcNow.AddHours(-1), 0, 4.7, -74.1, null)
-        ]);
-        var alerts = new FakeAlertRepository([
-            FleetAlert.Create(Guid.NewGuid(), "VH-001", "overspeed", "critical", "x", DateTimeOffset.UtcNow),
-            FleetAlert.Create(Guid.NewGuid(), "VH-002", "low_fuel", "warning", "y", DateTimeOffset.UtcNow)
-        ]);
+        var fleet = new FakeFleetStateAggregateRepository(
+            new FleetAggregateSnapshot(2, 1, DateTimeOffset.UtcNow),
+            criticalAlerts: 1);
         var kafka = Options.Create(new KafkaOptions
         {
             TelemetryTopic = "telemetry.raw",
             DeadLetterTopic = "telemetry.dead-letter"
         });
-        var service = new OpsQueryService(fleet, alerts, kafka);
+        var sse = Options.Create(new SseOptions { Mode = SseDeliveryMode.Polling });
+        var service = new OpsQueryService(fleet, kafka, sse);
         var controller = new OpsController(service);
 
         var result = await controller.Summary(CancellationToken.None);
@@ -103,45 +99,5 @@ public class HealthAndOpsEndpointTests
                 Timestamp: DateTimeOffset.UtcNow,
                 Checks: checks));
         }
-    }
-
-    private sealed class FakeFleetQueryService(IReadOnlyList<VehicleLatestStatusResponse> vehicles) : IFleetQueryService
-    {
-        public Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
-            bool liveOnly = false,
-            bool excludeSimulated = false,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(vehicles);
-
-        public Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-            string vehicleId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(vehicles.FirstOrDefault(v => v.VehicleId == vehicleId));
-    }
-
-    private sealed class FakeAlertRepository(IReadOnlyList<FleetAlert> alerts) : IAlertRepository
-    {
-        public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(alerts);
-
-        public Task<IReadOnlyList<FleetAlert>> GetOpenAlertsAfterCursorAsync(
-            AlertStreamCursor cursor,
-            DateTimeOffset upperBound,
-            int limit,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<FleetAlert>>(alerts
-                .Where(a => !a.IsAcknowledged && a.CreatedAt <= upperBound)
-                .Where(a => a.CreatedAt > cursor.CreatedAt
-                    || (a.CreatedAt == cursor.CreatedAt && a.AlertId.CompareTo(cursor.AlertId) > 0))
-                .OrderBy(a => a.CreatedAt)
-                .ThenBy(a => a.AlertId)
-                .Take(limit)
-                .ToList());
-
-        public Task<bool> AcknowledgeAsync(Guid alertId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(true);
-
-        public Task SaveAsync(FleetAlert alert, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
     }
 }

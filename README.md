@@ -60,7 +60,7 @@ Solo infra (API/Worker/Web en host): `docker compose up -d`. Guía completa: [do
 | `GET` | `/health/ready` | Readiness (DB + Kafka) |
 | `GET` | `/api/ops/summary` | Resumen operativo |
 | `POST` | `/api/telemetry` | Ingesta → Kafka (`202`) |
-| `GET` | `/api/fleet` | Estado de flota |
+| `GET` | `/api/fleet` | Estado de flota (paginado por cursor) |
 | `GET` | `/api/alerts` | Alertas abiertas |
 | `GET` | `/api/events/stream` | SSE |
 | `POST` | `/api/ai/query` | Agente IA |
