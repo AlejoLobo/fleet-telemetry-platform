@@ -1,14 +1,18 @@
 // Estado de autenticación compartido sin dependencias React (consumido por telemetry-api).
 
+export type AuthRuntimeMode = "unknown" | "disabled" | "enabled";
+
 export type AuthRuntimeSnapshot = {
-  enabled: boolean;
+  mode: AuthRuntimeMode;
   token: string | null;
+  expiresAtIso: string | null;
   tokenExpired: boolean;
 };
 
 let snapshot: AuthRuntimeSnapshot = {
-  enabled: false,
+  mode: "unknown",
   token: null,
+  expiresAtIso: null,
   tokenExpired: false,
 };
 
@@ -21,5 +25,5 @@ export function setAuthRuntimeSnapshot(next: AuthRuntimeSnapshot): void {
 }
 
 export function resetAuthRuntimeForTests(): void {
-  snapshot = { enabled: false, token: null, tokenExpired: false };
+  snapshot = { mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false };
 }

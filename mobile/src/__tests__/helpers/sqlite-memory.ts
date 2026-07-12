@@ -22,14 +22,20 @@ type QueueRow = {
 
 let rows: QueueRow[] = [];
 let nextLocalId = 1;
+let failNextBatchRetry = false;
 
 export function resetSqliteMemory(): void {
   rows = [];
   nextLocalId = 1;
+  failNextBatchRetry = false;
 }
 
 export function getSqliteRows(): QueueRow[] {
   return rows;
+}
+
+export function setFailNextBatchRetry(value: boolean): void {
+  failNextBatchRetry = value;
 }
 
 function findByEventId(eventId: string): QueueRow | undefined {
@@ -40,14 +46,33 @@ function findByLocalId(localId: number): QueueRow | undefined {
   return rows.find((row) => row.local_id === localId);
 }
 
+function updateProcessingByEventIds(
+  eventIds: string[],
+  updater: (row: QueueRow) => void,
+): number {
+  let changes = 0;
+  eventIds.forEach((eventId) => {
+    const row = findByEventId(eventId);
+    if (row && row.status === "processing") {
+      updater(row);
+      changes += 1;
+    }
+  });
+  return changes;
+}
+
 export function createSqliteMemoryDb() {
   return {
     execAsync: jest.fn(async () => undefined),
-    getFirstAsync: jest.fn(async (sql: string) => {
+    getFirstAsync: jest.fn(async (sql: string, eventId?: string) => {
       if (sql.includes("schema_meta")) return null;
       if (sql.includes("COUNT(*)")) {
         const count = rows.filter((row) => ["pending", "retry", "processing"].includes(row.status)).length;
         return { count };
+      }
+      if (sql.includes("event_id = ?") && eventId) {
+        const row = findByEventId(eventId);
+        return row ? (row as unknown as Record<string, unknown>) : null;
       }
       return null;
     }),
@@ -86,7 +111,7 @@ export function createSqliteMemoryDb() {
         return { lastInsertRowId: row.local_id, changes: 1 };
       }
 
-      if (sql.includes("status='processing'")) {
+      if (sql.includes("status='processing'") && sql.includes("local_id IN")) {
         const nowIso = params[0] as string;
         const ids = params.slice(1) as number[];
         ids.forEach((id) => {
@@ -102,67 +127,43 @@ export function createSqliteMemoryDb() {
       if (sql.includes("status='synced'")) {
         const syncedAt = params[0] as string;
         const eventIds = params.slice(1) as string[];
-        eventIds.forEach((eventId) => {
-          const row = findByEventId(eventId);
-          if (row) {
-            row.status = "synced";
-            row.synced_at = syncedAt;
-            row.locked_at = null;
-            row.last_error = null;
-          }
+        const changes = updateProcessingByEventIds(eventIds, (row) => {
+          row.status = "synced";
+          row.synced_at = syncedAt;
+          row.locked_at = null;
+          row.last_error = null;
         });
-        return { changes: eventIds.length };
+        return { changes };
       }
 
       if (sql.includes("status='permanent_failure'")) {
         const lastAttemptAt = params[0] as string;
         const lastError = params[1] as string;
         const eventId = params[2] as string;
-        const row = findByEventId(eventId);
-        if (row) {
+        const changes = updateProcessingByEventIds([eventId], (row) => {
           row.status = "permanent_failure";
           row.last_attempt_at = lastAttemptAt;
           row.last_error = lastError;
           row.locked_at = null;
-        }
-        return { changes: 1 };
-      }
-
-      if (sql.includes("status='retry'") && sql.includes("retry_count=?")) {
-        const retryCount = params[0] as number;
-        const nextAttemptAt = params[1] as string;
-        const lastAttemptAt = params[2] as string;
-        const lastError = params[3] as string;
-        const eventId = params[4] as string;
-        const row = findByEventId(eventId);
-        if (row) {
-          row.status = "retry";
-          row.retry_count = retryCount;
-          row.next_attempt_at = nextAttemptAt;
-          row.last_attempt_at = lastAttemptAt;
-          row.last_error = lastError;
-          row.locked_at = null;
-        }
-        return { changes: 1 };
+        });
+        return { changes };
       }
 
       if (sql.includes("status='retry'") && sql.includes("retry_count=retry_count + 1")) {
+        if (failNextBatchRetry) throw new Error("simulated batch retry failure");
         const nextAttemptAt = params[0] as string;
         const lastAttemptAt = params[1] as string;
         const lastError = params[2] as string;
         const eventIds = params.slice(3) as string[];
-        eventIds.forEach((eventId) => {
-          const row = findByEventId(eventId);
-          if (row) {
-            row.status = "retry";
-            row.retry_count += 1;
-            row.next_attempt_at = nextAttemptAt;
-            row.last_attempt_at = lastAttemptAt;
-            row.last_error = lastError;
-            row.locked_at = null;
-          }
+        const changes = updateProcessingByEventIds(eventIds, (row) => {
+          row.status = "retry";
+          row.retry_count += 1;
+          row.next_attempt_at = nextAttemptAt;
+          row.last_attempt_at = lastAttemptAt;
+          row.last_error = lastError;
+          row.locked_at = null;
         });
-        return { changes: eventIds.length };
+        return { changes };
       }
 
       if (sql.includes("status='pending'") && sql.includes("next_attempt_at=?")) {
@@ -170,33 +171,27 @@ export function createSqliteMemoryDb() {
         const lastAttemptAt = params[1] as string;
         const lastError = params[2] as string;
         const eventIds = params.slice(3) as string[];
-        eventIds.forEach((eventId) => {
-          const row = findByEventId(eventId);
-          if (row) {
-            row.status = "pending";
-            row.next_attempt_at = nextAttemptAt;
-            row.last_attempt_at = lastAttemptAt;
-            row.last_error = lastError;
-            row.locked_at = null;
-          }
+        const changes = updateProcessingByEventIds(eventIds, (row) => {
+          row.status = "pending";
+          row.next_attempt_at = nextAttemptAt;
+          row.last_attempt_at = lastAttemptAt;
+          row.last_error = lastError;
+          row.locked_at = null;
         });
-        return { changes: eventIds.length };
+        return { changes };
       }
 
       if (sql.includes("status='pending'") && sql.includes("locked_at=NULL")) {
         const lastAttemptAt = params[0] as string;
         const lastError = (params[1] as string | null) ?? null;
         const eventIds = params.slice(2) as string[];
-        eventIds.forEach((eventId) => {
-          const row = findByEventId(eventId);
-          if (row) {
-            row.status = "pending";
-            row.last_attempt_at = lastAttemptAt;
-            row.last_error = lastError;
-            row.locked_at = null;
-          }
+        const changes = updateProcessingByEventIds(eventIds, (row) => {
+          row.status = "pending";
+          row.last_attempt_at = lastAttemptAt;
+          row.last_error = lastError;
+          row.locked_at = null;
         });
-        return { changes: eventIds.length };
+        return { changes };
       }
 
       if (sql.includes("DELETE FROM telemetry_queue")) {

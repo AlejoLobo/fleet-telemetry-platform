@@ -82,6 +82,12 @@ function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
   };
 }
 
+function logQueueStateConflict(operation: string, expected: number, affected: number): void {
+  if (expected !== affected) {
+    console.warn(`[offline-queue] ${operation}: conflicto de estado (esperado=${expected}, afectado=${affected})`);
+  }
+}
+
 export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" | "simulated" = "gps"): Promise<number> {
   const db = await getDb();
   const result = await db.runAsync(
@@ -126,42 +132,55 @@ export async function claimNextBatch(limit: number, nowIso: string): Promise<Que
   return claimed;
 }
 
-export async function markEventsSynced(eventIds: string[]): Promise<void> {
-  if (!eventIds.length) return;
+export async function markEventsSynced(eventIds: string[]): Promise<number> {
+  if (!eventIds.length) return 0;
   const db = await getDb();
   const now = new Date().toISOString();
-  await db.runAsync(
-    `UPDATE telemetry_queue SET status='synced', synced_at=?, locked_at=NULL, last_error=NULL WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+  const result = await db.runAsync(
+    `UPDATE telemetry_queue SET status='synced', synced_at=?, locked_at=NULL, last_error=NULL
+     WHERE status='processing' AND event_id IN (${eventIds.map(() => "?").join(",")})`,
     now, ...eventIds);
+  logQueueStateConflict("markEventsSynced", eventIds.length, result.changes);
+  return result.changes;
 }
 
-export async function markEventRetry(eventId: string, retryCount: number, nextAttemptAt: string, lastError: string): Promise<void> {
+export async function markEventRetry(eventId: string, retryCount: number, nextAttemptAt: string, lastError: string): Promise<number> {
   const db = await getDb();
-  await db.runAsync(
-    `UPDATE telemetry_queue SET status='retry', retry_count=?, next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL WHERE event_id=?`,
+  const result = await db.runAsync(
+    `UPDATE telemetry_queue SET status='retry', retry_count=?, next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL
+     WHERE status='processing' AND event_id=?`,
     retryCount, nextAttemptAt, new Date().toISOString(), lastError, eventId);
+  logQueueStateConflict("markEventRetry", 1, result.changes);
+  return result.changes;
 }
 
-export async function markEventPermanentFailure(eventId: string, lastError: string): Promise<void> {
+export async function markEventPermanentFailure(eventId: string, lastError: string): Promise<number> {
   const db = await getDb();
-  await db.runAsync(
-    `UPDATE telemetry_queue SET status='permanent_failure', last_attempt_at=?, last_error=?, locked_at=NULL WHERE event_id=?`,
+  const result = await db.runAsync(
+    `UPDATE telemetry_queue SET status='permanent_failure', last_attempt_at=?, last_error=?, locked_at=NULL
+     WHERE status='processing' AND event_id=?`,
     new Date().toISOString(), lastError, eventId);
+  logQueueStateConflict("markEventPermanentFailure", 1, result.changes);
+  return result.changes;
 }
 
-export async function releaseEventsToPending(eventIds: string[], lastError?: string): Promise<void> {
-  if (!eventIds.length) return;
+export async function releaseEventsToPending(eventIds: string[], lastError?: string): Promise<number> {
+  if (!eventIds.length) return 0;
   const db = await getDb();
+  let affected = 0;
   await db.withTransactionAsync(async () => {
-    await db.runAsync(
+    const result = await db.runAsync(
       `UPDATE telemetry_queue
        SET status='pending', locked_at=NULL, last_attempt_at=?, last_error=?
-       WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+       WHERE status='processing' AND event_id IN (${eventIds.map(() => "?").join(",")})`,
       new Date().toISOString(),
       lastError ?? null,
       ...eventIds,
     );
+    affected = result.changes;
   });
+  logQueueStateConflict("releaseEventsToPending", eventIds.length, affected);
+  return affected;
 }
 
 export async function markBatchRetry(
@@ -169,37 +188,60 @@ export async function markBatchRetry(
   nextAttemptAt: string,
   lastError: string,
   incrementRetry: boolean,
-): Promise<void> {
-  if (!eventIds.length) return;
+): Promise<number> {
+  if (!eventIds.length) return 0;
   const db = await getDb();
   const now = new Date().toISOString();
+  let affected = 0;
   await db.withTransactionAsync(async () => {
     if (incrementRetry) {
-      await db.runAsync(
+      const result = await db.runAsync(
         `UPDATE telemetry_queue
          SET status='retry', retry_count=retry_count + 1, next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL
-         WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+         WHERE status='processing' AND event_id IN (${eventIds.map(() => "?").join(",")})`,
         nextAttemptAt,
         now,
         lastError,
         ...eventIds,
       );
+      affected = result.changes;
       return;
     }
-    await db.runAsync(
+    const result = await db.runAsync(
       `UPDATE telemetry_queue
        SET status='pending', next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL
-       WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+       WHERE status='processing' AND event_id IN (${eventIds.map(() => "?").join(",")})`,
       nextAttemptAt,
       now,
       lastError,
       ...eventIds,
     );
+    affected = result.changes;
   });
+  logQueueStateConflict("markBatchRetry", eventIds.length, affected);
+  return affected;
 }
 
-export async function releaseClaimedEvents(eventIds: string[], lastError?: string): Promise<void> {
-  await releaseEventsToPending(eventIds, lastError);
+/** Reintento transitorio atómico para todo el lote reclamado. */
+export async function markClaimedBatchRetryAtomic(
+  eventIds: string[],
+  nextAttemptAt: string,
+  lastError: string,
+): Promise<number> {
+  return markBatchRetry(eventIds, nextAttemptAt, lastError, true);
+}
+
+export async function releaseClaimedEvents(eventIds: string[], lastError?: string): Promise<number> {
+  return releaseEventsToPending(eventIds, lastError);
+}
+
+export async function getQueueEventByEventId(eventId: string): Promise<QueuedTelemetryEvent | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<Record<string, unknown>>(
+    `SELECT * FROM telemetry_queue WHERE event_id = ?`,
+    eventId,
+  );
+  return row ? mapRow(row) : null;
 }
 
 export async function countPendingEvents(): Promise<number> {

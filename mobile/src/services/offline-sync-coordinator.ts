@@ -1,7 +1,7 @@
 import {
   claimNextBatch,
   countPendingEvents,
-  markBatchRetry,
+  markClaimedBatchRetryAtomic,
   markEventPermanentFailure,
   markEventsSynced,
   purgeSyncedOlderThan,
@@ -20,7 +20,6 @@ import {
 import type { QueuedTelemetryEvent, SyncResult, SyncStatus } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
-const MAX_RETRIES = 8;
 let syncInFlight: Promise<SyncResult> | null = null;
 
 type SyncAccumulator = {
@@ -50,8 +49,10 @@ function toSyncResult(accumulator: SyncAccumulator, remaining: number): SyncResu
 
 function canStartRemoteSync(): SyncStatus | null {
   const auth = getAuthRuntimeSnapshot();
-  if (!auth.enabled) return null;
+  if (auth.mode === "unknown") return "auth_status_error";
+  if (auth.mode === "disabled") return null;
   if (!auth.token || auth.tokenExpired) return "auth_required";
+  if (auth.expiresAtIso && new Date(auth.expiresAtIso).getTime() <= Date.now()) return "auth_required";
   return null;
 }
 
@@ -109,10 +110,6 @@ async function runSync(batchSize: number): Promise<SyncResult> {
     if (outcome.stop) break;
   }
 
-  if (accumulator.status === "completed" && accumulator.synced === 0 && accumulator.failed === 0) {
-    accumulator.status = "completed";
-  }
-
   return toSyncResult(accumulator, await countPendingEvents());
 }
 
@@ -151,25 +148,27 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
 }
 
 async function isolateValidationBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
-  const syncedIds = new Set<string>();
+  const resolvedIds = new Set<string>();
 
-  for (const item of batch) {
+  for (let index = 0; index < batch.length; index += 1) {
+    const item = batch[index];
     try {
       await sendSingleEvent(toPayload(item));
       await markEventsSynced([item.eventId]);
-      syncedIds.add(item.eventId);
+      resolvedIds.add(item.eventId);
       accumulator.synced += 1;
     } catch (error) {
       const classification = classifySyncError(error);
       if (classification.action === "isolate_validation") {
         await markEventPermanentFailure(item.eventId, sanitizeError(error));
+        resolvedIds.add(item.eventId);
         accumulator.permanentFailures += 1;
         accumulator.failed += 1;
         continue;
       }
 
-      const unprocessed = batch.filter((candidate) => !syncedIds.has(candidate.eventId));
-      return handleGlobalBatchFailure(unprocessed, classification, error, accumulator);
+      const stillProcessing = batch.slice(index).filter((candidate) => !resolvedIds.has(candidate.eventId));
+      return handleGlobalBatchFailure(stillProcessing, classification, error, accumulator);
     }
   }
 
@@ -182,6 +181,8 @@ async function handleGlobalBatchFailure(
   error: unknown,
   accumulator: SyncAccumulator,
 ): Promise<StepOutcome> {
+  if (!batch.length) return { stop: true };
+
   const eventIds = batch.map((item) => item.eventId);
   const message = sanitizeError(error);
 
@@ -214,7 +215,6 @@ async function handleGlobalBatchFailure(
   if (classification.action === "stop_transient") {
     const retryAt = await markTransientBatchRetry(batch, message, getRetryAfterSeconds(error));
     accumulator.retried += batch.length;
-    accumulator.failed += batch.length;
     accumulator.status = "deferred";
     accumulator.retryAt = retryAt;
     return { stop: true };
@@ -230,25 +230,10 @@ async function markTransientBatchRetry(
   message: string,
   retryAfterSeconds?: number,
 ): Promise<string> {
-  const delays = batch.map((item) => {
-    const next = item.retryCount + 1;
-    if (next > MAX_RETRIES) return -1;
-    return computeBackoffMs(next, retryAfterSeconds);
-  });
-
-  const validDelays = delays.filter((d) => d >= 0);
-  const retryAt = new Date(Date.now() + (validDelays.length ? Math.max(...validDelays) : 0)).toISOString();
-
-  for (const item of batch) {
-    const next = item.retryCount + 1;
-    if (next > MAX_RETRIES) {
-      await markEventPermanentFailure(item.eventId, "Max retries exceeded");
-      continue;
-    }
-    const delay = computeBackoffMs(next, retryAfterSeconds);
-    await markBatchRetry([item.eventId], new Date(Date.now() + delay).toISOString(), message, true);
-  }
-
+  const maxRetryCount = Math.max(...batch.map((item) => item.retryCount));
+  const delay = computeBackoffMs(maxRetryCount + 1, retryAfterSeconds);
+  const retryAt = new Date(Date.now() + delay).toISOString();
+  await markClaimedBatchRetryAtomic(batch.map((item) => item.eventId), retryAt, message);
   return retryAt;
 }
 

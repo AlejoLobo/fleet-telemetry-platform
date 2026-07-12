@@ -7,7 +7,7 @@ const mockPurgeSyncedOlderThan = jest.fn();
 const mockMarkEventsSynced = jest.fn();
 const mockMarkEventPermanentFailure = jest.fn();
 const mockMarkEventRetry = jest.fn();
-const mockMarkBatchRetry = jest.fn();
+const mockMarkClaimedBatchRetryAtomic = jest.fn();
 const mockReleaseClaimedEvents = jest.fn();
 const mockSendSingleEvent = jest.fn();
 const mockSendBatchEvents = jest.fn();
@@ -21,7 +21,7 @@ jest.mock("@/db/offline-queue", () => ({
   markEventsSynced: (...args: unknown[]) => mockMarkEventsSynced(...args),
   markEventPermanentFailure: (...args: unknown[]) => mockMarkEventPermanentFailure(...args),
   markEventRetry: (...args: unknown[]) => mockMarkEventRetry(...args),
-  markBatchRetry: (...args: unknown[]) => mockMarkBatchRetry(...args),
+  markClaimedBatchRetryAtomic: (...args: unknown[]) => mockMarkClaimedBatchRetryAtomic(...args),
   releaseClaimedEvents: (...args: unknown[]) => mockReleaseClaimedEvents(...args),
   toPayload: (event: QueuedTelemetryEvent) => event,
 }));
@@ -50,7 +50,7 @@ jest.mock("@/services/auth-service", () => ({
 }));
 
 jest.mock("@/services/auth-runtime", () => ({
-  getAuthRuntimeSnapshot: () => ({ enabled: false, token: null, tokenExpired: false }),
+  getAuthRuntimeSnapshot: () => ({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false }),
 }));
 
 import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
@@ -93,7 +93,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockMarkEventsSynced.mockReset();
     mockMarkEventPermanentFailure.mockReset();
     mockMarkEventRetry.mockReset();
-    mockMarkBatchRetry.mockReset();
+    mockMarkClaimedBatchRetryAtomic.mockReset();
     mockReleaseClaimedEvents.mockReset();
     mockSendSingleEvent.mockReset();
     mockSendBatchEvents.mockReset();
@@ -154,7 +154,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendBatchEvents.mockRejectedValue(apiError(429, "transient", 12));
     const result = await syncPendingQueue(true);
     expect(result.status).toBe("deferred");
-    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
   });
 
@@ -163,7 +163,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
     const result = await syncPendingQueue(true);
     expect(result.status).toBe("deferred");
-    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
   });
 
@@ -182,7 +182,7 @@ describe("offline-sync-coordinator batch policy", () => {
     const result = await syncPendingQueue(true);
     expect(result.status).toBe("deferred");
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
-    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
   });
 
   it("Error_de_red_no_ejecuta_singles", async () => {
@@ -234,7 +234,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
     await syncPendingQueue(true);
-    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockReleaseClaimedEvents).not.toHaveBeenCalled();
   });
 
@@ -248,7 +248,7 @@ describe("offline-sync-coordinator batch policy", () => {
     const result = await syncPendingQueue(true);
     expect(result.status).toBe("deferred");
     expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A"]);
-    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
   });
 
   it("Durante_fallback_exito_luego_401_eventos_sin_procesar_quedan_desbloqueados", async () => {
