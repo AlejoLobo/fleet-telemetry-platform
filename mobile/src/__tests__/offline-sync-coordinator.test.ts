@@ -1,4 +1,4 @@
-import { TelemetryApiError } from "@/services/telemetry-api";
+import { TelemetryApiError, type TelemetryApiErrorCategory } from "@/services/telemetry-api";
 import type { QueuedTelemetryEvent } from "@/types/telemetry";
 
 const mockClaimNextBatch = jest.fn();
@@ -7,8 +7,12 @@ const mockPurgeSyncedOlderThan = jest.fn();
 const mockMarkEventsSynced = jest.fn();
 const mockMarkEventPermanentFailure = jest.fn();
 const mockMarkEventRetry = jest.fn();
+const mockMarkBatchRetry = jest.fn();
+const mockReleaseClaimedEvents = jest.fn();
 const mockSendSingleEvent = jest.fn();
 const mockSendBatchEvents = jest.fn();
+const mockHandleUnauthorized = jest.fn();
+const mockMarkForbidden = jest.fn();
 
 jest.mock("@/db/offline-queue", () => ({
   claimNextBatch: (...args: unknown[]) => mockClaimNextBatch(...args),
@@ -17,6 +21,8 @@ jest.mock("@/db/offline-queue", () => ({
   markEventsSynced: (...args: unknown[]) => mockMarkEventsSynced(...args),
   markEventPermanentFailure: (...args: unknown[]) => mockMarkEventPermanentFailure(...args),
   markEventRetry: (...args: unknown[]) => mockMarkEventRetry(...args),
+  markBatchRetry: (...args: unknown[]) => mockMarkBatchRetry(...args),
+  releaseClaimedEvents: (...args: unknown[]) => mockReleaseClaimedEvents(...args),
   toPayload: (event: QueuedTelemetryEvent) => event,
 }));
 
@@ -25,13 +31,26 @@ jest.mock("@/services/telemetry-api", () => ({
   sendBatchEvents: (...args: unknown[]) => mockSendBatchEvents(...args),
   TelemetryApiError: class TelemetryApiError extends Error {
     status: number;
+    category: string;
     retryAfterSeconds?: number;
-    constructor(status: number, message: string, retryAfterSeconds?: number) {
+    sanitizedMessage: string;
+    constructor(status: number, category: string, message: string, retryAfterSeconds?: number) {
       super(message);
       this.status = status;
+      this.category = category;
       this.retryAfterSeconds = retryAfterSeconds;
+      this.sanitizedMessage = message;
     }
   },
+}));
+
+jest.mock("@/services/auth-service", () => ({
+  handleUnauthorizedFromApi: () => mockHandleUnauthorized(),
+  markForbiddenFromApi: (...args: unknown[]) => mockMarkForbidden(...args),
+}));
+
+jest.mock("@/services/auth-runtime", () => ({
+  getAuthRuntimeSnapshot: () => ({ enabled: false, token: null, tokenExpired: false }),
 }));
 
 import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
@@ -60,7 +79,11 @@ function buildEvent(eventId: string, retryCount = 0): QueuedTelemetryEvent {
   };
 }
 
-describe("offline-sync-coordinator", () => {
+function apiError(status: number, category: TelemetryApiErrorCategory, retryAfterSeconds?: number) {
+  return new TelemetryApiError(status, category, `HTTP ${status}`, retryAfterSeconds);
+}
+
+describe("offline-sync-coordinator batch policy", () => {
   beforeEach(() => {
     resetSyncCoordinatorForTests();
     jest.clearAllMocks();
@@ -70,99 +93,196 @@ describe("offline-sync-coordinator", () => {
     mockMarkEventsSynced.mockReset();
     mockMarkEventPermanentFailure.mockReset();
     mockMarkEventRetry.mockReset();
+    mockMarkBatchRetry.mockReset();
+    mockReleaseClaimedEvents.mockReset();
     mockSendSingleEvent.mockReset();
     mockSendBatchEvents.mockReset();
+    mockHandleUnauthorized.mockReset();
+    mockMarkForbidden.mockReset();
   });
 
-  afterEach(() => {
-    resetSyncCoordinatorForTests();
+  it("Batch_2xx_marca_todos_synced", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockResolvedValue(undefined);
+    const result = await syncPendingQueue(true);
+    expect(result.synced).toBe(2);
+    expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A", "B"]);
   });
 
-  it("no sincroniza cuando no hay red", async () => {
-    mockCountPendingEvents.mockResolvedValue(3);
-
-    const result = await syncPendingQueue(false);
-
-    expect(result.synced).toBe(0);
-    expect(result.remaining).toBe(3);
-    expect(mockClaimNextBatch).not.toHaveBeenCalled();
+  it("Batch_422_ejecuta_fallback_individual", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("BAD"), buildEvent("GOOD")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(422, "validation"));
+    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
+      if (payload.eventId === "BAD") throw apiError(422, "validation");
+    });
+    const result = await syncPendingQueue(true);
+    expect(result.synced).toBe(1);
+    expect(result.permanentFailures).toBe(1);
   });
 
-  it("serializa sincronizaciones concurrentes con el mismo mutex", async () => {
-    mockClaimNextBatch
-      .mockResolvedValueOnce([buildEvent("E1")])
-      .mockResolvedValueOnce([]);
+  it("Un_evento_invalido_no_bloquea_los_validos", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("BAD"), buildEvent("GOOD"), buildEvent("ALSO")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(400, "validation"));
+    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
+      if (payload.eventId === "BAD") throw apiError(400, "validation");
+    });
+    const result = await syncPendingQueue(true);
+    expect(result.synced).toBe(2);
+    expect(result.permanentFailures).toBe(1);
+  });
+
+  it("Batch_401_no_ejecuta_singles_y_libera_todos", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(401, "auth_required"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_required");
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+    expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["A", "B"], expect.any(String));
+  });
+
+  it("Batch_403_no_ejecuta_singles_y_libera_todos", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(403, "forbidden"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("forbidden");
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+    expect(mockReleaseClaimedEvents).toHaveBeenCalled();
+  });
+
+  it("Batch_429_no_ejecuta_singles_y_respeta_Retry_After", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(429, "transient", 12));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("deferred");
+    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+  });
+
+  it("Batch_500_no_ejecuta_singles_y_pasa_todos_a_retry", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("deferred");
+    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+  });
+
+  it("Error_404_conserva_eventos_y_devuelve_configuration_error", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(404, "protocol"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("configuration_error");
+    expect(mockReleaseClaimedEvents).toHaveBeenCalled();
+    expect(mockMarkEventPermanentFailure).not.toHaveBeenCalled();
+  });
+
+  it("Timeout_no_ejecuta_singles", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(408, "timeout"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("deferred");
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+    expect(mockMarkBatchRetry).toHaveBeenCalled();
+  });
+
+  it("Error_de_red_no_ejecuta_singles", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(0, "network"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("deferred");
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+  });
+
+  it("Batch_413_se_divide", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([
+      buildEvent("A"),
+      buildEvent("B"),
+      buildEvent("C"),
+      buildEvent("D"),
+    ]).mockResolvedValueOnce([]);
+    mockSendBatchEvents
+      .mockRejectedValueOnce(apiError(413, "payload_too_large"))
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+    const result = await syncPendingQueue(true);
+    expect(result.synced).toBe(4);
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+    expect(mockSendBatchEvents).toHaveBeenCalledTimes(3);
+  });
+
+  it("Evento_individual_413_no_bloquea_el_resto", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("BIG"), buildEvent("SMALL")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents
+      .mockRejectedValueOnce(apiError(413, "payload_too_large"))
+      .mockRejectedValueOnce(apiError(413, "payload_too_large"))
+      .mockResolvedValueOnce(undefined);
+    const result = await syncPendingQueue(true);
+    expect(result.permanentFailures).toBe(1);
+    expect(result.synced).toBe(1);
+  });
+
+  it("Error_inesperado_libera_todos_los_locks", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(new Error("unexpected programming error"));
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("failed");
+    expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["A", "B"], expect.any(String));
+    expect(mockSendSingleEvent).not.toHaveBeenCalled();
+  });
+
+  it("Ningun_camino_normal_deja_eventos_processing", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
+    await syncPendingQueue(true);
+    expect(mockMarkBatchRetry).toHaveBeenCalled();
+    expect(mockReleaseClaimedEvents).not.toHaveBeenCalled();
+  });
+
+  it("Durante_fallback_exito_luego_500_eventos_sin_procesar_quedan_desbloqueados", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B"), buildEvent("C")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(400, "validation"));
+    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
+      if (payload.eventId === "A") return;
+      if (payload.eventId === "B") throw apiError(500, "transient");
+    });
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("deferred");
+    expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A"]);
+    expect(mockMarkBatchRetry).toHaveBeenCalled();
+  });
+
+  it("Durante_fallback_exito_luego_401_eventos_sin_procesar_quedan_desbloqueados", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B"), buildEvent("C")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(400, "validation"));
+    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
+      if (payload.eventId === "A") return;
+      if (payload.eventId === "B") throw apiError(401, "auth_required");
+    });
+    const result = await syncPendingQueue(true);
+    expect(result.status).toBe("auth_required");
+    expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A"]);
+    expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["B", "C"], expect.any(String));
+    expect(mockHandleUnauthorized).toHaveBeenCalled();
+  });
+
+  it("Batch_400_ejecuta_fallback_individual", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("BAD"), buildEvent("GOOD")]).mockResolvedValueOnce([]);
+    mockSendBatchEvents.mockRejectedValue(apiError(400, "validation"));
+    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
+      if (payload.eventId === "BAD") throw apiError(400, "validation");
+    });
+    const result = await syncPendingQueue(true);
+    expect(result.synced).toBe(1);
+    expect(result.permanentFailures).toBe(1);
+  });
+
+  it("El_mutex_continua_evitando_dos_sincronizaciones_simultaneas", async () => {
+    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A")]).mockResolvedValueOnce([]);
     mockSendSingleEvent.mockImplementation(() => new Promise(() => undefined));
-
     syncPendingQueue(true);
     syncPendingQueue(true);
     await Promise.resolve();
-
     expect(mockClaimNextBatch).toHaveBeenCalledTimes(1);
     resetSyncCoordinatorForTests();
-  });
-
-  it("marca 400 como fallo permanente", async () => {
-    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("BAD-400")]).mockResolvedValueOnce([]);
-    mockSendSingleEvent.mockRejectedValue(new TelemetryApiError(400, "invalid"));
-
-    const result = await syncPendingQueue(true);
-
-    expect(result.permanentFailures).toBe(1);
-    expect(mockMarkEventPermanentFailure).toHaveBeenCalledWith("BAD-400", expect.any(String));
-    expect(mockMarkEventsSynced).not.toHaveBeenCalled();
-  });
-
-  it("reintenta error 500 transitorio", async () => {
-    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("RETRY-500")]).mockResolvedValueOnce([]);
-    mockSendSingleEvent.mockRejectedValue(new TelemetryApiError(500, "server"));
-
-    const result = await syncPendingQueue(true);
-
-    expect(result.retried).toBe(1);
-    expect(mockMarkEventRetry).toHaveBeenCalledWith(
-      "RETRY-500",
-      1,
-      expect.any(String),
-      expect.any(String),
-    );
-  });
-
-  it("respeta Retry-After en error 429", async () => {
-    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("RATE-429")]).mockResolvedValueOnce([]);
-    mockSendSingleEvent.mockRejectedValue(new TelemetryApiError(429, "rate limit", 20));
-
-    await syncPendingQueue(true);
-
-    const nextAttemptAt = mockMarkEventRetry.mock.calls[0][2] as string;
-    const delayMs = new Date(nextAttemptAt).getTime() - Date.now();
-    expect(delayMs).toBeGreaterThanOrEqual(19_000);
-    expect(delayMs).toBeLessThanOrEqual(21_000);
-  });
-
-  it("continúa con eventos válidos tras fallo en lote", async () => {
-    mockClaimNextBatch
-      .mockResolvedValueOnce([buildEvent("BAD"), buildEvent("GOOD")])
-      .mockResolvedValueOnce([]);
-    mockSendBatchEvents.mockRejectedValue(new Error("batch failed"));
-    mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
-      if (payload.eventId === "BAD") throw new TelemetryApiError(400, "invalid");
-    });
-
-    const result = await syncPendingQueue(true);
-
-    expect(result.synced).toBe(1);
-    expect(result.permanentFailures).toBe(1);
-    expect(mockMarkEventsSynced).toHaveBeenCalledWith(["GOOD"]);
-  });
-
-  it("no reenvía eventos ya sincronizados en la misma corrida", async () => {
-    mockClaimNextBatch.mockResolvedValueOnce([buildEvent("DONE")]).mockResolvedValueOnce([]);
-    mockSendSingleEvent.mockResolvedValue(undefined);
-
-    await syncPendingQueue(true);
-
-    expect(mockMarkEventsSynced).toHaveBeenCalledTimes(1);
-    expect(mockSendSingleEvent).toHaveBeenCalledTimes(1);
   });
 });

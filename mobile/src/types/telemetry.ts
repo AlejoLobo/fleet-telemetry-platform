@@ -37,10 +37,21 @@ export type LocationReading = {
 
 export type NetworkStatus = "online" | "offline" | "unknown";
 
+export type SyncStatus =
+  | "completed"
+  | "offline"
+  | "auth_required"
+  | "forbidden"
+  | "deferred"
+  | "configuration_error"
+  | "failed";
+
 export type SyncResult = {
   synced: number;
   failed: number;
   retried: number;
   permanentFailures: number;
   remaining: number;
+  status: SyncStatus;
+  retryAt?: string;
 };

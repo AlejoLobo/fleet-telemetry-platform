@@ -4,6 +4,11 @@ import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/teleme
 const SCHEMA_VERSION = 2;
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+/** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
+export function resetOfflineQueueForTests(): void {
+  dbPromise = null;
+}
+
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) dbPromise = SQLite.openDatabaseAsync("fleet_offline.db");
   const db = await dbPromise;
@@ -142,6 +147,59 @@ export async function markEventPermanentFailure(eventId: string, lastError: stri
   await db.runAsync(
     `UPDATE telemetry_queue SET status='permanent_failure', last_attempt_at=?, last_error=?, locked_at=NULL WHERE event_id=?`,
     new Date().toISOString(), lastError, eventId);
+}
+
+export async function releaseEventsToPending(eventIds: string[], lastError?: string): Promise<void> {
+  if (!eventIds.length) return;
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE telemetry_queue
+       SET status='pending', locked_at=NULL, last_attempt_at=?, last_error=?
+       WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+      new Date().toISOString(),
+      lastError ?? null,
+      ...eventIds,
+    );
+  });
+}
+
+export async function markBatchRetry(
+  eventIds: string[],
+  nextAttemptAt: string,
+  lastError: string,
+  incrementRetry: boolean,
+): Promise<void> {
+  if (!eventIds.length) return;
+  const db = await getDb();
+  const now = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    if (incrementRetry) {
+      await db.runAsync(
+        `UPDATE telemetry_queue
+         SET status='retry', retry_count=retry_count + 1, next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL
+         WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+        nextAttemptAt,
+        now,
+        lastError,
+        ...eventIds,
+      );
+      return;
+    }
+    await db.runAsync(
+      `UPDATE telemetry_queue
+       SET status='pending', next_attempt_at=?, last_attempt_at=?, last_error=?, locked_at=NULL
+       WHERE event_id IN (${eventIds.map(() => "?").join(",")})`,
+      nextAttemptAt,
+      now,
+      lastError,
+      ...eventIds,
+    );
+  });
+}
+
+export async function releaseClaimedEvents(eventIds: string[], lastError?: string): Promise<void> {
+  await releaseEventsToPending(eventIds, lastError);
 }
 
 export async function countPendingEvents(): Promise<number> {
