@@ -17,7 +17,8 @@ internal static class IntegrationTestServiceBootstrap
         IServiceCollection services,
         string connectionString,
         FakeTimeProvider timeProvider,
-        Action<QueryLimitsOptions>? configureQueryLimits = null)
+        Action<QueryLimitsOptions>? configureQueryLimits = null,
+        FakeFleetRealtimePublisher? configurePublisher = null)
     {
         services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
         services.AddDbContext<FleetDbContext>(options => options.UseNpgsql(connectionString));
@@ -42,7 +43,10 @@ internal static class IntegrationTestServiceBootstrap
         services.Configure<SseOptions>(options => options.Mode = SseDeliveryMode.Polling);
 
         services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
-        services.AddSingleton<IFleetRealtimePublisher, NoOpFleetRealtimePublisher>();
+        if (configurePublisher is not null)
+            services.AddSingleton<IFleetRealtimePublisher>(configurePublisher);
+        else
+            services.AddSingleton<IFleetRealtimePublisher, NoOpFleetRealtimePublisher>();
         services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
         services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
         services.AddScoped<IFleetStateAggregateRepository, TimescaleFleetStateAggregateRepository>();

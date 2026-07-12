@@ -29,8 +29,31 @@ type TelemetryPageParams = {
   signal?: AbortSignal;
 };
 
+type TelemetrySnapshotOptions = {
+  pageSize?: number;
+  maxEvents?: number;
+  from?: string;
+  to?: string;
+  signal?: AbortSignal;
+};
+
+export type FleetSnapshotResult = {
+  vehicles: VehicleStatus[];
+  partial: boolean;
+  truncated: boolean;
+  error?: string;
+};
+
+export type TelemetrySnapshotResult = {
+  events: TelemetryEvent[];
+  partial: boolean;
+  truncated: boolean;
+  error?: string;
+};
+
 const DEFAULT_MAX_VEHICLES = 5000;
 const DEFAULT_FLEET_PAGE_SIZE = 100;
+const DEFAULT_MAX_TELEMETRY_EVENTS = 5000;
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -84,11 +107,7 @@ export async function fetchFleetPage(params: FleetPageParams = {}): Promise<Curs
   };
 }
 
-export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Promise<{
-  vehicles: VehicleStatus[];
-  partial: boolean;
-  error?: string;
-}> {
+export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Promise<FleetSnapshotResult> {
   const maxVehicles = options.maxVehicles ?? DEFAULT_MAX_VEHICLES;
   const pageSize = options.pageSize ?? DEFAULT_FLEET_PAGE_SIZE;
   const vehicles: VehicleStatus[] = [];
@@ -96,7 +115,9 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
   const seenCursors = new Set<string | null>();
   let cursor: string | null = null;
   let partial = false;
+  let truncated = false;
   let lastError: string | undefined;
+  let stoppedByLimitWithMore = false;
 
   while (vehicles.length < maxVehicles) {
     if (options.signal?.aborted) {
@@ -127,6 +148,13 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
         if (vehicles.length >= maxVehicles) break;
       }
 
+      if (vehicles.length >= maxVehicles) {
+        if (page.hasMore) {
+          stoppedByLimitWithMore = true;
+        }
+        break;
+      }
+
       if (!page.hasMore || !page.nextCursor) break;
       cursor = page.nextCursor;
     } catch (error) {
@@ -136,7 +164,12 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
     }
   }
 
-  return { vehicles, partial, error: lastError };
+  if (stoppedByLimitWithMore) {
+    partial = true;
+    truncated = true;
+  }
+
+  return { vehicles, partial, truncated, error: lastError };
 }
 
 export async function fetchTelemetryPage(params: TelemetryPageParams): Promise<CursorPage<TelemetryEvent>> {
@@ -152,23 +185,68 @@ export async function fetchTelemetryPage(params: TelemetryPageParams): Promise<C
 
 export async function fetchTelemetrySnapshot(
   vehicleId: string,
-  options: { pageSize?: number; signal?: AbortSignal } = {},
-): Promise<TelemetryEvent[]> {
+  options: TelemetrySnapshotOptions = {},
+): Promise<TelemetrySnapshotResult> {
   const pageSize = options.pageSize ?? 200;
+  const maxEvents = options.maxEvents ?? DEFAULT_MAX_TELEMETRY_EVENTS;
   const events: TelemetryEvent[] = [];
-  let cursor: string | null = null;
   const seenCursors = new Set<string | null>();
+  let cursor: string | null = null;
+  let partial = false;
+  let truncated = false;
+  let lastError: string | undefined;
+  let stoppedByLimitWithMore = false;
 
-  while (true) {
-    if (options.signal?.aborted) break;
-    if (seenCursors.has(cursor)) break;
+  while (events.length < maxEvents) {
+    if (options.signal?.aborted) {
+      partial = true;
+      break;
+    }
+
+    if (seenCursors.has(cursor)) {
+      partial = true;
+      lastError = "Cursor repetido detectado";
+      break;
+    }
     seenCursors.add(cursor);
 
-    const page = await fetchTelemetryPage({ vehicleId, pageSize, cursor, signal: options.signal });
-    events.push(...page.items);
-    if (!page.hasMore || !page.nextCursor) break;
-    cursor = page.nextCursor;
+    try {
+      const page = await fetchTelemetryPage({
+        vehicleId,
+        from: options.from,
+        to: options.to,
+        pageSize,
+        cursor,
+        signal: options.signal,
+      });
+
+      events.push(...page.items);
+
+      if (events.length >= maxEvents) {
+        if (page.hasMore) {
+          stoppedByLimitWithMore = true;
+        }
+        break;
+      }
+
+      if (!page.hasMore || !page.nextCursor) break;
+      cursor = page.nextCursor;
+    } catch (error) {
+      partial = true;
+      lastError = error instanceof Error ? error.message : "Error al cargar telemetría";
+      break;
+    }
   }
 
-  return events;
+  if (stoppedByLimitWithMore) {
+    partial = true;
+    truncated = true;
+  }
+
+  return {
+    events: events.slice(0, maxEvents),
+    partial,
+    truncated,
+    error: lastError,
+  };
 }
