@@ -1,33 +1,19 @@
 import { createSqliteMemoryDb, getSqliteRows, resetSqliteMemory } from "@/__tests__/helpers/sqlite-memory";
 
 const mockMemoryDb = createSqliteMemoryDb();
+const mockSyncPendingQueue = jest.fn();
 
 jest.mock("expo-sqlite", () => ({
   openDatabaseAsync: jest.fn(async () => mockMemoryDb),
 }));
 
-jest.mock("@/services/telemetry-api", () => ({
-  sendSingleEvent: jest.fn(async () => undefined),
-  sendBatchEvents: jest.fn(async () => undefined),
-  TelemetryApiError: class TelemetryApiError extends Error {
-    status: number;
-    category: string;
-    constructor(status: number, category: string, message: string) {
-      super(message);
-      this.status = status;
-      this.category = category;
-    }
-  },
-}));
-
-jest.mock("@/services/auth-service", () => ({
-  handleUnauthorizedFromApi: jest.fn(),
-  markForbiddenFromApi: jest.fn(),
+jest.mock("@/services/offline-sync-coordinator", () => ({
+  syncPendingQueue: (...args: unknown[]) => mockSyncPendingQueue(...args),
+  resetSyncCoordinatorForTests: jest.fn(),
 }));
 
 import { enqueueEvent, getQueueEventByEventId, resetOfflineQueueForTests } from "@/db/offline-queue";
-import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
-import { setAuthRuntimeSnapshot, resetAuthRuntimeForTests } from "@/services/auth-runtime";
+import { runSyncResumeEffect } from "@/services/sync-resume-policy";
 
 const event = {
   eventId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -41,69 +27,93 @@ const event = {
   batteryPercent: 90,
 };
 
-function resumeSyncOnAuthChange(previousStatus: string, nextStatus: string, isOnline: boolean, syncFn: () => Promise<unknown>) {
-  if (previousStatus !== "authenticated" && nextStatus === "authenticated" && isOnline) {
-    return syncFn();
-  }
-  return Promise.resolve();
-}
-
 describe("reanudación post-login", () => {
   beforeEach(() => {
     resetSqliteMemory();
     resetOfflineQueueForTests();
-    resetSyncCoordinatorForTests();
-    resetAuthRuntimeForTests();
-    setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
-  });
-
-  it("auth_required_login_exitoso_inicia_exactamente_una_sincronizacion", async () => {
-    await enqueueEvent(event);
-    let syncCalls = 0;
-    const syncFn = async () => {
-      syncCalls += 1;
-      return syncPendingQueue(true);
-    };
-
-    await resumeSyncOnAuthChange("auth_required", "authenticated", true, syncFn);
-    expect(syncCalls).toBe(1);
-  });
-
-  it("dos_notificaciones_authenticated_no_crean_dos_corridas", async () => {
-    await enqueueEvent(event);
-    let syncCalls = 0;
-    const syncFn = async () => {
-      syncCalls += 1;
-      return syncPendingQueue(true);
-    };
-
-    const first = resumeSyncOnAuthChange("auth_required", "authenticated", true, syncFn);
-    const second = resumeSyncOnAuthChange("authenticated", "authenticated", true, syncFn);
-    await Promise.all([first, second]);
-    expect(syncCalls).toBe(1);
-  });
-
-  it("captura_sin_token_continua_encolando_offline", async () => {
-    setAuthRuntimeSnapshot({ mode: "enabled", token: null, expiresAtIso: null, tokenExpired: false });
-    await enqueueEvent(event);
-    const row = await getQueueEventByEventId(event.eventId);
-    expect(row?.status).toBe("pending");
-    expect(row?.eventId).toBe(event.eventId);
-  });
-
-  it("reautenticacion_conserva_EventId_original_sin_duplicar", async () => {
-    await enqueueEvent(event);
-    const before = await getQueueEventByEventId(event.eventId);
-    setAuthRuntimeSnapshot({
-      mode: "enabled",
-      token: "jwt",
-      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
-      tokenExpired: false,
+    jest.clearAllMocks();
+    mockSyncPendingQueue.mockResolvedValue({
+      synced: 0,
+      failed: 0,
+      retried: 0,
+      permanentFailures: 0,
+      remaining: 0,
+      status: "completed",
     });
-    await syncPendingQueue(true);
-    const rows = getSqliteRows();
-    const matches = rows.filter((row) => row.event_id === event.eventId);
-    expect(matches).toHaveLength(1);
-    expect(before?.eventId).toBe(event.eventId);
+  });
+
+  it("auth_required_a_authenticated_y_online_una_sola_syncPendingQueue", async () => {
+    let syncCalls = 0;
+    const syncNow = () => {
+      syncCalls += 1;
+      return mockSyncPendingQueue(true);
+    };
+
+    const result = runSyncResumeEffect(false, true, true, syncNow);
+    expect(result.triggered).toBe(true);
+    expect(syncCalls).toBe(1);
+    expect(mockSyncPendingQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("authenticated_a_authenticated_no_inicia_otra_sincronizacion", () => {
+    let syncCalls = 0;
+    const result = runSyncResumeEffect(true, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(result.triggered).toBe(false);
+    expect(syncCalls).toBe(0);
+  });
+
+  it("offline_a_authenticated_no_sincroniza_hasta_recuperar_red", () => {
+    let syncCalls = 0;
+    const result = runSyncResumeEffect(false, true, false, () => {
+      syncCalls += 1;
+    });
+    expect(result.triggered).toBe(false);
+    expect(syncCalls).toBe(0);
+  });
+
+  it("auth_disabled_inicia_sincronizacion_anonima_una_sola_vez_con_red", () => {
+    let syncCalls = 0;
+    const first = runSyncResumeEffect(false, true, true, () => {
+      syncCalls += 1;
+    });
+    const second = runSyncResumeEffect(first.nextPreviousCanSync, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(first.triggered).toBe(true);
+    expect(second.triggered).toBe(false);
+    expect(syncCalls).toBe(1);
+  });
+
+  it("dos_renders_consecutivos_no_crean_dos_disparadores", () => {
+    let syncCalls = 0;
+    let previous = false;
+    for (let i = 0; i < 2; i += 1) {
+      const result = runSyncResumeEffect(previous, true, true, () => {
+        syncCalls += 1;
+      });
+      previous = result.nextPreviousCanSync;
+    }
+    expect(syncCalls).toBe(1);
+  });
+
+  it("EventId_permanece_intacto_despues_de_sincronizacion_post_login", async () => {
+    await enqueueEvent(event);
+    mockSyncPendingQueue.mockResolvedValueOnce({
+      synced: 1,
+      failed: 0,
+      retried: 0,
+      permanentFailures: 0,
+      remaining: 0,
+      status: "completed",
+    });
+
+    runSyncResumeEffect(false, true, true, () => mockSyncPendingQueue(true));
+    await Promise.resolve();
+
+    const rows = getSqliteRows().filter((row) => row.event_id === event.eventId);
+    expect(rows).toHaveLength(1);
+    expect((await getQueueEventByEventId(event.eventId))?.eventId).toBe(event.eventId);
   });
 });

@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "@/config/env";
+import { parseExpiration } from "@/services/auth-expiration";
 import { setAuthRuntimeSnapshot, resetAuthRuntimeForTests, type AuthRuntimeSnapshot } from "@/services/auth-runtime";
 import type { AuthTokenStore } from "@/services/auth-token-store";
 import { InMemoryAuthTokenStore, SecureAuthTokenStore } from "@/services/auth-token-store";
@@ -40,10 +41,6 @@ export function subscribeAuthSession(listener: AuthListener): () => void {
   return () => listeners.delete(listener);
 }
 
-function isExpired(expiresAtIso: string): boolean {
-  return new Date(expiresAtIso).getTime() <= Date.now();
-}
-
 function buildRuntimeSnapshot(next: AuthSessionSnapshot): AuthRuntimeSnapshot {
   if (next.status === "checking" || next.status === "status_error") {
     return { mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false };
@@ -52,9 +49,8 @@ function buildRuntimeSnapshot(next: AuthSessionSnapshot): AuthRuntimeSnapshot {
     return { mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false };
   }
 
-  const tokenExpired =
-    next.status === "session_expired"
-    || (cachedExpiresAt !== null && isExpired(cachedExpiresAt));
+  const expiration = parseExpiration(cachedExpiresAt);
+  const tokenExpired = next.status === "session_expired" || !expiration.valid;
 
   return {
     mode: "enabled",
@@ -74,6 +70,8 @@ export function getActiveToken(): string | null {
   const runtime = buildRuntimeSnapshot(session);
   if (runtime.mode !== "enabled" || runtime.tokenExpired) return null;
   if (session.status !== "authenticated") return null;
+  if (!cachedToken) return null;
+  if (!parseExpiration(cachedExpiresAt).valid) return null;
   return cachedToken;
 }
 
@@ -107,6 +105,12 @@ async function fetchAuthStatus(): Promise<{ enabled: boolean } | null> {
   }
 }
 
+async function clearInvalidStoredToken(): Promise<void> {
+  await tokenStore.clear();
+  cachedToken = null;
+  cachedExpiresAt = null;
+}
+
 export async function initializeAuthSession(): Promise<AuthSessionSnapshot> {
   publish({ status: "checking", enabled: false, username: null, statusMessage: null });
   const status = await fetchAuthStatus();
@@ -133,10 +137,8 @@ export async function initializeAuthSession(): Promise<AuthSessionSnapshot> {
   }
 
   const stored = await tokenStore.load();
-  if (!stored || isExpired(stored.expiresAtIso)) {
-    await tokenStore.clear();
-    cachedToken = null;
-    cachedExpiresAt = null;
+  if (!stored || !parseExpiration(stored.expiresAtIso).valid) {
+    await clearInvalidStoredToken();
     publish({
       status: stored ? "session_expired" : "auth_required",
       enabled: true,
@@ -201,17 +203,13 @@ export async function logout(): Promise<AuthSessionSnapshot> {
 }
 
 export async function handleUnauthorizedFromApi(): Promise<void> {
-  await tokenStore.clear();
-  cachedToken = null;
-  cachedExpiresAt = null;
+  await clearInvalidStoredToken();
   if (session.status === "auth_disabled") return;
   publish({ status: "auth_required", enabled: true, username: null, statusMessage: "Sesión vencida" });
 }
 
 export async function handleSessionExpiredBeforeRequest(): Promise<void> {
-  await tokenStore.clear();
-  cachedToken = null;
-  cachedExpiresAt = null;
+  await clearInvalidStoredToken();
   publish({
     status: "session_expired",
     enabled: true,
