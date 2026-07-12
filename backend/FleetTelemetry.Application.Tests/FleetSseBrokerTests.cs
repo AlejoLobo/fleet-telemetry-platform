@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Realtime;
 using FleetTelemetry.Infrastructure.Realtime;
 
 namespace FleetTelemetry.Application.Tests;
@@ -6,62 +7,60 @@ namespace FleetTelemetry.Application.Tests;
 public class FleetSseBrokerTests
 {
     [Fact]
-    public void Publish_drops_events_for_slow_subscriber_without_blocking()
+    public void PublishLocal_drops_events_for_slow_subscriber_without_blocking()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
-        var reader = broker.Subscribe(out var subscriptionId);
+        var subscription = broker.SubscribeFrom(0);
 
         for (var i = 0; i < 20; i++)
-        {
-            broker.Publish("alert", new { index = i });
-        }
+            broker.PublishLocal("alert", new { index = i });
 
         var drained = 0;
-        while (reader.TryRead(out _))
+        while (subscription.LiveReader.TryRead(out _))
             drained++;
 
         Assert.Equal(5, drained);
         Assert.True(broker.PublishedEvents >= 5);
 
-        broker.Unsubscribe(subscriptionId);
+        broker.Unsubscribe(subscription.SubscriptionId);
         Assert.Equal(0, broker.SubscriberCount);
         Assert.Equal(1, broker.TotalUnsubscribes);
     }
 
     [Fact]
-    public void Publish_assigns_monotonic_stream_ids()
+    public void TryPublishExternal_assigns_kafka_offset_as_stream_id()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        var first = broker.Publish("heartbeat", new { ok = true });
-        var second = broker.Publish("heartbeat", new { ok = true });
-
-        Assert.True(second.StreamId > first.StreamId);
+        Assert.True(broker.TryPublishExternal(100, "heartbeat", new { ok = true }));
+        Assert.True(broker.TryPublishExternal(101, "heartbeat", new { ok = true }));
+        Assert.Equal(101, broker.LatestStreamId);
     }
 
     [Fact]
-    public void GetReplayAfter_returns_events_after_cursor()
+    public void SubscribeFrom_replays_events_after_cursor()
     {
         var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
-        var first = broker.Publish("alert", new { n = 1 });
-        broker.Publish("alert", new { n = 2 });
-        var third = broker.Publish("alert", new { n = 3 });
+        broker.TryPublishExternal(10, "alert", new { n = 1 });
+        broker.TryPublishExternal(11, "alert", new { n = 2 });
+        broker.TryPublishExternal(12, "alert", new { n = 3 });
 
-        var replay = broker.GetReplayAfter(first.StreamId, maxEvents: 10);
+        var subscription = broker.SubscribeFrom(10);
 
-        Assert.Equal(2, replay.Count);
-        Assert.Equal(third.StreamId, replay.Last().StreamId);
+        Assert.Equal(SseReplayStatus.ReplayAvailable, subscription.ReplayStatus);
+        Assert.Equal(2, subscription.ReplayEvents.Count);
+        Assert.Equal(12, subscription.ReplayEvents[^1].StreamId);
     }
 
     [Fact]
     public void Unsubscribe_removes_subscriber_without_affecting_others()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 10);
-        broker.Subscribe(out var first);
-        broker.Subscribe(out var second);
+        var first = broker.SubscribeFrom(0);
+        broker.SubscribeFrom(0);
 
         Assert.Equal(2, broker.SubscriberCount);
 
-        broker.Unsubscribe(first);
+        broker.Unsubscribe(first.SubscriptionId);
         Assert.Equal(1, broker.SubscriberCount);
         Assert.Equal(2, broker.TotalSubscriptions);
     }

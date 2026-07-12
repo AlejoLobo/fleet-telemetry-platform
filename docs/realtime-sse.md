@@ -62,6 +62,42 @@ Configuración (`Sse`):
 
 Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador de offline publicado.
 
+## Multi-réplica y replay (FT-005)
+
+### Fan-out entre réplicas API
+
+- El tópico `fleet.realtime` debe tener **exactamente 1 partición** (orden global de offsets).
+- Cada réplica API usa un consumer group distinto: `{RealtimeConsumerGroupBase}-{InstanceId}`.
+- Todas las réplicas reciben **todos** los mensajes futuros (no compiten por partición dentro del mismo grupo).
+
+### ID SSE canónico
+
+- En KafkaPush, `id:` del SSE = **offset Kafka** (`ConsumeResult.Offset.Value`).
+- `connected`, `heartbeat` y `stream-reset` son efímeros: **sin** `id:` y fuera del replay.
+
+### Replay local acotado
+
+- `FleetSseBroker.SubscribeFrom(lastEventId)` entrega replay + live de forma atómica (`cutoverId`).
+- Si `Last-Event-ID` queda fuera del buffer → `event: stream-reset` con `reason`:
+  - `replay-gap`
+  - `instance-restarted`
+  - `invalid-last-event-id`
+- El cliente web limpia el cursor, recarga snapshot completo y continúa con eventos live.
+
+### Configuración (`Sse` / `Kafka`)
+
+| Opción | Default | Descripción |
+|--------|---------|-------------|
+| `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo del consumer group |
+| `Sse:InstanceId` | `HOSTNAME` / `api-local` | Sufijo estable por proceso |
+| `Sse:RequireSingleRealtimePartition` | `true` | Falla al iniciar si el tópico tiene >1 partición |
+| `Sse:ReplayBufferSize` | `200` | Eventos retenidos para replay local |
+
+### Cliente web
+
+- `SseParser` soporta `id:`, `event:`, `data:`, `retry:`.
+- `useSseStream` envía `Last-Event-ID` por header en reconexión y persiste el cursor en `sessionStorage`.
+
 ## Autenticación segura para SSE
 
 `EventSource` nativo **no permite** cabeceras `Authorization`. No usar JWT en query string.

@@ -146,6 +146,13 @@ export default function DashboardPage() {
 
     },
 
+    onStreamReset: async () => {
+      setLiveVehiclePatches([]);
+      setLiveAlerts([]);
+      setAlertsAttention(false);
+      await refresh();
+    },
+
   });
 
 

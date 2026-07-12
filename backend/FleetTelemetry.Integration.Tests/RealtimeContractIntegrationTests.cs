@@ -42,12 +42,13 @@ public class RealtimeContractIntegrationTests
         Assert.Equal(payload.VehicleId, deserialized.VehicleId);
 
         var broker = new FleetSseBroker(TimeProvider.System);
-        var published = broker.Publish(
+        var published = broker.TryPublishExternal(
+            42,
             deserialized.EventType,
             deserialized.Payload,
             deserialized.OccurredAt);
 
-        Assert.Equal(FleetRealtimeEventTypes.VehicleUpdate, published.EventType);
+        Assert.True(published);
     }
 
     [Fact]
