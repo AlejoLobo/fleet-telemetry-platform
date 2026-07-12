@@ -20,6 +20,32 @@ describe("sse-fetch-client FT-001", () => {
     expect(buildSseHeaders(true, null)).toEqual({});
   });
 
+  it("buildSseHeaders incluye Last-Event-ID cuando hay cursor", () => {
+    expect(buildSseHeaders(false, null, "42")).toEqual({
+      "Last-Event-ID": "42",
+    });
+  });
+
+  it("Parser_extrae_id_SSE", () => {
+    const parser = new SseParser();
+    const events = parser.feed("id: 99\nevent: vehicle-update\ndata: {}\n\n");
+    expect(events[0]?.id).toBe("99");
+    expect(events[0]?.event).toBe("vehicle-update");
+  });
+
+  it("Parser_soporta_id_fragmentado_entre_chunks", () => {
+    const parser = new SseParser();
+    parser.feed("id: 12");
+    const events = parser.feed("34\nevent: alert\ndata: {}\n\n");
+    expect(events[0]?.id).toBe("1234");
+  });
+
+  it("Parser_soporta_retry", () => {
+    const parser = new SseParser();
+    const events = parser.feed("retry: 5000\nevent: heartbeat\ndata: {}\n\n");
+    expect(events[0]?.retry).toBe(5000);
+  });
+
   it("SseParser interpreta connected, fleet-update, alert y heartbeat", () => {
     const parser = new SseParser();
     const payload = [

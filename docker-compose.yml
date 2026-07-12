@@ -46,16 +46,17 @@ services:
         set -e
         ensure_topic() {
           topic="$$1"
+          partitions="$$2"
           if rpk topic list --brokers redpanda:9092 | awk 'NR>1 {print $$1}' | grep -Fxq "$$topic"; then
             echo "Topic already exists: $$topic"
           else
-            rpk topic create "$$topic" --brokers redpanda:9092
-            echo "Topic created: $$topic"
+            rpk topic create "$$topic" --brokers redpanda:9092 --partitions "$$partitions"
+            echo "Topic created: $$topic (partitions=$$partitions)"
           fi
         }
-        ensure_topic telemetry.raw
-        ensure_topic telemetry.dead-letter
-        ensure_topic fleet.realtime
+        ensure_topic telemetry.raw 1
+        ensure_topic telemetry.dead-letter 1
+        ensure_topic fleet.realtime 1
         echo "Kafka topics ready"
     restart: "no"
 
@@ -89,6 +90,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
+      Sse__InstanceId: api-docker
       TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
     depends_on:
