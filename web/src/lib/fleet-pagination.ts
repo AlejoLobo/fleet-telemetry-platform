@@ -117,7 +117,6 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
   let partial = false;
   let truncated = false;
   let lastError: string | undefined;
-  let stoppedByLimitWithMore = false;
 
   while (vehicles.length < maxVehicles) {
     if (options.signal?.aborted) {
@@ -141,17 +140,21 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
         signal: options.signal,
       });
 
+      const slotsRemaining = maxVehicles - vehicles.length;
+      let addedFromPage = 0;
+
       for (const vehicle of page.items) {
         if (seenIds.has(vehicle.vehicleId)) continue;
+        if (addedFromPage >= slotsRemaining) break;
         seenIds.add(vehicle.vehicleId);
         vehicles.push(vehicle);
-        if (vehicles.length >= maxVehicles) break;
+        addedFromPage += 1;
       }
 
-      if (vehicles.length >= maxVehicles) {
-        if (page.hasMore) {
-          stoppedByLimitWithMore = true;
-        }
+      const discardedInPage = page.items.length > addedFromPage;
+      if (vehicles.length >= maxVehicles && (page.hasMore || discardedInPage)) {
+        partial = true;
+        truncated = true;
         break;
       }
 
@@ -162,11 +165,6 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
       lastError = error instanceof Error ? error.message : "Error al cargar flota";
       break;
     }
-  }
-
-  if (stoppedByLimitWithMore) {
-    partial = true;
-    truncated = true;
   }
 
   return { vehicles, partial, truncated, error: lastError };

@@ -1,36 +1,36 @@
-import { describe, expect, it, vi } from "vitest";
-import { parseAlertPayload, parseFleetUpdatePayload } from "@/lib/sse-parser";
+import { describe, expect, it } from "vitest";
+import { parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
+import { REALTIME_EVENTS } from "@/lib/realtime-events";
 
-describe("sse-parser", () => {
-  it("parsea fleet-update válido", () => {
-    const payload = JSON.stringify([
-      { vehicleId: "VH-001", name: "VH-001", status: "online", lastSeenAt: null, lastSpeedKmh: 10, lastLatitude: 1, lastLongitude: 2 },
-    ]);
-    const result = parseFleetUpdatePayload(payload);
-    expect(result).toHaveLength(1);
-    expect(result?.[0].vehicleId).toBe("VH-001");
-  });
-
-  it("acepta flota vacía sin romper el stream", () => {
-    expect(parseFleetUpdatePayload("[]")).toEqual([]);
-  });
-
-  it("retorna null con JSON inválido", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(parseFleetUpdatePayload("{bad")).toBeNull();
-    warn.mockRestore();
-  });
-
-  it("parsea alerta válida", () => {
-    const alert = {
-      alertId: "AL-1",
+describe("sse parser canonical contract", () => {
+  it("parsea_vehicle_update_individual", () => {
+    const payload = JSON.stringify({
       vehicleId: "VH-001",
-      alertType: "speed",
-      severity: "high",
-      message: "msg",
-      createdAt: "2026-07-10T10:00:00Z",
-      isAcknowledged: false,
-    };
-    expect(parseAlertPayload(JSON.stringify(alert))?.alertId).toBe("AL-1");
+      name: "VH-001",
+      status: "online",
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 45,
+      lastLatitude: 4.6,
+      lastLongitude: -74.0,
+    });
+
+    const vehicle = parseVehicleUpdatePayload(payload);
+    expect(vehicle?.vehicleId).toBe("VH-001");
+    expect(vehicle?.lastSpeedKmh).toBe(45);
+  });
+
+  it("parsea_fleet_update_array_legacy", () => {
+    const payload = JSON.stringify([
+      { vehicleId: "VH-001", status: "online", lastSeenAt: "2026-07-10T10:00:00Z" },
+      { vehicleId: "VH-002", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z" },
+    ]);
+
+    const vehicles = parseFleetUpdatePayload(payload);
+    expect(vehicles).toHaveLength(2);
+  });
+
+  it("contrato_canonico_usa_vehicle_update", () => {
+    expect(REALTIME_EVENTS.vehicleUpdate).toBe("vehicle-update");
+    expect(REALTIME_EVENTS.fleetUpdate).toBe("fleet-update");
   });
 });

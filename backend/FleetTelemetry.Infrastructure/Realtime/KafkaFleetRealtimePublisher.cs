@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Confluent.Kafka;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Realtime;
 using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -38,10 +39,10 @@ public sealed class KafkaFleetRealtimePublisher : IFleetRealtimePublisher, IDisp
     }
 
     public Task PublishVehicleUpdateAsync(string vehicleId, string payloadJson, CancellationToken cancellationToken = default) =>
-        PublishAsync("vehicle-update", vehicleId, payloadJson, cancellationToken);
+        PublishAsync(FleetRealtimeEventTypes.VehicleUpdate, vehicleId, payloadJson, cancellationToken);
 
     public Task PublishAlertAsync(string payloadJson, CancellationToken cancellationToken = default) =>
-        PublishAsync("alert", "alerts", payloadJson, cancellationToken);
+        PublishAsync(FleetRealtimeEventTypes.Alert, "alerts", payloadJson, cancellationToken);
 
     private async Task PublishAsync(
         string eventType,
@@ -55,7 +56,7 @@ public sealed class KafkaFleetRealtimePublisher : IFleetRealtimePublisher, IDisp
             EventType = eventType,
             Payload = payloadDoc.RootElement.Clone(),
             OccurredAt = DateTimeOffset.UtcNow,
-            VehicleId = eventType == "vehicle-update" ? key : null
+            VehicleId = eventType == FleetRealtimeEventTypes.VehicleUpdate ? key : null
         };
 
         var kafkaMessage = new Message<string, string>

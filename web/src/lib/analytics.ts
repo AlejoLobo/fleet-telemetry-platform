@@ -10,6 +10,12 @@ export type GlobalAnalytics = {
   partial?: boolean;
 };
 
+export type OpsSummaryCounts = {
+  totalVehicles: number;
+  activeVehicles: number;
+  criticalAlerts: number;
+};
+
 export type SelectedVehicleAnalytics = {
   vehicleId: string;
   averageSpeedKmh: number;
@@ -20,13 +26,25 @@ export function computeGlobalAnalytics(
   vehicles: VehicleStatus[],
   alerts: FleetAlert[],
   dataSource: FleetDataSource,
-  options?: { partial?: boolean; totalVehiclesOverride?: number },
 ): GlobalAnalytics {
   return {
     activeVehicles: vehicles.filter((v) => v.status === "online").length,
-    totalVehicles: options?.totalVehiclesOverride ?? vehicles.length,
+    totalVehicles: vehicles.length,
     openAlerts: alerts.length,
     source: dataSource === "demo" ? "Demostración" : "TimescaleDB",
+  };
+}
+
+export function computeGlobalAnalyticsFromOps(
+  summary: OpsSummaryCounts,
+  dataSource: FleetDataSource,
+  options?: { partial?: boolean },
+): GlobalAnalytics {
+  return {
+    activeVehicles: summary.activeVehicles,
+    totalVehicles: summary.totalVehicles,
+    openAlerts: summary.criticalAlerts,
+    source: dataSource === "demo" ? "Demostración" : "TimescaleDB (agregados Ops)",
     partial: options?.partial,
   };
 }

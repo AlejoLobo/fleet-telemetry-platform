@@ -83,8 +83,14 @@ export const apiClient = {
     apiClient.setAuthToken(response.token);
   },
 
-  async fetchFleetLive(): Promise<FleetSnapshotResult> {
-    return fetchFleetSnapshot();
+  async fetchFleetLive(options?: {
+    maxVehicles?: number;
+    pageSize?: number;
+    liveOnly?: boolean;
+    excludeSimulated?: boolean;
+    signal?: AbortSignal;
+  }): Promise<FleetSnapshotResult> {
+    return fetchFleetSnapshot(options);
   },
   async fetchAlertsLive(): Promise<FleetAlert[]> {
     return fetchJson<FleetAlert[]>("/api/alerts");

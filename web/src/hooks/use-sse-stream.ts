@@ -3,13 +3,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { normalizeVehicles } from "@/lib/fleet-normalize";
 import {
   buildSseHeaders,
   computeReconnectDelayMs,
   consumeSseFetchStream,
   isSseAuthError,
 } from "@/lib/sse-fetch-client";
+import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
+import { REALTIME_EVENTS } from "@/lib/realtime-events";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
 type SseHandlers = {
@@ -51,34 +52,32 @@ export function useSseStream({
     };
 
     const handleEvent = (eventName: string, data: string) => {
-      if (eventName === "connected") {
+      if (eventName === REALTIME_EVENTS.connected) {
         reconnectAttempt = 0;
         setConnectionState("connected");
         return;
       }
 
-      if (eventName === "heartbeat") {
+      if (eventName === REALTIME_EVENTS.heartbeat) {
         setConnectionState("connected");
         return;
       }
 
-      if (eventName === "fleet-update") {
-        try {
-          const vehicles = normalizeVehicles(JSON.parse(data) as VehicleStatus[]);
-          if (vehicles.length > 0) handlersRef.current.onFleetUpdate?.(vehicles);
-        } catch {
-          /* payload inválido */
-        }
+      if (eventName === REALTIME_EVENTS.vehicleUpdate) {
+        const vehicle = parseVehicleUpdatePayload(data);
+        if (vehicle) handlersRef.current.onFleetUpdate?.([vehicle]);
         return;
       }
 
-      if (eventName === "alert") {
-        try {
-          const alert = JSON.parse(data) as FleetAlert;
-          handlersRef.current.onAlert?.(alert);
-        } catch {
-          /* payload inválido */
-        }
+      if (eventName === REALTIME_EVENTS.fleetUpdate) {
+        const vehicles = parseFleetUpdatePayload(data);
+        if (vehicles && vehicles.length > 0) handlersRef.current.onFleetUpdate?.(vehicles);
+        return;
+      }
+
+      if (eventName === REALTIME_EVENTS.alert) {
+        const alert = parseAlertPayload(data);
+        if (alert) handlersRef.current.onAlert?.(alert);
       }
     };
 

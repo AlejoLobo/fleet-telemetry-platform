@@ -1,10 +1,16 @@
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
-import { normalizeVehicles } from "@/lib/fleet-normalize";
+import { normalizeVehicle, normalizeVehicles } from "@/lib/fleet-normalize";
+
+type RawVehicle = Parameters<typeof normalizeVehicle>[0];
 
 export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
   try {
-    const parsed = JSON.parse(raw) as VehicleStatus[];
-    return normalizeVehicles(parsed);
+    const parsed = JSON.parse(raw) as VehicleStatus[] | RawVehicle;
+    if (Array.isArray(parsed)) {
+      return normalizeVehicles(parsed as RawVehicle[]);
+    }
+    const vehicle = normalizeVehicle(parsed as RawVehicle);
+    return vehicle.vehicleId ? [vehicle] : null;
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[SSE] Payload fleet-update inválido:", error);
@@ -14,8 +20,16 @@ export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
 }
 
 export function parseVehicleUpdatePayload(raw: string): VehicleStatus | null {
-  const vehicles = parseFleetUpdatePayload(raw);
-  return vehicles && vehicles.length > 0 ? vehicles[0] : null;
+  try {
+    const parsed = JSON.parse(raw) as RawVehicle;
+    const vehicle = normalizeVehicle(parsed);
+    return vehicle.vehicleId ? vehicle : null;
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[SSE] Payload vehicle-update inválido:", error);
+    }
+    return null;
+  }
 }
 
 export function parseAlertPayload(raw: string): FleetAlert | null {

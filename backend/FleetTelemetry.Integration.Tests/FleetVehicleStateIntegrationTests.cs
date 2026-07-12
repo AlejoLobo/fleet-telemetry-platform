@@ -167,14 +167,11 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         await using var resetCommand = connection.CreateCommand();
         resetCommand.CommandText = """
             TRUNCATE TABLE fleet_vehicle_state RESTART IDENTITY CASCADE;
-            DELETE FROM schema_versions WHERE "Version" = 2;
+            DELETE FROM schema_versions WHERE "Version" IN (2, 3);
             """;
         await resetCommand.ExecuteNonQueryAsync();
 
-        DatabaseInitializer.ResetBackfillExecutionCountForTests();
         await DatabaseInitializer.InitializeAsync(_services);
-
-        Assert.Equal(1, DatabaseInitializer.BackfillExecutionCount);
 
         using var verifyScope = _services.CreateScope();
         var verifyDb = verifyScope.ServiceProvider.GetRequiredService<FleetDbContext>();

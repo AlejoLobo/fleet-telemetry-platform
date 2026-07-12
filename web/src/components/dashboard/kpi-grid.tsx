@@ -20,6 +20,7 @@ export function KpiGrid({ globalAnalytics, selectedAnalytics, telemetryLoading }
   const selectedSpeed = telemetryLoading
     ? "…"
     : String(selectedAnalytics?.averageSpeedKmh ?? 0);
+  const partialSuffix = globalAnalytics.partial ? " · agregados globales Ops" : "";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -34,21 +35,25 @@ export function KpiGrid({ globalAnalytics, selectedAnalytics, telemetryLoading }
         icon={Truck}
         label="Flota activa"
         value={`${globalAnalytics.activeVehicles}/${globalAnalytics.totalVehicles}`}
-        sublabel={`${onlinePercent}% en línea · global`}
+        sublabel={`${onlinePercent}% en línea · global${partialSuffix}`}
         accent="emerald"
       />
       <KpiCard
         icon={AlertTriangle}
         label="Alertas abiertas"
         value={String(globalAnalytics.openAlerts)}
-        sublabel={globalAnalytics.openAlerts === 0 ? "Sin incidentes" : "Requieren atención"}
+        sublabel={
+          globalAnalytics.openAlerts === 0
+            ? `Sin incidentes${partialSuffix}`
+            : `Requieren atención${partialSuffix}`
+        }
         accent="amber"
       />
       <KpiCard
         icon={Activity}
         label="Fuente de datos"
         value={etiquetaFuenteAnalitica(globalAnalytics.source)}
-        sublabel="Analítica operativa global"
+        sublabel={globalAnalytics.partial ? "Analítica parcial (Ops)" : "Analítica operativa global"}
         accent="violet"
       />
     </div>
