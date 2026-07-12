@@ -16,6 +16,10 @@ internal sealed class FakeFleetRealtimePublisher : IFleetRealtimePublisher
     private readonly List<VehicleUpdateCall> _vehicleUpdates = [];
     private readonly List<string> _alertPayloads = [];
 
+    public bool FailNextVehiclePublish { get; set; }
+
+    public string? FailOnVehicleId { get; set; }
+
     public IReadOnlyList<VehicleUpdateCall> VehicleUpdates
     {
         get
@@ -41,6 +45,9 @@ internal sealed class FakeFleetRealtimePublisher : IFleetRealtimePublisher
             _vehicleUpdates.Clear();
             _alertPayloads.Clear();
         }
+
+        FailNextVehiclePublish = false;
+        FailOnVehicleId = null;
     }
 
     public Task PublishVehicleUpdateAsync(
@@ -48,6 +55,13 @@ internal sealed class FakeFleetRealtimePublisher : IFleetRealtimePublisher
         string payloadJson,
         CancellationToken cancellationToken = default)
     {
+        if (FailNextVehiclePublish
+            || (FailOnVehicleId is not null && vehicleId == FailOnVehicleId))
+        {
+            FailNextVehiclePublish = false;
+            throw new InvalidOperationException("Simulated publish failure.");
+        }
+
         lock (_sync)
         {
             _vehicleUpdates.Add(new VehicleUpdateCall(vehicleId, payloadJson));

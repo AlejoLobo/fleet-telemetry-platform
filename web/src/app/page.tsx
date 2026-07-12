@@ -427,6 +427,8 @@ export default function DashboardPage() {
 
               fleetTruncated={fleetTruncated}
 
+              aggregationSource={globalAnalytics.aggregationSource}
+
               totalVehiclesGlobal={globalAnalytics.totalVehicles}
 
               activeVehiclesGlobal={globalAnalytics.activeVehicles}

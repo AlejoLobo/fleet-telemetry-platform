@@ -12,4 +12,5 @@ public record VehicleLatestStatusResponse(
     double? LastLongitude,
     double? LastHeadingDegrees,
     string? LastLocationSource = null,
-    Guid? LastEventId = null);
+    Guid? LastEventId = null,
+    DateTimeOffset? StatusEvaluatedAt = null);

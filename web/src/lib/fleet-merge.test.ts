@@ -164,6 +164,63 @@ describe("mergeVehicleUpdates", () => {
     const merged = mergeVehicleUpdates(staleSnapshot, freshPatch);
     expect(merged.find((v) => v.vehicleId === "VH-001")?.lastSpeedKmh).toBe(70);
   });
+
+  it("Offline_mismo_EventId_gana_a_snapshot_online_mas_antiguo", () => {
+    const staleOnlineSnapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "online",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:00:00Z",
+    })];
+    const offlinePatch = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "offline",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:05:00Z",
+    })];
+
+    const merged = mergeVehicleUpdates(staleOnlineSnapshot, offlinePatch);
+    expect(merged.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
+  });
+
+  it("Igual_EventId_e_igual_timestamp_no_depende_del_orden_de_render", () => {
+    const olderEval = vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "online",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:00:00Z",
+    });
+    const newerEval = vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "offline",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:05:00Z",
+    });
+
+    const forward = mergeVehicleUpdates([olderEval], [newerEval]);
+    const reverse = mergeVehicleUpdates([newerEval], [olderEval]);
+
+    expect(forward.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
+    expect(reverse.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
+  });
+
+  it("Carrera_snapshot_iniciado_antes_de_expiracion_no_regresa_online", () => {
+    const staleOnlineSnapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "online",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T09:55:00Z",
+    })];
+    const offlineAfterExpiry = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "offline",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:06:00Z",
+    })];
+
+    const merged = mergeVehicleUpdates(staleOnlineSnapshot, offlineAfterExpiry);
+    expect(merged.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
+  });
 });
 
 describe("pruneVehiclePatches", () => {
@@ -189,6 +246,43 @@ describe("pruneVehiclePatches", () => {
     ];
 
     const pruned = pruneVehiclePatches(patches, freshSnapshot);
+    expect(pruned).toHaveLength(0);
+  });
+
+  it("Prune_conserva_offline_evaluado_despues", () => {
+    const patches = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "offline",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:06:00Z",
+    })];
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "online",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T09:55:00Z",
+    })];
+
+    const pruned = pruneVehiclePatches(patches, snapshot);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0]?.status).toBe("offline");
+  });
+
+  it("Snapshot_offline_nuevo_elimina_parche_obsoleto", () => {
+    const patches = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "online",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T09:55:00Z",
+    })];
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      status: "offline",
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+      statusEvaluatedAt: "2026-07-10T10:06:00Z",
+    })];
+
+    const pruned = pruneVehiclePatches(patches, snapshot);
     expect(pruned).toHaveLength(0);
   });
 

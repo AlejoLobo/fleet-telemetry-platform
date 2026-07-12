@@ -122,8 +122,8 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
-            services.AddSingleton<FleetConnectivityPublishTracker>();
-            services.AddSingleton<FleetConnectivityExpiryState>();
+            services.AddScoped<IFleetConnectivityWatermarkRepository, TimescaleFleetConnectivityWatermarkRepository>();
+            services.AddScoped<IFleetOfflinePublishMarkerRepository, TimescaleFleetOfflinePublishMarkerRepository>();
             services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
             services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();

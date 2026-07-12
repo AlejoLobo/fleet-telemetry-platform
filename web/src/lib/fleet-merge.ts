@@ -12,6 +12,12 @@ function parseEventId(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function parseStatusEvaluatedAt(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 function compareEventId(left: string | null, right: string | null): number {
   if (left === null && right === null) return 0;
   if (left === null) return -1;
@@ -24,13 +30,28 @@ function compareVehicleRecency(left: VehicleStatus, right: VehicleStatus): numbe
   const rightMs = parseLastSeenAt(right.lastSeenAt);
 
   if (leftMs === null && rightMs === null) {
-    return compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
+    const eventCompare = compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
+    if (eventCompare !== 0) return eventCompare;
+    const leftEval = parseStatusEvaluatedAt(left.statusEvaluatedAt);
+    const rightEval = parseStatusEvaluatedAt(right.statusEvaluatedAt);
+    if (leftEval === null && rightEval === null) return 0;
+    if (leftEval === null) return -1;
+    if (rightEval === null) return 1;
+    return leftEval - rightEval;
   }
   if (leftMs === null) return -1;
   if (rightMs === null) return 1;
   if (leftMs !== rightMs) return leftMs - rightMs;
 
-  return compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
+  const eventCompare = compareEventId(parseEventId(left.lastEventId), parseEventId(right.lastEventId));
+  if (eventCompare !== 0) return eventCompare;
+
+  const leftEval = parseStatusEvaluatedAt(left.statusEvaluatedAt);
+  const rightEval = parseStatusEvaluatedAt(right.statusEvaluatedAt);
+  if (leftEval === null && rightEval === null) return 0;
+  if (leftEval === null) return -1;
+  if (rightEval === null) return 1;
+  return leftEval - rightEval;
 }
 
 function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): VehicleStatus {
@@ -86,4 +107,11 @@ export function pruneVehiclePatches(
   });
 }
 
-export { compareVehicleRecency, parseLastSeenAt, parseEventId, compareEventId, pickNewerVehicle };
+export {
+  compareVehicleRecency,
+  parseLastSeenAt,
+  parseEventId,
+  parseStatusEvaluatedAt,
+  compareEventId,
+  pickNewerVehicle,
+};
