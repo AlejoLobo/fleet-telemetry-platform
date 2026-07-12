@@ -64,7 +64,9 @@ sequenceDiagram
 
 | Tópico | Uso |
 |--------|-----|
-| `telemetry.raw` | Ingesta |
+| `telemetry.raw` | Ingesta (legacy plano o envelope V1 según `Kafka:UseEventEnvelope`) |
 | `telemetry.dead-letter` | DLQ |
+
+Contrato versionado V1: [kafka-telemetry-contract.md](kafka-telemetry-contract.md).
 
 Detalle de procesamiento y DLQ: [worker-and-dlq.md](worker-and-dlq.md).

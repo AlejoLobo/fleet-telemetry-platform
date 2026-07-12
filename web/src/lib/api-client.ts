@@ -61,6 +61,11 @@ export const apiClient = {
     return `${getApiBaseUrl()}/api/events/stream`;
   },
 
+  getAuthToken(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("fleet_api_token");
+  },
+
   async fetchAuthStatus(): Promise<AuthStatusResponse> {
     return fetchJson<AuthStatusResponse>("/api/auth/status");
   },
@@ -74,8 +79,6 @@ export const apiClient = {
   },
 
   async fetchFleetLive(): Promise<VehicleStatus[]> {
-    // Todos los vehículos con última telemetría (no solo "online" últimos 5 min).
-    // liveOnly=true dejaba mapa/flota vacíos si los eventos eran más antiguos.
     const data = await fetchJson<VehicleStatus[]>("/api/fleet");
     return normalizeVehicles(data);
   },
@@ -111,7 +114,6 @@ export const apiClient = {
   },
 
   hasAuthToken(): boolean {
-    if (typeof window === "undefined") return false;
-    return Boolean(localStorage.getItem("fleet_api_token"));
+    return Boolean(apiClient.getAuthToken());
   },
 };
