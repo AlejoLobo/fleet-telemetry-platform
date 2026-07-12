@@ -40,6 +40,11 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
+        services.Configure<QueryLimitsOptions>(configuration.GetSection(QueryLimitsOptions.SectionName));
+        services.AddOptions<QueryLimitsOptions>()
+            .Bind(configuration.GetSection(QueryLimitsOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<QueryLimitsOptions>, QueryLimitsOptionsValidator>();
         services.AddOptions<StoppedVehicleQueryOptions>()
             .Bind(configuration.GetSection(StoppedVehicleQueryOptions.SectionName))
             .ValidateOnStart();
@@ -90,6 +95,7 @@ public static class DependencyInjection
             services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
+            services.AddScoped<IFleetStateAggregateRepository, TimescaleFleetStateAggregateRepository>();
             services.AddScoped<IOpsQueryService, OpsQueryService>();
             services.AddScoped<IReadinessCheckService, ReadinessCheckService>();
             services.AddScoped<AiOperationalTools>();
