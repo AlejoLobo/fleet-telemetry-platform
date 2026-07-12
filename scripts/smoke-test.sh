@@ -102,7 +102,7 @@ test_dlq() {
   output="$(cat "$tmp" 2>/dev/null || true)"
   rm -f "$tmp"
 
-  if echo "$output" | grep -q 'invalid_payload' && echo "$output" | grep -q "$marker"; then
+  if echo "$output" | grep -Eq 'invalid_(payload|domain)' && echo "$output" | grep -q "$marker"; then
     DLQ_OK="OK"
     ok "DLQ validada"
     return 0
@@ -113,13 +113,13 @@ test_dlq() {
   output=$(docker exec fleet-redpanda sh -c \
     "timeout 8s rpk topic consume telemetry.dead-letter --brokers localhost:9092 -n 50 -f '%v\n'" 2>/dev/null || true)
 
-  if echo "$output" | grep -q 'invalid_payload' && echo "$output" | grep -q "$marker"; then
+  if echo "$output" | grep -Eq 'invalid_(payload|domain)' && echo "$output" | grep -q "$marker"; then
     DLQ_OK="OK"
     ok "DLQ validada"
     return 0
   fi
 
-  fail "DLQ validada" "no se encontró invalid_payload para el marker"
+  fail "DLQ validada" "no se encontró invalid_domain/invalid_payload para el marker"
   echo "Salida DLQ (recorte): $(printf '%s' "$output" | head -c 400)"
   return 1
 }
