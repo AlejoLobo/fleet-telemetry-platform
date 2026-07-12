@@ -211,6 +211,38 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_connectivity_watermark (
+                "Id" integer NOT NULL DEFAULT 1,
+                "PreviousOnlineThreshold" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_connectivity_watermark" PRIMARY KEY ("Id")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_offline_publish_markers (
+                "VehicleId" character varying(64) NOT NULL,
+                "LastEventId" uuid NOT NULL,
+                "StatusEvaluatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_offline_publish_markers" PRIMARY KEY ("VehicleId")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
+            ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
+            """,
+            cancellationToken);
+
         logger.LogInformation("TimescaleDB base schema initialized successfully.");
     }
 

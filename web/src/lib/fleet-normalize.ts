@@ -7,6 +7,7 @@ type RawVehicle = VehicleStatus & {
   Status?: string;
   LastSeenAt?: string | null;
   LastEventId?: string | null;
+  StatusEvaluatedAt?: string | null;
   LastSpeedKmh?: number | null;
   LastLatitude?: number | null;
   LastLongitude?: number | null;
@@ -23,6 +24,7 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,
     lastEventId: vehicle.lastEventId ?? vehicle.LastEventId ?? null,
+    statusEvaluatedAt: vehicle.statusEvaluatedAt ?? vehicle.StatusEvaluatedAt ?? null,
     lastSpeedKmh: vehicle.lastSpeedKmh ?? vehicle.LastSpeedKmh ?? null,
     lastLatitude: vehicle.lastLatitude ?? vehicle.LastLatitude ?? null,
     lastLongitude: vehicle.lastLongitude ?? vehicle.LastLongitude ?? null,

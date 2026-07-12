@@ -5,7 +5,6 @@ using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
-using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,7 +23,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
     private readonly FleetDbContext _dbContext;
     private readonly IFleetRealtimePublisher _realtimePublisher;
-    private readonly FleetConnectivityPublishTracker _publishTracker;
+    private readonly IFleetOfflinePublishMarkerRepository _markerRepository;
     private readonly TimeProvider _timeProvider;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
@@ -32,14 +31,14 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     public TimescaleTelemetryProcessingUnitOfWork(
         FleetDbContext dbContext,
         IFleetRealtimePublisher realtimePublisher,
-        FleetConnectivityPublishTracker publishTracker,
+        IFleetOfflinePublishMarkerRepository markerRepository,
         TimeProvider timeProvider,
         IOptions<QueryLimitsOptions> queryLimits,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
         _realtimePublisher = realtimePublisher;
-        _publishTracker = publishTracker;
+        _markerRepository = markerRepository;
         _timeProvider = timeProvider;
         _queryLimits = queryLimits.Value;
         _logger = logger;
@@ -181,14 +180,26 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     telemetryEvent.Longitude,
                     null,
                     telemetryEvent.LocationSource,
-                    telemetryEvent.EventId);
+                    telemetryEvent.EventId,
+                    now);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
                     telemetryEvent.VehicleId,
                     JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
                     cancellationToken);
 
-                _publishTracker.MarkOnline(telemetryEvent.VehicleId);
+                if (connectivityStatus == VehicleConnectivityStatus.Online)
+                {
+                    await _markerRepository.MarkOnlineAsync(telemetryEvent.VehicleId, cancellationToken);
+                }
+                else
+                {
+                    await _markerRepository.MarkOfflinePublishedAsync(
+                        telemetryEvent.VehicleId,
+                        telemetryEvent.EventId,
+                        now,
+                        cancellationToken);
+                }
             }
 
             foreach (var alert in alerts)

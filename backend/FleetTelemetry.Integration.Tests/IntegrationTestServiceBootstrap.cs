@@ -19,6 +19,7 @@ internal static class IntegrationTestServiceBootstrap
         string connectionString,
         FakeTimeProvider timeProvider,
         Action<QueryLimitsOptions>? configureQueryLimits = null,
+        Action<SseOptions>? configureSseOptions = null,
         FakeFleetRealtimePublisher? configurePublisher = null)
     {
         services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -47,10 +48,11 @@ internal static class IntegrationTestServiceBootstrap
             options.ConnectivityExpiryIntervalSeconds = 30;
             options.ConnectivityExpiryLookbackSeconds = 90;
             options.ConnectivityExpiryBatchSize = 200;
+            configureSseOptions?.Invoke(options);
         });
 
-        services.AddSingleton<FleetConnectivityPublishTracker>();
-        services.AddSingleton<FleetConnectivityExpiryState>();
+        services.AddScoped<IFleetConnectivityWatermarkRepository, TimescaleFleetConnectivityWatermarkRepository>();
+        services.AddScoped<IFleetOfflinePublishMarkerRepository, TimescaleFleetOfflinePublishMarkerRepository>();
         services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
         services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
         if (configurePublisher is not null)
@@ -69,7 +71,7 @@ internal static class IntegrationTestServiceBootstrap
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         await db.Database.ExecuteSqlRawAsync(
             """
-            TRUNCATE TABLE fleet_alerts, processed_events, fleet_vehicle_state, telemetry_events
+            TRUNCATE TABLE fleet_offline_publish_markers, fleet_connectivity_watermark, fleet_alerts, processed_events, fleet_vehicle_state, telemetry_events
             RESTART IDENTITY CASCADE;
             """);
     }

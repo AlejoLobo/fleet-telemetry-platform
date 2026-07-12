@@ -7,6 +7,7 @@ export type VehicleStatus = {
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;
+  statusEvaluatedAt?: string | null;
   lastSpeedKmh: number | null;
   lastLatitude: number | null;
   lastLongitude: number | null;
