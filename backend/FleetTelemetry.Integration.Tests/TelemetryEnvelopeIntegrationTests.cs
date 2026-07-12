@@ -38,7 +38,7 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId);
+        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 1, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
@@ -132,7 +132,7 @@ public class TelemetryEnvelopeIntegrationTests
             """;
 
         await host.StartAsync();
-        Produce(host.Topic, malformedEnvelope);
+        Produce(host.Topic, malformedEnvelope, key: null, _kafka.BootstrapServers);
         await WaitUntilAsync(() => host.DeadLetterPublisher!.Messages.Count > 0, TimeSpan.FromSeconds(30));
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 1, TimeSpan.FromSeconds(30));
 
@@ -162,7 +162,7 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: false);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId);
+        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 1, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
@@ -192,8 +192,8 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId);
-        Produce(host.Topic, payload, original.VehicleId);
+        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
+        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 2, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
@@ -218,7 +218,7 @@ public class TelemetryEnvelopeIntegrationTests
             .Replace("\"schemaVersion\":1", "\"schemaVersion\":42", StringComparison.Ordinal);
 
         await host.StartAsync();
-        Produce(host.Topic, unsupported);
+        Produce(host.Topic, unsupported, key: null, _kafka.BootstrapServers);
         await WaitUntilAsync(() => host.DeadLetterPublisher!.PublishAttempts >= 3, TimeSpan.FromSeconds(45));
         await host.StopAsync();
 
@@ -241,11 +241,11 @@ public class TelemetryEnvelopeIntegrationTests
             "gps");
     }
 
-    private static void Produce(string topic, string payload, string? key = null, string? bootstrap = null)
+    private void Produce(string topic, string payload, string? key = null, string? bootstrap = null)
     {
         using var producer = new ProducerBuilder<string, string>(new ProducerConfig
         {
-            BootstrapServers = bootstrap ?? "localhost:19092",
+            BootstrapServers = bootstrap ?? _kafka.BootstrapServers,
             Acks = Acks.All
         }).Build();
 
