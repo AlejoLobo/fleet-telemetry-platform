@@ -9,11 +9,16 @@ jest.mock("expo-sqlite", () => ({
 import {
   claimNextBatch,
   enqueueEvent,
+  getQueueEventByEventId,
   markBatchRetry,
+  markClaimedBatchRetryAtomic,
+  markEventPermanentFailure,
+  markEventsSynced,
   releaseClaimedEvents,
   releaseEventsToPending,
   resetOfflineQueueForTests,
 } from "@/db/offline-queue";
+import { setFailNextBatchRetry } from "@/__tests__/helpers/sqlite-memory";
 
 const basePayload = {
   eventId: "11111111-1111-1111-1111-111111111111",
@@ -27,6 +32,21 @@ const basePayload = {
   batteryPercent: 90,
 };
 
+async function seedProcessing(eventId: string, status: "processing" | "synced" | "permanent_failure" = "processing") {
+  await enqueueEvent({ ...basePayload, eventId });
+  const now = new Date().toISOString();
+  if (status === "processing") {
+    await claimNextBatch(10, now);
+    return;
+  }
+  await claimNextBatch(10, now);
+  if (status === "synced") {
+    await markEventsSynced([eventId]);
+    return;
+  }
+  await markEventPermanentFailure(eventId, "invalid");
+}
+
 describe("offline-queue operations", () => {
   beforeEach(() => {
     resetSqliteMemory();
@@ -35,84 +55,107 @@ describe("offline-queue operations", () => {
   });
 
   it("releaseEventsToPending_limpia_locked_at", async () => {
-    await enqueueEvent(basePayload);
-    const now = new Date().toISOString();
-    const claimed = await claimNextBatch(10, now);
-    expect(claimed[0].lockedAt).not.toBeNull();
-
+    await seedProcessing(basePayload.eventId);
     await releaseEventsToPending([basePayload.eventId], "auth");
-    const row = getSqliteRows().find((item) => item.event_id === basePayload.eventId);
-    expect(row?.locked_at).toBeNull();
+    const row = await getQueueEventByEventId(basePayload.eventId);
+    expect(row?.lockedAt).toBeNull();
     expect(row?.status).toBe("pending");
-    expect(row?.retry_count).toBe(0);
+    expect(row?.retryCount).toBe(0);
   });
 
-  it("releaseClaimedEvents_libera_uno_o_varios_eventos", async () => {
-    await enqueueEvent(basePayload);
-    await enqueueEvent({ ...basePayload, eventId: "22222222-2222-2222-2222-222222222222" });
-    const now = new Date().toISOString();
-    await claimNextBatch(10, now);
+  it("releaseClaimedEvents_no_cambia_un_permanent_failure", async () => {
+    const eventId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    await seedProcessing(eventId, "permanent_failure");
+    const affected = await releaseClaimedEvents([eventId], "auth");
+    const row = await getQueueEventByEventId(eventId);
+    expect(affected).toBe(0);
+    expect(row?.status).toBe("permanent_failure");
+  });
 
-    await releaseClaimedEvents([
-      basePayload.eventId,
-      "22222222-2222-2222-2222-222222222222",
-    ], "forbidden");
+  it("releaseClaimedEvents_no_cambia_un_synced", async () => {
+    const eventId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    await seedProcessing(eventId, "synced");
+    const affected = await releaseClaimedEvents([eventId], "auth");
+    const row = await getQueueEventByEventId(eventId);
+    expect(affected).toBe(0);
+    expect(row?.status).toBe("synced");
+  });
 
-    getSqliteRows().forEach((row) => {
-      expect(row.locked_at).toBeNull();
-      expect(row.status).toBe("pending");
-    });
+  it("markBatchRetry_no_cambia_un_permanent_failure", async () => {
+    const eventId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    await seedProcessing(eventId, "permanent_failure");
+    const affected = await markBatchRetry([eventId], new Date().toISOString(), "500", true);
+    const row = await getQueueEventByEventId(eventId);
+    expect(affected).toBe(0);
+    expect(row?.status).toBe("permanent_failure");
+  });
+
+  it("markBatchRetry_no_cambia_un_synced", async () => {
+    const eventId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    await seedProcessing(eventId, "synced");
+    const affected = await markBatchRetry([eventId], new Date().toISOString(), "500", true);
+    const row = await getQueueEventByEventId(eventId);
+    expect(affected).toBe(0);
+    expect(row?.status).toBe("synced");
+  });
+
+  it("solo_los_processing_indicados_son_modificados", async () => {
+    const processingId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+    const syncedId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    await seedProcessing(processingId, "processing");
+    await seedProcessing(syncedId, "synced");
+    const affected = await releaseClaimedEvents([processingId, syncedId], "forbidden");
+    expect(affected).toBe(1);
+    expect((await getQueueEventByEventId(processingId))?.status).toBe("pending");
+    expect((await getQueueEventByEventId(syncedId))?.status).toBe("synced");
   });
 
   it("markBatchRetry_incrementa_retryCount_en_errores_transitorios", async () => {
-    await enqueueEvent(basePayload);
-    const now = new Date().toISOString();
-    await claimNextBatch(10, now);
-
+    await seedProcessing(basePayload.eventId);
     await markBatchRetry([basePayload.eventId], new Date(Date.now() + 5000).toISOString(), "500", true);
-    const row = getSqliteRows().find((item) => item.event_id === basePayload.eventId);
-    expect(row?.retry_count).toBe(1);
-    expect(row?.locked_at).toBeNull();
+    const row = await getQueueEventByEventId(basePayload.eventId);
+    expect(row?.retryCount).toBe(1);
+    expect(row?.lockedAt).toBeNull();
     expect(row?.status).toBe("retry");
   });
 
-  it("markBatchRetry_sin_incremento_conserva_retryCount_en_errores_auth", async () => {
+  it("markClaimedBatchRetryAtomic_con_retryCount_mayor_que_8_no_permanent_failure", async () => {
     await enqueueEvent(basePayload);
     const now = new Date().toISOString();
     const claimed = await claimNextBatch(10, now);
-    const initialRetry = claimed[0].retryCount;
+    const rowBefore = getSqliteRows().find((r) => r.event_id === basePayload.eventId);
+    if (rowBefore) rowBefore.retry_count = 9;
 
-    await markBatchRetry([basePayload.eventId], new Date(Date.now() + 5000).toISOString(), "auth", false);
-    const row = getSqliteRows().find((item) => item.event_id === basePayload.eventId);
-    expect(row?.retry_count).toBe(initialRetry);
-    expect(row?.status).toBe("pending");
-    expect(row?.locked_at).toBeNull();
+    await markClaimedBatchRetryAtomic([basePayload.eventId], new Date(Date.now() + 5000).toISOString(), "HTTP 500");
+    const row = await getQueueEventByEventId(basePayload.eventId);
+    expect(row?.status).toBe("retry");
+    expect(row?.retryCount).toBe(10);
+    expect(row?.lockedAt).toBeNull();
   });
 
-  it("ningun_update_afecta_eventos_ajenos_al_lote", async () => {
-    await enqueueEvent(basePayload);
-    await enqueueEvent({ ...basePayload, eventId: "22222222-2222-2222-2222-222222222222" });
-    const now = new Date().toISOString();
-    await claimNextBatch(10, now);
+  it("markClaimedBatchRetryAtomic_fallo_transaccional_sin_resultado_parcial", async () => {
+    const id1 = "11111111-1111-1111-1111-111111111111";
+    const id2 = "22222222-2222-2222-2222-222222222222";
+    await enqueueEvent({ ...basePayload, eventId: id1 });
+    await enqueueEvent({ ...basePayload, eventId: id2 });
+    await claimNextBatch(10, new Date().toISOString());
 
-    await releaseEventsToPending([basePayload.eventId], "auth");
-    const untouched = getSqliteRows().find((item) => item.event_id === "22222222-2222-2222-2222-222222222222");
-    expect(untouched?.status).toBe("processing");
-    expect(untouched?.locked_at).not.toBeNull();
-  });
-
-  it("operacion_transaccional_ante_fallo_no_deja_estado_inconsistente", async () => {
-    await enqueueEvent(basePayload);
-    const now = new Date().toISOString();
-    await claimNextBatch(10, now);
-
-    mockMemoryDb.withTransactionAsync.mockImplementationOnce(async () => {
-      throw new Error("sqlite transaction failed");
+    setFailNextBatchRetry(true);
+    mockMemoryDb.withTransactionAsync.mockImplementationOnce(async (callback: () => Promise<void>) => {
+      try {
+        await callback();
+      } catch (error) {
+        throw error;
+      }
     });
 
-    await expect(releaseEventsToPending([basePayload.eventId], "error")).rejects.toThrow("sqlite transaction failed");
-    const row = getSqliteRows().find((item) => item.event_id === basePayload.eventId);
-    expect(row?.status).toBe("processing");
-    expect(row?.locked_at).not.toBeNull();
+    await expect(
+      markClaimedBatchRetryAtomic([id1, id2], new Date().toISOString(), "HTTP 500"),
+    ).rejects.toThrow("simulated batch retry failure");
+
+    expect((await getQueueEventByEventId(id1))?.status).toBe("processing");
+    expect((await getQueueEventByEventId(id2))?.status).toBe("processing");
+    expect((await getQueueEventByEventId(id1))?.retryCount).toBe(0);
+    expect((await getQueueEventByEventId(id2))?.retryCount).toBe(0);
   });
 });

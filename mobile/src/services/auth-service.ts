@@ -1,8 +1,8 @@
 import { getApiBaseUrl } from "@/config/env";
-import { setAuthRuntimeSnapshot, resetAuthRuntimeForTests } from "@/services/auth-runtime";
+import { setAuthRuntimeSnapshot, resetAuthRuntimeForTests, type AuthRuntimeSnapshot } from "@/services/auth-runtime";
 import type { AuthTokenStore } from "@/services/auth-token-store";
 import { InMemoryAuthTokenStore, SecureAuthTokenStore } from "@/services/auth-token-store";
-import type { AuthSessionStatus, AuthStatusResponse, LoginResponse } from "@/types/auth";
+import type { AuthSessionStatus, LoginResponse } from "@/types/auth";
 
 export type AuthSessionSnapshot = {
   status: AuthSessionStatus;
@@ -40,28 +40,56 @@ export function subscribeAuthSession(listener: AuthListener): () => void {
   return () => listeners.delete(listener);
 }
 
-function publish(next: AuthSessionSnapshot): void {
-  session = next;
-  const token = getActiveToken();
-  setAuthRuntimeSnapshot({
-    enabled: next.enabled,
-    token,
-    tokenExpired: next.status === "session_expired",
-  });
-  listeners.forEach((listener) => listener(next));
-}
-
 function isExpired(expiresAtIso: string): boolean {
   return new Date(expiresAtIso).getTime() <= Date.now();
 }
 
+function buildRuntimeSnapshot(next: AuthSessionSnapshot): AuthRuntimeSnapshot {
+  if (next.status === "checking" || next.status === "status_error") {
+    return { mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false };
+  }
+  if (next.status === "auth_disabled") {
+    return { mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false };
+  }
+
+  const tokenExpired =
+    next.status === "session_expired"
+    || (cachedExpiresAt !== null && isExpired(cachedExpiresAt));
+
+  return {
+    mode: "enabled",
+    token: next.status === "authenticated" ? cachedToken : null,
+    expiresAtIso: cachedExpiresAt,
+    tokenExpired,
+  };
+}
+
+function publish(next: AuthSessionSnapshot): void {
+  session = next;
+  setAuthRuntimeSnapshot(buildRuntimeSnapshot(next));
+  listeners.forEach((listener) => listener(next));
+}
+
 export function getActiveToken(): string | null {
-  if (!session.enabled) return null;
+  const runtime = buildRuntimeSnapshot(session);
+  if (runtime.mode !== "enabled" || runtime.tokenExpired) return null;
   if (session.status !== "authenticated") return null;
   return cachedToken;
 }
 
-async function fetchAuthStatus(): Promise<AuthStatusResponse> {
+export function getCachedExpiresAt(): string | null {
+  return cachedExpiresAt;
+}
+
+function parseAuthStatusPayload(body: unknown): { enabled: boolean } | null {
+  if (typeof body !== "object" || body === null) return null;
+  if (!("enabled" in body)) return null;
+  const enabled = (body as { enabled: unknown }).enabled;
+  if (typeof enabled !== "boolean") return null;
+  return { enabled };
+}
+
+async function fetchAuthStatus(): Promise<{ enabled: boolean } | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
@@ -69,8 +97,11 @@ async function fetchAuthStatus(): Promise<AuthStatusResponse> {
       method: "GET",
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Auth status HTTP ${response.status}`);
-    return (await response.json()) as AuthStatusResponse;
+    if (!response.ok) return null;
+    const body = await response.json();
+    return parseAuthStatusPayload(body);
+  } catch {
+    return null;
   } finally {
     clearTimeout(timeout);
   }
@@ -78,52 +109,52 @@ async function fetchAuthStatus(): Promise<AuthStatusResponse> {
 
 export async function initializeAuthSession(): Promise<AuthSessionSnapshot> {
   publish({ status: "checking", enabled: false, username: null, statusMessage: null });
-  try {
-    const status = await fetchAuthStatus();
-    if (!status.enabled) {
-      cachedToken = null;
-      cachedExpiresAt = null;
-      publish({
-        status: "auth_disabled",
-        enabled: false,
-        username: null,
-        statusMessage: "Autenticación deshabilitada",
-      });
-      return session;
-    }
-
-    const stored = await tokenStore.load();
-    if (!stored || isExpired(stored.expiresAtIso)) {
-      await tokenStore.clear();
-      cachedToken = null;
-      cachedExpiresAt = null;
-      publish({
-        status: stored ? "session_expired" : "auth_required",
-        enabled: true,
-        username: null,
-        statusMessage: stored ? "Sesión vencida" : "Login requerido",
-      });
-      return session;
-    }
-
-    cachedToken = stored.token;
-    cachedExpiresAt = stored.expiresAtIso;
-    publish({
-      status: "authenticated",
-      enabled: true,
-      username: null,
-      statusMessage: null,
-    });
-    return session;
-  } catch (error) {
+  const status = await fetchAuthStatus();
+  if (!status) {
     publish({
       status: "status_error",
       enabled: false,
       username: null,
-      statusMessage: error instanceof Error ? error.message : "Error consultando auth status",
+      statusMessage: "Error consultando auth status",
     });
     return session;
   }
+
+  if (!status.enabled) {
+    cachedToken = null;
+    cachedExpiresAt = null;
+    publish({
+      status: "auth_disabled",
+      enabled: false,
+      username: null,
+      statusMessage: "Autenticación deshabilitada",
+    });
+    return session;
+  }
+
+  const stored = await tokenStore.load();
+  if (!stored || isExpired(stored.expiresAtIso)) {
+    await tokenStore.clear();
+    cachedToken = null;
+    cachedExpiresAt = null;
+    publish({
+      status: stored ? "session_expired" : "auth_required",
+      enabled: true,
+      username: null,
+      statusMessage: stored ? "Sesión vencida" : "Login requerido",
+    });
+    return session;
+  }
+
+  cachedToken = stored.token;
+  cachedExpiresAt = stored.expiresAtIso;
+  publish({
+    status: "authenticated",
+    enabled: true,
+    username: null,
+    statusMessage: null,
+  });
+  return session;
 }
 
 export async function login(username: string, password: string): Promise<AuthSessionSnapshot> {
@@ -161,7 +192,7 @@ export async function logout(): Promise<AuthSessionSnapshot> {
   await tokenStore.clear();
   cachedToken = null;
   cachedExpiresAt = null;
-  if (!session.enabled) {
+  if (session.status === "auth_disabled") {
     publish({ status: "auth_disabled", enabled: false, username: null, statusMessage: null });
     return session;
   }
@@ -173,8 +204,20 @@ export async function handleUnauthorizedFromApi(): Promise<void> {
   await tokenStore.clear();
   cachedToken = null;
   cachedExpiresAt = null;
-  if (!session.enabled) return;
+  if (session.status === "auth_disabled") return;
   publish({ status: "auth_required", enabled: true, username: null, statusMessage: "Sesión vencida" });
+}
+
+export async function handleSessionExpiredBeforeRequest(): Promise<void> {
+  await tokenStore.clear();
+  cachedToken = null;
+  cachedExpiresAt = null;
+  publish({
+    status: "session_expired",
+    enabled: true,
+    username: session.username,
+    statusMessage: "Sesión vencida",
+  });
 }
 
 export function markForbiddenFromApi(message?: string): void {

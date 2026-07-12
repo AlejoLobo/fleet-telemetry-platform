@@ -1,4 +1,4 @@
-import { getAuthRuntimeSnapshot, setAuthRuntimeSnapshot, resetAuthRuntimeForTests } from "@/services/auth-runtime";
+import { getAuthRuntimeSnapshot, resetAuthRuntimeForTests, setAuthRuntimeSnapshot } from "@/services/auth-runtime";
 import { sendBatchEvents, sendSingleEvent, TelemetryApiError } from "@/services/telemetry-api";
 
 const mockFetch = jest.fn();
@@ -11,7 +11,12 @@ describe("telemetry-api auth", () => {
   });
 
   it("Auth_habilitada_con_token_envia_Bearer_en_batch", async () => {
-    setAuthRuntimeSnapshot({ enabled: true, token: "secret-token", tokenExpired: false });
+    setAuthRuntimeSnapshot({
+      mode: "enabled",
+      token: "secret-token",
+      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
+      tokenExpired: false,
+    });
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendBatchEvents([
       {
@@ -31,7 +36,12 @@ describe("telemetry-api auth", () => {
   });
 
   it("Auth_habilitada_con_token_envia_Bearer_en_single", async () => {
-    setAuthRuntimeSnapshot({ enabled: true, token: "secret-token", tokenExpired: false });
+    setAuthRuntimeSnapshot({
+      mode: "enabled",
+      token: "secret-token",
+      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
+      tokenExpired: false,
+    });
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
@@ -49,7 +59,7 @@ describe("telemetry-api auth", () => {
   });
 
   it("Auth_deshabilitada_envia_telemetria_sin_Authorization", async () => {
-    setAuthRuntimeSnapshot({ enabled: false, token: null, tokenExpired: false });
+    setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
@@ -67,7 +77,44 @@ describe("telemetry-api auth", () => {
   });
 
   it("Auth_habilitada_sin_token_no_ejecuta_fetch", async () => {
-    setAuthRuntimeSnapshot({ enabled: true, token: null, tokenExpired: false });
+    setAuthRuntimeSnapshot({ mode: "enabled", token: null, expiresAtIso: null, tokenExpired: false });
+    await expect(sendSingleEvent({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      vehicleId: "VH-001",
+      driverId: null,
+      timestamp: "2026-07-12T08:00:00Z",
+      latitude: 1,
+      longitude: 2,
+      speedKmh: 3,
+      fuelLevelPercent: null,
+      batteryPercent: null,
+    })).rejects.toBeInstanceOf(TelemetryApiError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("Auth_mode_unknown_no_ejecuta_fetch", async () => {
+    setAuthRuntimeSnapshot({ mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false });
+    await expect(sendSingleEvent({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      vehicleId: "VH-001",
+      driverId: null,
+      timestamp: "2026-07-12T08:00:00Z",
+      latitude: 1,
+      longitude: 2,
+      speedKmh: 3,
+      fuelLevelPercent: null,
+      batteryPercent: null,
+    })).rejects.toBeInstanceOf(TelemetryApiError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("Token_expirado_antes_de_peticion_no_ejecuta_fetch", async () => {
+    setAuthRuntimeSnapshot({
+      mode: "enabled",
+      token: "secret-token",
+      expiresAtIso: new Date(Date.now() - 60_000).toISOString(),
+      tokenExpired: true,
+    });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
       vehicleId: "VH-001",
@@ -83,7 +130,12 @@ describe("telemetry-api auth", () => {
   });
 
   it("El_token_no_aparece_en_mensajes_de_error", async () => {
-    setAuthRuntimeSnapshot({ enabled: true, token: "secret-token", tokenExpired: false });
+    setAuthRuntimeSnapshot({
+      mode: "enabled",
+      token: "secret-token",
+      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
+      tokenExpired: false,
+    });
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
