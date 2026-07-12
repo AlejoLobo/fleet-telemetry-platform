@@ -104,6 +104,7 @@ public sealed class TelemetryConsumerWorkerTestHost : IAsyncDisposable
                 ["Kafka:RetryMaxDelayMilliseconds"] = "200",
                 ["Kafka:MaxDeadLetterPublishAttempts"] = "3",
                 ["Kafka:MaxPollIntervalMilliseconds"] = "300000",
+                ["Kafka:UseEventEnvelope"] = options.UseEventEnvelope ? "true" : "false",
                 ["TimescaleDb:ConnectionString"] = connectionString,
                 ["TimescaleDb:AllowAutoSchemaInitialization"] = options.UseRealTimescaleProcessing ? "true" : "false"
             })
@@ -196,6 +197,7 @@ public sealed class TelemetryConsumerWorkerHostOptions
     public string? ExistingGroupId { get; set; }
     public bool UseRealTimescaleProcessing { get; set; }
     public bool UseProductionDeadLetterPublisher { get; set; }
+    public bool UseEventEnvelope { get; set; }
     public Action<KafkaOptions>? ConfigureKafka { get; set; }
     public Action<ControllableDeadLetterPublisher>? ConfigureDeadLetterPublisher { get; set; }
 }
