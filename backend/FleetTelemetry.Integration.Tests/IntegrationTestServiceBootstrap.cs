@@ -1,6 +1,7 @@
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
+using FleetTelemetry.Infrastructure.Realtime;
 using FleetTelemetry.Infrastructure.Repositories;
 using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -40,8 +41,17 @@ internal static class IntegrationTestServiceBootstrap
             options.TelemetryTopic = "telemetry.raw";
             options.DeadLetterTopic = "telemetry.dead-letter";
         });
-        services.Configure<SseOptions>(options => options.Mode = SseDeliveryMode.Polling);
+        services.Configure<SseOptions>(options =>
+        {
+            options.Mode = SseDeliveryMode.Polling;
+            options.ConnectivityExpiryIntervalSeconds = 30;
+            options.ConnectivityExpiryLookbackSeconds = 90;
+            options.ConnectivityExpiryBatchSize = 200;
+        });
 
+        services.AddSingleton<FleetConnectivityPublishTracker>();
+        services.AddSingleton<FleetConnectivityExpiryState>();
+        services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
         services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
         if (configurePublisher is not null)
             services.AddSingleton<IFleetRealtimePublisher>(configurePublisher);

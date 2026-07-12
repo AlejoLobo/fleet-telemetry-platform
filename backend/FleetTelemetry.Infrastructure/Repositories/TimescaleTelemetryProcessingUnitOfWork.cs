@@ -5,6 +5,7 @@ using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
+using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,6 +24,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
     private readonly FleetDbContext _dbContext;
     private readonly IFleetRealtimePublisher _realtimePublisher;
+    private readonly FleetConnectivityPublishTracker _publishTracker;
     private readonly TimeProvider _timeProvider;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
@@ -30,12 +32,14 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     public TimescaleTelemetryProcessingUnitOfWork(
         FleetDbContext dbContext,
         IFleetRealtimePublisher realtimePublisher,
+        FleetConnectivityPublishTracker publishTracker,
         TimeProvider timeProvider,
         IOptions<QueryLimitsOptions> queryLimits,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
         _realtimePublisher = realtimePublisher;
+        _publishTracker = publishTracker;
         _timeProvider = timeProvider;
         _queryLimits = queryLimits.Value;
         _logger = logger;
@@ -176,12 +180,15 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     telemetryEvent.Latitude,
                     telemetryEvent.Longitude,
                     null,
-                    telemetryEvent.LocationSource);
+                    telemetryEvent.LocationSource,
+                    telemetryEvent.EventId);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
                     telemetryEvent.VehicleId,
                     JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
                     cancellationToken);
+
+                _publishTracker.MarkOnline(telemetryEvent.VehicleId);
             }
 
             foreach (var alert in alerts)

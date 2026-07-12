@@ -30,4 +30,13 @@ public class SseOptions
 
     // Máximo de alertas por ciclo de polling.
     public int AlertBatchSize { get; set; } = 100;
+
+    // Intervalo del servicio de expiración de conectividad (KafkaPush).
+    public int ConnectivityExpiryIntervalSeconds { get; set; } = 30;
+
+    // Ventana incremental consultada sobre LastTimestamp al cruzar el umbral.
+    public int ConnectivityExpiryLookbackSeconds { get; set; } = 90;
+
+    // Tope de vehículos evaluados por ciclo de expiración.
+    public int ConnectivityExpiryBatchSize { get; set; } = 200;
 }

@@ -28,7 +28,30 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     public async Task DisposeAsync() => await _database.DisposeAsync();
 
     [Fact]
-    public async Task V2_presente_y_tabla_vacia_es_reparada_por_v3()
+    public async Task Instalacion_nueva_ejecuta_backfill_una_sola_vez()
+    {
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            TRUNCATE TABLE fleet_vehicle_state, telemetry_events, processed_events, fleet_alerts RESTART IDENTITY CASCADE;
+            DELETE FROM schema_versions WHERE "Version" IN (2, 3);
+            """;
+        await command.ExecuteNonQueryAsync();
+
+        await SeedTelemetryOnlyAsync(
+            ("VH-NEW-001", new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero), Guid.Parse("abababab-abab-abab-abab-abababababab"), 30, 4.60, -74.10));
+
+        _migrationHooks.Reset();
+        await DatabaseInitializer.InitializeAsync(_services);
+
+        Assert.True(await SchemaVersionExistsAsync(2));
+        Assert.True(await SchemaVersionExistsAsync(3));
+        Assert.Equal(1, _migrationHooks.BackfillCount);
+    }
+
+    [Fact]
+    public async Task V2_heredada_ejecuta_reparacion_v3()
     {
         await ResetForV3RepairAsync(includeV2: true, includeV3: false);
         await SeedTelemetryOnlyAsync(

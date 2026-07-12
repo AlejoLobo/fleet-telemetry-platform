@@ -155,7 +155,8 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastLatitude: record.Latitude,
             LastLongitude: record.Longitude,
             LastHeadingDegrees: headingDegrees,
-            LastLocationSource: record.LocationSource);
+            LastLocationSource: record.LocationSource,
+            LastEventId: record.LastEventId);
     }
 
     private static void ValidatePageSize(int pageSize, int maxPageSize)

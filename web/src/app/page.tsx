@@ -116,6 +116,8 @@ export default function DashboardPage() {
 
     dataSource,
 
+    fleetTruncated,
+
     refresh,
 
     loadFromApi,
@@ -422,6 +424,12 @@ export default function DashboardPage() {
               vehicles={displayVehicles}
 
               selectedVehicleId={selectedVehicleId}
+
+              fleetTruncated={fleetTruncated}
+
+              totalVehiclesGlobal={globalAnalytics.totalVehicles}
+
+              activeVehiclesGlobal={globalAnalytics.activeVehicles}
 
               onSelectVehicle={setSelectedVehicleId}
 

@@ -109,12 +109,60 @@ describe("mergeVehicleUpdates", () => {
   });
 
   it("Timestamp_invalido_no_causa_regresion", () => {
-    const snapshot = [vehicle("VH-001", { lastSeenAt: "2026-07-10T10:00:00Z", lastSpeedKmh: 50 })];
-    const invalidPatch = [vehicle("VH-001", { lastSeenAt: "invalid-date", lastSpeedKmh: 99 })];
+    const snapshot = [vehicle("VH-001", { lastSeenAt: "2026-07-10T10:00:00Z", lastSpeedKmh: 50, lastEventId: "11111111-1111-1111-1111-111111111111" })];
+    const invalidPatch = [vehicle("VH-001", { lastSeenAt: "invalid-date", lastSpeedKmh: 99, lastEventId: "22222222-2222-2222-2222-222222222222" })];
 
     const merged = mergeVehicleUpdates(snapshot, invalidPatch);
     expect(merged.find((v) => v.vehicleId === "VH-001")?.lastSpeedKmh).toBe(50);
     expect(compareVehicleRecency(invalidPatch[0], snapshot[0])).toBeLessThan(0);
+  });
+
+  it("Timestamp_igual_EventId_mayor_conserva_parche", () => {
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 10,
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+    })];
+    const patch = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 88,
+      lastEventId: "22222222-2222-2222-2222-222222222222",
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, patch);
+    expect(merged.find((v) => v.vehicleId === "VH-001")?.lastSpeedKmh).toBe(88);
+  });
+
+  it("Timestamp_igual_EventId_menor_conserva_snapshot", () => {
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 50,
+      lastEventId: "22222222-2222-2222-2222-222222222222",
+    })];
+    const patch = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 10,
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, patch);
+    expect(merged.find((v) => v.vehicleId === "VH-001")?.lastSpeedKmh).toBe(50);
+  });
+
+  it("Carrera_snapshot_antiguo_y_SSE_nuevo_con_timestamp_igual", () => {
+    const staleSnapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 10,
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+    })];
+    const freshPatch = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 70,
+      lastEventId: "33333333-3333-3333-3333-333333333333",
+    })];
+
+    const merged = mergeVehicleUpdates(staleSnapshot, freshPatch);
+    expect(merged.find((v) => v.vehicleId === "VH-001")?.lastSpeedKmh).toBe(70);
   });
 });
 
@@ -141,6 +189,39 @@ describe("pruneVehiclePatches", () => {
     ];
 
     const pruned = pruneVehiclePatches(patches, freshSnapshot);
+    expect(pruned).toHaveLength(0);
+  });
+
+  it("Prune_no_elimina_parche_con_EventId_mayor", () => {
+    const patches = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 88,
+      lastEventId: "33333333-3333-3333-3333-333333333333",
+    })];
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 10,
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+    })];
+
+    const pruned = pruneVehiclePatches(patches, snapshot);
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0]?.lastSpeedKmh).toBe(88);
+  });
+
+  it("Snapshot_con_EventId_mayor_elimina_parche", () => {
+    const patches = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 20,
+      lastEventId: "11111111-1111-1111-1111-111111111111",
+    })];
+    const snapshot = [vehicle("VH-001", {
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 60,
+      lastEventId: "22222222-2222-2222-2222-222222222222",
+    })];
+
+    const pruned = pruneVehiclePatches(patches, snapshot);
     expect(pruned).toHaveLength(0);
   });
 
