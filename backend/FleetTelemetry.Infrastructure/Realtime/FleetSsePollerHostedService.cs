@@ -78,6 +78,9 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush)
+            return;
+
         var vehicles = await fleetQuery.GetAllFleetStatusesAsync(
             liveOnly: false,
             excludeSimulated: true,
@@ -90,7 +93,7 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        _broker.Publish(FleetRealtimeEventTypes.FleetUpdate, vehicles, _timeProvider.GetUtcNow());
+        _broker.PublishLocal(FleetRealtimeEventTypes.FleetUpdate, vehicles, _timeProvider.GetUtcNow());
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
@@ -114,7 +117,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
             foreach (var alert in batch)
             {
-                _broker.Publish(
+                _broker.PublishLocal(
                     FleetRealtimeEventTypes.Alert,
                     new FleetAlertResponse(
                         alert.AlertId,
@@ -141,7 +144,7 @@ public class FleetSsePollerHostedService : BackgroundService
             return Task.CompletedTask;
 
         _lastHeartbeat = _timeProvider.GetUtcNow();
-        _broker.Publish(
+        _broker.PublishEphemeral(
             FleetRealtimeEventTypes.Heartbeat,
             new { status = "ok", subscribers = _broker.SubscriberCount },
             _lastHeartbeat);

@@ -13,6 +13,12 @@ public class SseOptions
 
     public SseDeliveryMode Mode { get; set; } = SseDeliveryMode.Polling;
 
+    // Identidad estable de la réplica API (p. ej. HOSTNAME).
+    public string InstanceId { get; set; } = Environment.MachineName;
+
+    // Exige una sola partición en fleet.realtime para orden global de offsets.
+    public bool RequireSingleRealtimePartition { get; set; } = true;
+
     // Eventos SSE retenidos para replay con Last-Event-ID.
     public int ReplayBufferSize { get; set; } = 200;
 

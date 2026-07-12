@@ -36,32 +36,53 @@ public class EventsController : ControllerBase
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
 
-        var lastEventId = ParseLastEventId(
-            Request.Headers["Last-Event-ID"].FirstOrDefault()
-            ?? Request.Query["lastEventId"].FirstOrDefault());
-        var reader = _broker.Subscribe(out var subscriptionId);
+        var lastEventId = ParseLastEventId(Request.Headers["Last-Event-ID"].FirstOrDefault());
+        var subscription = _broker.SubscribeFrom(lastEventId);
 
         try
         {
-            var connected = _broker.Publish(
+            await WriteEphemeralEventAsync(
                 FleetRealtimeEventTypes.Connected,
-                new { status = "connected", mode = _sseOptions.Mode.ToString() });
-            await WriteSseEventAsync(connected, cancellationToken);
+                new { status = "connected", mode = _sseOptions.Mode.ToString() },
+                cancellationToken);
 
-            foreach (var replayEvent in _broker.GetReplayAfter(lastEventId, _sseOptions.ReplayBufferSize))
+            if (subscription.ReplayStatus != SseReplayStatus.ReplayAvailable)
             {
-                await WriteSseEventAsync(replayEvent, cancellationToken);
+                await WriteStreamResetAsync(subscription, cancellationToken);
+            }
+            else
+            {
+                foreach (var replayEvent in subscription.ReplayEvents)
+                    await WriteSseEventAsync(replayEvent, cancellationToken);
             }
 
-            await foreach (var sseEvent in reader.ReadAllAsync(cancellationToken))
+            await foreach (var sseEvent in subscription.LiveReader.ReadAllAsync(cancellationToken))
             {
-                await WriteSseEventAsync(sseEvent, cancellationToken);
+                if (sseEvent.StreamId >= 0 && sseEvent.StreamId <= subscription.CutoverId)
+                    continue;
+
+                if (sseEvent.StreamId < 0)
+                    await WriteEphemeralEventAsync(sseEvent.EventType, sseEvent.Data, cancellationToken);
+                else
+                    await WriteSseEventAsync(sseEvent, cancellationToken);
             }
         }
         finally
         {
-            _broker.Unsubscribe(subscriptionId);
+            _broker.Unsubscribe(subscription.SubscriptionId);
         }
+    }
+
+    private async Task WriteStreamResetAsync(SseSubscription subscription, CancellationToken cancellationToken)
+    {
+        var payload = new SseStreamResetData(
+            subscription.ResetReason ?? "replay-gap",
+            subscription.LatestEventId);
+
+        await WriteEphemeralEventAsync(
+            FleetRealtimeEventTypes.StreamReset,
+            payload,
+            cancellationToken);
     }
 
     private async Task WriteSseEventAsync(FleetSseEvent sseEvent, CancellationToken cancellationToken)
@@ -73,6 +94,22 @@ public class EventsController : ControllerBase
         await Response.Body.FlushAsync(cancellationToken);
     }
 
-    private static long ParseLastEventId(string? raw) =>
-        long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : 0;
+    private async Task WriteEphemeralEventAsync(
+        string eventType,
+        object data,
+        CancellationToken cancellationToken)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        await Response.WriteAsync($"event: {eventType}\n", cancellationToken);
+        await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
+
+    private static long ParseLastEventId(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return 0;
+
+        return long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : -1;
+    }
 }
