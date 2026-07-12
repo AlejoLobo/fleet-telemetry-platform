@@ -1,23 +1,35 @@
-/** Hook SSE con parser centralizado, backoff exponencial y vehicle-update. */
+/** Hook para conexión SSE autenticada vía fetch (FT-001). */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
-import { computeReconnectDelay } from "@/lib/sse-reconnect";
+import { normalizeVehicles } from "@/lib/fleet-normalize";
+import {
+  buildSseHeaders,
+  computeReconnectDelayMs,
+  consumeSseFetchStream,
+  isSseAuthError,
+} from "@/lib/sse-fetch-client";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
 type SseHandlers = {
   enabled?: boolean;
+  /** Cambia al iniciar/cerrar sesión para forzar reconexión con credenciales actuales. */
+  authToken?: string | null;
   onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
-  onVehicleUpdate?: (vehicle: VehicleStatus) => void;
   onAlert?: (alert: FleetAlert) => void;
 };
 
-export function useSseStream({ enabled = true, onFleetUpdate, onVehicleUpdate, onAlert }: SseHandlers) {
+/** Mantiene conexión SSE con fetch, JWT en Authorization y reconexión controlada. */
+export function useSseStream({
+  enabled = true,
+  authToken = null,
+  onFleetUpdate,
+  onAlert,
+}: SseHandlers) {
   const [connectionState, setConnectionState] = useState<SseConnectionState>("disconnected");
-  const handlersRef = useRef({ onFleetUpdate, onVehicleUpdate, onAlert });
-  handlersRef.current = { onFleetUpdate, onVehicleUpdate, onAlert };
+  const handlersRef = useRef({ onFleetUpdate, onAlert });
+  handlersRef.current = { onFleetUpdate, onAlert };
 
   const connect = useCallback(() => {
     if (!enabled) {
@@ -25,57 +37,92 @@ export function useSseStream({ enabled = true, onFleetUpdate, onVehicleUpdate, o
       return () => setConnectionState("disconnected");
     }
 
-    let eventSource: EventSource | null = null;
+    const abortController = new AbortController();
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let closed = false;
 
-    const open = () => {
-      setConnectionState("reconnecting");
-      eventSource = new EventSource(apiClient.getSseUrl());
-
-      eventSource.addEventListener("connected", () => {
-        reconnectAttempt = 0;
-        setConnectionState("connected");
-      });
-
-      eventSource.addEventListener("fleet-update", (event) => {
-        const vehicles = parseFleetUpdatePayload(event.data);
-        if (vehicles !== null) handlersRef.current.onFleetUpdate?.(vehicles);
-      });
-
-      eventSource.addEventListener("vehicle-update", (event) => {
-        const vehicle = parseVehicleUpdatePayload(event.data);
-        if (vehicle) handlersRef.current.onVehicleUpdate?.(vehicle);
-      });
-
-      eventSource.addEventListener("alert", (event) => {
-        const alert = parseAlertPayload(event.data);
-        if (alert) handlersRef.current.onAlert?.(alert);
-      });
-
-      eventSource.addEventListener("heartbeat", () => {
-        setConnectionState("connected");
-      });
-
-      eventSource.onerror = () => {
-        setConnectionState("reconnecting");
-        eventSource?.close();
-        if (!closed) {
-          reconnectTimer = setTimeout(open, computeReconnectDelay(reconnectAttempt++));
-        }
-      };
+    const scheduleReconnect = () => {
+      if (closed) return;
+      const delay = computeReconnectDelayMs(reconnectAttempt++);
+      reconnectTimer = setTimeout(() => {
+        void run();
+      }, delay);
     };
 
-    open();
+    const handleEvent = (eventName: string, data: string) => {
+      if (eventName === "connected") {
+        reconnectAttempt = 0;
+        setConnectionState("connected");
+        return;
+      }
+
+      if (eventName === "heartbeat") {
+        setConnectionState("connected");
+        return;
+      }
+
+      if (eventName === "fleet-update") {
+        try {
+          const vehicles = normalizeVehicles(JSON.parse(data) as VehicleStatus[]);
+          if (vehicles.length > 0) handlersRef.current.onFleetUpdate?.(vehicles);
+        } catch {
+          /* payload inválido */
+        }
+        return;
+      }
+
+      if (eventName === "alert") {
+        try {
+          const alert = JSON.parse(data) as FleetAlert;
+          handlersRef.current.onAlert?.(alert);
+        } catch {
+          /* payload inválido */
+        }
+      }
+    };
+
+    const run = async () => {
+      if (closed) return;
+      setConnectionState("reconnecting");
+
+      try {
+        const authStatus = await apiClient.fetchAuthStatus();
+        const token = authToken ?? apiClient.getAuthToken();
+        const headers = buildSseHeaders(authStatus.enabled, token);
+
+        await consumeSseFetchStream(
+          apiClient.getSseUrl(),
+          { headers, signal: abortController.signal },
+          {
+            onOpen: () => setConnectionState("connected"),
+            onEvent: ({ event, data }) => handleEvent(event, data),
+          },
+        );
+
+        if (!closed) scheduleReconnect();
+      } catch (error) {
+        if (abortController.signal.aborted || closed) return;
+
+        if (isSseAuthError(error)) {
+          setConnectionState("disconnected");
+          return;
+        }
+
+        setConnectionState("reconnecting");
+        scheduleReconnect();
+      }
+    };
+
+    void run();
 
     return () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      eventSource?.close();
+      abortController.abort();
       setConnectionState("disconnected");
     };
-  }, [enabled]);
+  }, [enabled, authToken]);
 
   useEffect(() => connect(), [connect]);
 
