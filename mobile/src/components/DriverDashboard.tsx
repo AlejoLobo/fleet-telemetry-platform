@@ -1,5 +1,5 @@
 // Panel principal del conductor: captura y sincroniza telemetría
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -47,14 +47,6 @@ export function DriverDashboard() {
     captureOnce,
     syncNow,
   } = useDriverTelemetry(vehicleId.trim(), driverId.trim(), auth.canSync);
-
-  const previousAuthStatus = useRef(auth.status);
-  useEffect(() => {
-    if (previousAuthStatus.current !== "authenticated" && auth.status === "authenticated" && isOnline) {
-      syncNow().catch(() => undefined);
-    }
-    previousAuthStatus.current = auth.status;
-  }, [auth.status, isOnline, syncNow]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
