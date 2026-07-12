@@ -43,6 +43,29 @@ public partial class TelemetryController
             try
             {
                 var cursorPayload = CursorCodec.Decode<TelemetryHistoryCursorPayload>(cursor);
+                CursorValidators.ValidateHistoryCursor(
+                    cursorPayload,
+                    vehicleId,
+                    cursorPayload.From,
+                    cursorPayload.To,
+                    limits.HistoryMaxRangeDays);
+
+                if (from.HasValue && from.Value != cursorPayload.From)
+                {
+                    return BadRequest(CreateProblem(
+                        StatusCodes.Status400BadRequest,
+                        "Parámetros inválidos.",
+                        "from no coincide con el cursor."));
+                }
+
+                if (to.HasValue && to.Value != cursorPayload.To)
+                {
+                    return BadRequest(CreateProblem(
+                        StatusCodes.Status400BadRequest,
+                        "Parámetros inválidos.",
+                        "to no coincide con el cursor."));
+                }
+
                 toValue = cursorPayload.To;
                 fromValue = cursorPayload.From;
             }

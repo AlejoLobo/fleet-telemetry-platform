@@ -7,6 +7,7 @@ export type GlobalAnalytics = {
   totalVehicles: number;
   openAlerts: number;
   source: string;
+  partial?: boolean;
 };
 
 export type SelectedVehicleAnalytics = {
@@ -19,12 +20,14 @@ export function computeGlobalAnalytics(
   vehicles: VehicleStatus[],
   alerts: FleetAlert[],
   dataSource: FleetDataSource,
+  options?: { partial?: boolean; totalVehiclesOverride?: number },
 ): GlobalAnalytics {
   return {
     activeVehicles: vehicles.filter((v) => v.status === "online").length,
-    totalVehicles: vehicles.length,
+    totalVehicles: options?.totalVehiclesOverride ?? vehicles.length,
     openAlerts: alerts.length,
     source: dataSource === "demo" ? "Demostración" : "TimescaleDB",
+    partial: options?.partial,
   };
 }
 

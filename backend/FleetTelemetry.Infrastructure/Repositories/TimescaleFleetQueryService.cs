@@ -44,10 +44,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             cursorPayload = CursorCodec.Decode<FleetCursorPayload>(cursor);
-            if (cursorPayload.Version != FleetCursorPayload.CurrentVersion)
-                throw new InvalidCursorException("Versión de cursor no soportada.");
-            if (cursorPayload.LiveOnly != liveOnly || cursorPayload.ExcludeSimulated != excludeSimulated)
-                throw new InvalidCursorException("El cursor no coincide con los filtros solicitados.");
+            CursorValidators.ValidateFleetCursor(cursorPayload, liveOnly, excludeSimulated);
         }
 
         var now = _timeProvider.GetUtcNow();

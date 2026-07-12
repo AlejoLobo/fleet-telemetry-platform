@@ -92,7 +92,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 alert.VehicleId);
         }
 
-        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+        var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (
                 "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
@@ -134,7 +134,11 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        await PublishRealtimeUpdatesAsync(telemetryEvent, alerts, processedAt, cancellationToken);
+        await PublishRealtimeUpdatesAsync(
+            telemetryEvent,
+            alerts,
+            stateRowsAffected > 0,
+            cancellationToken);
 
         return ProcessTelemetryOutcome.Processed;
     }
@@ -142,26 +146,29 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     private async Task PublishRealtimeUpdatesAsync(
         TelemetryEvent telemetryEvent,
         IReadOnlyList<FleetAlert> alerts,
-        DateTimeOffset processedAt,
+        bool publishVehicleUpdate,
         CancellationToken cancellationToken)
     {
         try
         {
-            var vehicleUpdate = new VehicleLatestStatusResponse(
-                telemetryEvent.VehicleId,
-                telemetryEvent.VehicleId,
-                telemetryEvent.SpeedKmh <= 1 ? "stopped" : "online",
-                processedAt,
-                telemetryEvent.SpeedKmh,
-                telemetryEvent.Latitude,
-                telemetryEvent.Longitude,
-                null,
-                telemetryEvent.LocationSource);
+            if (publishVehicleUpdate)
+            {
+                var vehicleUpdate = new VehicleLatestStatusResponse(
+                    telemetryEvent.VehicleId,
+                    telemetryEvent.VehicleId,
+                    telemetryEvent.SpeedKmh <= 1 ? "stopped" : "online",
+                    telemetryEvent.Timestamp,
+                    telemetryEvent.SpeedKmh,
+                    telemetryEvent.Latitude,
+                    telemetryEvent.Longitude,
+                    null,
+                    telemetryEvent.LocationSource);
 
-            await _realtimePublisher.PublishVehicleUpdateAsync(
-                telemetryEvent.VehicleId,
-                JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
-                cancellationToken);
+                await _realtimePublisher.PublishVehicleUpdateAsync(
+                    telemetryEvent.VehicleId,
+                    JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
+                    cancellationToken);
+            }
 
             foreach (var alert in alerts)
             {

@@ -38,7 +38,7 @@ public class DatabaseInitializerIntegrationTests : IAsyncLifetime
         await connection.OpenAsync();
 
         Assert.True(await TimescaleExtensionExistsAsync(connection));
-        Assert.Equal(4, await CountUserTablesAsync(connection, "processed_events", "fleet_alerts", "telemetry_events", "schema_versions"));
+        Assert.Equal(5, await CountUserTablesAsync(connection, "processed_events", "fleet_alerts", "telemetry_events", "schema_versions", "fleet_vehicle_state"));
         Assert.True(await HypertableExistsAsync(connection));
         Assert.True(await IndexExistsAsync(connection, "ix_fleet_alerts_vehicle_created"));
         Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_vehicle_timestamp"));
