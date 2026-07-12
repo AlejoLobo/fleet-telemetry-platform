@@ -10,7 +10,7 @@ import type { LocationReading, SyncResult } from "@/types/telemetry";
 export function useDriverTelemetry(vehicleId: string, driverId: string, canSync: boolean) {
   const { isOnline, status: networkStatus } = useNetworkStatus();
   const trackingRef = useRef(false);
-  const previousCanSyncRef = useRef(canSync);
+  const previousReadyToSyncRef = useRef(false);
   const [state, setState] = useState({
     tracking: false,
     pendingCount: 0,
@@ -87,12 +87,12 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
 
   useEffect(() => {
     const resume = runSyncResumeEffect(
-      previousCanSyncRef.current,
+      previousReadyToSyncRef.current,
       canSync,
       isOnline,
       () => syncNow(),
     );
-    previousCanSyncRef.current = resume.nextPreviousCanSync;
+    previousReadyToSyncRef.current = resume.nextPreviousReadyToSync;
   }, [isOnline, canSync, syncNow]);
 
   useEffect(() => () => {
