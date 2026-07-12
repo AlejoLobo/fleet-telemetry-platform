@@ -10,6 +10,7 @@ import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 
 import { useSseStream } from "@/hooks/use-sse-stream";
+import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 
@@ -43,7 +44,7 @@ export default function DashboardPage() {
   // Estado de selección y datos en vivo
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("VH-001");
 
-  const [liveVehicles, setLiveVehicles] = useState<VehicleStatus[] | null>(null);
+  const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
 
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
 
@@ -115,6 +116,8 @@ export default function DashboardPage() {
 
     dataSource,
 
+    fleetTruncated,
+
     refresh,
 
     loadFromApi,
@@ -131,7 +134,9 @@ export default function DashboardPage() {
     enabled: dataSource === "api",
     authToken,
 
-    onFleetUpdate: setLiveVehicles,
+    onFleetUpdate: (updates) => {
+      setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
+    },
 
     onAlert: (alert) => {
 
@@ -160,7 +165,7 @@ export default function DashboardPage() {
   /** Cambia a modo API y limpia datos en vivo. */
   const handleLoadApi = async () => {
 
-    setLiveVehicles(null);
+    setLiveVehiclePatches([]);
 
     setLiveAlerts([]);
 
@@ -181,7 +186,7 @@ export default function DashboardPage() {
   /** Cambia a modo demo con datos sintéticos. */
   const handleLoadDemo = async () => {
 
-    setLiveVehicles(null);
+    setLiveVehiclePatches([]);
 
     setLiveAlerts([]);
 
@@ -199,12 +204,16 @@ export default function DashboardPage() {
 
 
 
+  useEffect(() => {
+    setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
+  }, [vehicles]);
+
   // Combina datos del API con actualizaciones SSE
   const displayVehicles = useMemo(() => {
     if (dataSource === "demo") return vehicles;
-    if (liveVehicles && liveVehicles.length > 0) return liveVehicles;
-    return vehicles;
-  }, [dataSource, liveVehicles, vehicles]);
+    if (liveVehiclePatches.length === 0) return vehicles;
+    return mergeVehicleUpdates(vehicles, liveVehiclePatches);
+  }, [dataSource, liveVehiclePatches, vehicles]);
 
   // Une alertas en vivo con las del API sin duplicados
   const displayAlerts = useMemo(() => {
@@ -415,6 +424,14 @@ export default function DashboardPage() {
               vehicles={displayVehicles}
 
               selectedVehicleId={selectedVehicleId}
+
+              fleetTruncated={fleetTruncated}
+
+              aggregationSource={globalAnalytics.aggregationSource}
+
+              totalVehiclesGlobal={globalAnalytics.totalVehicles}
+
+              activeVehiclesGlobal={globalAnalytics.activeVehicles}
 
               onSelectVehicle={setSelectedVehicleId}
 

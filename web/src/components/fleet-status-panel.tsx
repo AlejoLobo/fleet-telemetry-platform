@@ -1,5 +1,6 @@
 /** Panel lateral con lista de vehículos y su estado. */
 import { Navigation, Clock, Gauge } from "lucide-react";
+import type { AggregationSource } from "@/lib/analytics";
 import type { VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,18 +10,51 @@ import { cn } from "@/lib/utils";
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
   selectedVehicleId?: string;
+  fleetTruncated?: boolean;
+  aggregationSource?: AggregationSource;
+  totalVehiclesGlobal?: number;
+  activeVehiclesGlobal?: number;
   onSelectVehicle?: (vehicleId: string) => void;
   onFocusVehicle?: (vehicleId: string) => void;
 };
+
+function formatCount(value: number): string {
+  return value.toLocaleString("es-CO");
+}
 
 /** Lista interactiva de vehículos con velocidad y estado. */
 export function FleetStatusPanel({
   vehicles,
   selectedVehicleId,
+  fleetTruncated = false,
+  aggregationSource = "snapshot",
+  totalVehiclesGlobal,
+  activeVehiclesGlobal,
   onSelectVehicle,
   onFocusVehicle,
 }: FleetStatusPanelProps) {
-  const onlineCount = vehicles.filter((v) => esVehiculoEnLinea(v.status)).length;
+  const onlineInSnapshot = vehicles.filter((v) => esVehiculoEnLinea(v.status)).length;
+  const shownCount = vehicles.length;
+  const useOpsGlobals =
+    fleetTruncated && aggregationSource === "ops" && totalVehiclesGlobal != null;
+
+  let description: string;
+  let badgeValue: string;
+  let badgeHint: string | null = null;
+
+  if (useOpsGlobals) {
+    description = `${formatCount(shownCount)} mostrados de ${formatCount(totalVehiclesGlobal!)} · ${formatCount(onlineInSnapshot)} en línea dentro del snapshot mostrado`;
+    badgeValue = `${formatCount(activeVehiclesGlobal ?? onlineInSnapshot)}/${formatCount(totalVehiclesGlobal!)}`;
+    badgeHint = "agregados globales";
+  } else if (fleetTruncated) {
+    description = `${formatCount(shownCount)} vehículos mostrados · total global no disponible · ${formatCount(onlineInSnapshot)} en línea en snapshot`;
+    badgeValue = `${onlineInSnapshot}/${shownCount}`;
+    badgeHint = "métricas parciales del snapshot";
+  } else {
+    description = `${onlineInSnapshot} en línea · ${shownCount} total`;
+    badgeValue = `${onlineInSnapshot}/${shownCount}`;
+    badgeHint = null;
+  }
 
   return (
     <Card className="flex h-full flex-col">
@@ -32,12 +66,17 @@ export function FleetStatusPanel({
               Estado de flota
             </CardTitle>
             <CardDescription className="mt-1">
-              {onlineCount} en línea · {vehicles.length} total · doble clic centra en mapa
+              {description} · doble clic centra en mapa
             </CardDescription>
           </div>
-          <Badge variant="success" className="tabular-nums">
-            {onlineCount}/{vehicles.length}
-          </Badge>
+          <div className="text-right">
+            <Badge variant="success" className="tabular-nums">
+              {badgeValue}
+            </Badge>
+            {badgeHint && (
+              <p className="mt-1 text-[10px] text-muted-foreground">{badgeHint}</p>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="custom-scrollbar max-h-[420px] flex-1 overflow-y-auto pt-4">

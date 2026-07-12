@@ -6,11 +6,14 @@ type RawVehicle = VehicleStatus & {
   Name?: string;
   Status?: string;
   LastSeenAt?: string | null;
+  LastEventId?: string | null;
+  StatusEvaluatedAt?: string | null;
   LastSpeedKmh?: number | null;
   LastLatitude?: number | null;
   LastLongitude?: number | null;
   lastHeadingDegrees?: number | null;
   LastHeadingDegrees?: number | null;
+  LastLocationSource?: string | null;
 };
 
 /** Normaliza un vehículo del API (PascalCase → camelCase). */
@@ -20,11 +23,15 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
     name: vehicle.name ?? vehicle.Name ?? "",
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,
+    lastEventId: vehicle.lastEventId ?? vehicle.LastEventId ?? null,
+    statusEvaluatedAt: vehicle.statusEvaluatedAt ?? vehicle.StatusEvaluatedAt ?? null,
     lastSpeedKmh: vehicle.lastSpeedKmh ?? vehicle.LastSpeedKmh ?? null,
     lastLatitude: vehicle.lastLatitude ?? vehicle.LastLatitude ?? null,
     lastLongitude: vehicle.lastLongitude ?? vehicle.LastLongitude ?? null,
     headingDegrees:
       vehicle.headingDegrees ?? vehicle.lastHeadingDegrees ?? vehicle.LastHeadingDegrees ?? null,
+    lastLocationSource:
+      vehicle.lastLocationSource ?? vehicle.LastLocationSource ?? null,
   };
 }
 

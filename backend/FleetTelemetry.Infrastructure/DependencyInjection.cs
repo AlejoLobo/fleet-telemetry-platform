@@ -73,6 +73,7 @@ public static class DependencyInjection
         services.AddSingleton<JwtTokenService>();
         services.AddSingleton<ITelemetryEventValidator, TelemetryEventValidatorService>();
         services.AddSingleton<ITelemetryDomainEventValidator, TelemetryDomainEventValidatorService>();
+        services.AddSingleton<ISchemaMigrationHooks>(_ => NoOpSchemaMigrationHooks.Instance);
 
         if (profile == InfrastructureProfile.Api)
         {
@@ -121,6 +122,9 @@ public static class DependencyInjection
             RegisterTimescaleDb(services, configuration);
 
             services.AddScoped<IIdempotencyStore, TimescaleIdempotencyStore>();
+            services.AddScoped<IFleetConnectivityWatermarkRepository, TimescaleFleetConnectivityWatermarkRepository>();
+            services.AddScoped<IFleetOfflinePublishMarkerRepository, TimescaleFleetOfflinePublishMarkerRepository>();
+            services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
             services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
@@ -143,6 +147,13 @@ public static class DependencyInjection
     public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
     {
         services.AddHostedService<FleetSseKafkaPushHostedService>();
+        return services;
+    }
+
+    // Publica transiciones offline sin telemetría nueva (Worker).
+    public static IServiceCollection AddFleetConnectivityExpiry(this IServiceCollection services)
+    {
+        services.AddHostedService<FleetConnectivityExpiryHostedService>();
         return services;
     }
 

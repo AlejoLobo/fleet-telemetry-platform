@@ -162,12 +162,14 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
             ("VH-BF-001", baseTime.AddMinutes(30), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), 50, 4.65, -74.08),
             ("VH-BF-002", baseTime.AddMinutes(20), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), 15, 4.55, -74.12));
 
-        using (var scope = _services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            await db.Database.ExecuteSqlRawAsync("TRUNCATE TABLE fleet_vehicle_state RESTART IDENTITY CASCADE;");
-            Assert.Equal(0, await db.FleetVehicleStates.CountAsync());
-        }
+        await using var connection = new Npgsql.NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+        await using var resetCommand = connection.CreateCommand();
+        resetCommand.CommandText = """
+            TRUNCATE TABLE fleet_vehicle_state RESTART IDENTITY CASCADE;
+            DELETE FROM schema_versions WHERE "Version" IN (2, 3);
+            """;
+        await resetCommand.ExecuteNonQueryAsync();
 
         await DatabaseInitializer.InitializeAsync(_services);
 

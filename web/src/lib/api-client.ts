@@ -1,7 +1,12 @@
 /** Cliente HTTP para comunicarse con el backend .NET. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { getApiBaseUrl } from "@/lib/utils";
-import { fetchFleetSnapshot, fetchTelemetrySnapshot } from "@/lib/fleet-pagination";
+import {
+  fetchFleetSnapshot,
+  fetchTelemetrySnapshot,
+  type FleetSnapshotResult,
+  type TelemetrySnapshotResult,
+} from "@/lib/fleet-pagination";
 
 type LoginResponse = {
   token: string;
@@ -78,15 +83,33 @@ export const apiClient = {
     apiClient.setAuthToken(response.token);
   },
 
-  async fetchFleetLive(): Promise<VehicleStatus[]> {
-    const snapshot = await fetchFleetSnapshot();
-    return snapshot.vehicles;
+  async fetchFleetLive(options?: {
+    maxVehicles?: number;
+    pageSize?: number;
+    liveOnly?: boolean;
+    excludeSimulated?: boolean;
+    signal?: AbortSignal;
+  }): Promise<FleetSnapshotResult> {
+    return fetchFleetSnapshot(options);
   },
   async fetchAlertsLive(): Promise<FleetAlert[]> {
     return fetchJson<FleetAlert[]>("/api/alerts");
   },
 
-  async fetchTelemetryLive(vehicleId: string): Promise<TelemetryEvent[]> {
+  async fetchOpsSummary(): Promise<{
+    totalVehicles: number;
+    activeVehicles: number;
+    criticalAlerts: number;
+  }> {
+    const summary = await fetchJson<{
+      totalVehicles: number;
+      activeVehicles: number;
+      criticalAlerts: number;
+    }>("/api/ops/summary");
+    return summary;
+  },
+
+  async fetchTelemetryLive(vehicleId: string): Promise<TelemetrySnapshotResult> {
     return fetchTelemetrySnapshot(vehicleId);
   },
 

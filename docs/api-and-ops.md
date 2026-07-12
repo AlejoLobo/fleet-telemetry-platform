@@ -91,6 +91,7 @@ curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z&pageS
 #### Paginación por cursor
 
 - `GET /api/fleet` devuelve `CursorPage<VehicleLatestStatusResponse>`: `{ items, nextCursor, hasMore }`.
+- Cada ítem incluye `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
 - Orden estable: `VehicleId` ascendente. `pageSize` default 100, máximo 500.
 - `liveOnly`: filtra en SQL `LastTimestamp >= now - OnlineThresholdMinutes`.
 - `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).
