@@ -42,7 +42,7 @@ describe("reanudación post-login", () => {
     });
   });
 
-  it("auth_required_a_authenticated_y_online_una_sola_syncPendingQueue", async () => {
+  it("auth_required_a_authenticated_y_online_una_sola_syncPendingQueue", () => {
     let syncCalls = 0;
     const syncNow = () => {
       syncCalls += 1;
@@ -51,8 +51,100 @@ describe("reanudación post-login", () => {
 
     const result = runSyncResumeEffect(false, true, true, syncNow);
     expect(result.triggered).toBe(true);
+    expect(result.nextPreviousReadyToSync).toBe(true);
     expect(syncCalls).toBe(1);
     expect(mockSyncPendingQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("authenticated_y_online_a_offline_no_sincroniza", () => {
+    let syncCalls = 0;
+    const result = runSyncResumeEffect(true, true, false, () => {
+      syncCalls += 1;
+    });
+    expect(result.triggered).toBe(false);
+    expect(result.nextPreviousReadyToSync).toBe(false);
+    expect(syncCalls).toBe(0);
+  });
+
+  it("authenticated_y_offline_a_online_sincroniza_exactamente_una_vez", () => {
+    let syncCalls = 0;
+    const offline = runSyncResumeEffect(true, true, false, () => {
+      syncCalls += 1;
+    });
+    expect(offline.triggered).toBe(false);
+    expect(offline.nextPreviousReadyToSync).toBe(false);
+
+    const online = runSyncResumeEffect(offline.nextPreviousReadyToSync, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(online.triggered).toBe(true);
+    expect(syncCalls).toBe(1);
+  });
+
+  it("offline_a_authenticated_no_sincroniza_hasta_recuperar_red", () => {
+    let syncCalls = 0;
+    const loginOffline = runSyncResumeEffect(false, true, false, () => {
+      syncCalls += 1;
+    });
+    expect(loginOffline.triggered).toBe(false);
+    expect(loginOffline.nextPreviousReadyToSync).toBe(false);
+    expect(syncCalls).toBe(0);
+
+    const redRecuperada = runSyncResumeEffect(
+      loginOffline.nextPreviousReadyToSync,
+      true,
+      true,
+      () => {
+        syncCalls += 1;
+      },
+    );
+    expect(redRecuperada.triggered).toBe(true);
+    expect(syncCalls).toBe(1);
+  });
+
+  it("login_offline_y_luego_red_sincroniza_exactamente_una_vez", () => {
+    let syncCalls = 0;
+    const inicial = runSyncResumeEffect(false, false, false, () => {
+      syncCalls += 1;
+    });
+    const loginOffline = runSyncResumeEffect(inicial.nextPreviousReadyToSync, true, false, () => {
+      syncCalls += 1;
+    });
+    expect(loginOffline.triggered).toBe(false);
+    expect(syncCalls).toBe(0);
+
+    const redRecuperada = runSyncResumeEffect(
+      loginOffline.nextPreviousReadyToSync,
+      true,
+      true,
+      () => {
+        syncCalls += 1;
+      },
+    );
+    expect(redRecuperada.triggered).toBe(true);
+    expect(syncCalls).toBe(1);
+  });
+
+  it("auth_disabled_inicia_sincronizacion_anonima_una_sola_vez_con_red", () => {
+    let syncCalls = 0;
+    const first = runSyncResumeEffect(false, true, true, () => {
+      syncCalls += 1;
+    });
+    const second = runSyncResumeEffect(first.nextPreviousReadyToSync, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(first.triggered).toBe(true);
+    expect(second.triggered).toBe(false);
+    expect(syncCalls).toBe(1);
+  });
+
+  it("montaje_inicial_apta_sincroniza_una_vez", () => {
+    let syncCalls = 0;
+    const result = runSyncResumeEffect(false, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(result.triggered).toBe(true);
+    expect(syncCalls).toBe(1);
   });
 
   it("authenticated_a_authenticated_no_inicia_otra_sincronizacion", () => {
@@ -64,28 +156,6 @@ describe("reanudación post-login", () => {
     expect(syncCalls).toBe(0);
   });
 
-  it("offline_a_authenticated_no_sincroniza_hasta_recuperar_red", () => {
-    let syncCalls = 0;
-    const result = runSyncResumeEffect(false, true, false, () => {
-      syncCalls += 1;
-    });
-    expect(result.triggered).toBe(false);
-    expect(syncCalls).toBe(0);
-  });
-
-  it("auth_disabled_inicia_sincronizacion_anonima_una_sola_vez_con_red", () => {
-    let syncCalls = 0;
-    const first = runSyncResumeEffect(false, true, true, () => {
-      syncCalls += 1;
-    });
-    const second = runSyncResumeEffect(first.nextPreviousCanSync, true, true, () => {
-      syncCalls += 1;
-    });
-    expect(first.triggered).toBe(true);
-    expect(second.triggered).toBe(false);
-    expect(syncCalls).toBe(1);
-  });
-
   it("dos_renders_consecutivos_no_crean_dos_disparadores", () => {
     let syncCalls = 0;
     let previous = false;
@@ -93,9 +163,26 @@ describe("reanudación post-login", () => {
       const result = runSyncResumeEffect(previous, true, true, () => {
         syncCalls += 1;
       });
-      previous = result.nextPreviousCanSync;
+      previous = result.nextPreviousReadyToSync;
     }
     expect(syncCalls).toBe(1);
+  });
+
+  it("online_offline_online_dispara_nueva_sincronizacion_al_recuperar_red", () => {
+    let syncCalls = 0;
+    const mount = runSyncResumeEffect(false, true, true, () => {
+      syncCalls += 1;
+    });
+    const offline = runSyncResumeEffect(mount.nextPreviousReadyToSync, true, false, () => {
+      syncCalls += 1;
+    });
+    const online = runSyncResumeEffect(offline.nextPreviousReadyToSync, true, true, () => {
+      syncCalls += 1;
+    });
+    expect(mount.triggered).toBe(true);
+    expect(offline.triggered).toBe(false);
+    expect(online.triggered).toBe(true);
+    expect(syncCalls).toBe(2);
   });
 
   it("EventId_permanece_intacto_despues_de_sincronizacion_post_login", async () => {
