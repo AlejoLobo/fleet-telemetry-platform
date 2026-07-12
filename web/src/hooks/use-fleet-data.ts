@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { fetchTelemetrySnapshot } from "@/lib/fleet-pagination";
 import {
   computeGlobalAnalytics,
   computeSelectedAnalytics,
@@ -96,19 +97,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     setState((prev) => ({ ...prev, telemetryLoading: true, telemetryError: null }));
 
     try {
-      const to = new Date().toISOString();
-      const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const response = await fetch(
-        `${getApiBaseUrl()}/api/telemetry/${encodeURIComponent(vehicleId)}?from=${from}&to=${to}`,
-        {
-          signal: controller.signal,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-
-      if (!response.ok) throw new Error(`Error ${response.status} al cargar telemetría`);
-
-      const telemetry = (await response.json()) as TelemetryEvent[];
+      const telemetry = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
       if (requestId !== telemetryRequestIdRef.current) return;
 
       const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetry);
