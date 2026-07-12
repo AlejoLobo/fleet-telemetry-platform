@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api-client";
 import { fetchTelemetrySnapshot } from "@/lib/fleet-pagination";
 import {
   computeGlobalAnalytics,
+  computeGlobalAnalyticsFromOps,
   computeSelectedAnalytics,
   toLegacyAnalytics,
   type FleetDataSource,
@@ -77,20 +78,20 @@ export function useFleetData(selectedVehicleId: string | null) {
         apiClient.fetchAlertsLive(),
       ]);
 
-      let totalVehiclesOverride: number | undefined;
+      let globalAnalytics;
       if (fleetSnapshot.truncated) {
         try {
           const summary = await apiClient.fetchOpsSummary();
-          totalVehiclesOverride = summary.totalVehicles;
+          globalAnalytics = computeGlobalAnalyticsFromOps(summary, "api", { partial: true });
         } catch {
-          // conservar conteo local si ops/summary no está disponible
+          globalAnalytics = {
+            ...computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api"),
+            partial: true,
+          };
         }
+      } else {
+        globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api");
       }
-
-      const globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api", {
-        partial: fleetSnapshot.partial || fleetSnapshot.truncated,
-        totalVehiclesOverride,
-      });
 
       const fleetWarning = fleetSnapshot.truncated
         ? `Snapshot parcial: se muestran ${fleetSnapshot.vehicles.length} vehículos; existen más en el servidor.`

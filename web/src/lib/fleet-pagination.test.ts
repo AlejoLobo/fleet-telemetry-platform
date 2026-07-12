@@ -6,7 +6,8 @@ import {
   fetchFleetSnapshot,
   fetchTelemetrySnapshot,
 } from "@/lib/fleet-pagination";
-import { computeGlobalAnalytics } from "@/lib/analytics";
+import { apiClient } from "@/lib/api-client";
+import { computeGlobalAnalyticsFromOps } from "@/lib/analytics";
 
 const mockFetch = vi.fn();
 
@@ -128,10 +129,26 @@ describe("fleet pagination client", () => {
       }),
     });
 
-    const snapshot = await fetchFleetSnapshot({ pageSize: 1, maxVehicles: 1 });
+    const snapshot = await apiClient.fetchFleetLive({ maxVehicles: 1, pageSize: 1 });
     expect(snapshot.partial).toBe(true);
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.vehicles).toHaveLength(1);
+  });
+
+  it("maxVehicles_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [vehicle("VH-001"), vehicle("VH-002"), vehicle("VH-003")],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 5, maxVehicles: 2 });
+    expect(snapshot.vehicles).toHaveLength(2);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.partial).toBe(true);
   });
 
   it("cursor_repetido_detiene_el_bucle", async () => {
@@ -265,61 +282,14 @@ describe("fleet pagination client", () => {
 
 describe("analytics with truncated snapshot", () => {
   it("Analitica_no_presenta_5000_como_total_si_hay_mas", () => {
-    const vehicles = Array.from({ length: 5000 }, (_, i) => ({
-      vehicleId: `VH-${i}`,
-      name: `VH-${i}`,
-      status: "online" as const,
-      lastSeenAt: "2026-07-10T10:00:00Z",
-      lastSpeedKmh: 10,
-      lastLatitude: 1,
-      lastLongitude: 1,
-    }));
-
-    const analytics = computeGlobalAnalytics(vehicles, [], "api", {
-      partial: true,
-      totalVehiclesOverride: 12000,
-    });
+    const analytics = computeGlobalAnalyticsFromOps(
+      { totalVehicles: 12000, activeVehicles: 8000, criticalAlerts: 5 },
+      "api",
+      { partial: true },
+    );
 
     expect(analytics.totalVehicles).toBe(12000);
+    expect(analytics.activeVehicles).toBe(8000);
     expect(analytics.partial).toBe(true);
-  });
-});
-
-describe("SSE merge behavior", () => {
-  it("actualizacion_SSE_reemplaza_vehiculo_sin_duplicarlo", () => {
-    const initial: VehicleStatus[] = [
-      { vehicleId: "VH-001", name: "VH-001", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 0, lastLatitude: 1, lastLongitude: 1 },
-      { vehicleId: "VH-002", name: "VH-002", status: "online", lastSeenAt: "2026-07-10T10:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
-    ];
-    const liveUpdate: VehicleStatus[] = [
-      { vehicleId: "VH-001", name: "VH-001", status: "online", lastSeenAt: "2026-07-10T10:05:00Z", lastSpeedKmh: 35, lastLatitude: 1.1, lastLongitude: 1.1 },
-    ];
-
-    const merged = liveUpdate.length > 0 ? liveUpdate : initial;
-    const byId = new Map(initial.map((vehicle) => [vehicle.vehicleId, vehicle]));
-    for (const vehicle of liveUpdate) byId.set(vehicle.vehicleId, vehicle);
-    const result = Array.from(byId.values());
-
-    expect(merged).toHaveLength(1);
-    expect(result).toHaveLength(2);
-    expect(result.filter((v) => v.vehicleId === "VH-001")).toHaveLength(1);
-    expect(result.find((v) => v.vehicleId === "VH-001")?.status).toBe("online");
-  });
-});
-
-describe("useFleetData truncated state", () => {
-  it("useFleetData_muestra_snapshot_truncado", () => {
-    const snapshot = {
-      vehicles: [{ vehicleId: "VH-001", name: "VH-001", status: "online" as const, lastSeenAt: "2026-07-10T10:00:00Z", lastSpeedKmh: 1, lastLatitude: 1, lastLongitude: 1 }],
-      partial: true,
-      truncated: true,
-    };
-
-    const warning = snapshot.truncated
-      ? `Snapshot parcial: se muestran ${snapshot.vehicles.length} vehículos; existen más en el servidor.`
-      : null;
-
-    expect(warning).toContain("Snapshot parcial");
-    expect(warning).toContain("existen más");
   });
 });

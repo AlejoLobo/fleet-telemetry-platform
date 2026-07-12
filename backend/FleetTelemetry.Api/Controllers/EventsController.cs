@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Realtime;
 using FleetTelemetry.Api.Filters;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
@@ -43,7 +44,7 @@ public class EventsController : ControllerBase
         try
         {
             var connected = _broker.Publish(
-                "connected",
+                FleetRealtimeEventTypes.Connected,
                 new { status = "connected", mode = _sseOptions.Mode.ToString() });
             await WriteSseEventAsync(connected, cancellationToken);
 

@@ -73,6 +73,7 @@ public static class DependencyInjection
         services.AddSingleton<JwtTokenService>();
         services.AddSingleton<ITelemetryEventValidator, TelemetryEventValidatorService>();
         services.AddSingleton<ITelemetryDomainEventValidator, TelemetryDomainEventValidatorService>();
+        services.AddSingleton<ISchemaMigrationHooks>(_ => NoOpSchemaMigrationHooks.Instance);
 
         if (profile == InfrastructureProfile.Api)
         {

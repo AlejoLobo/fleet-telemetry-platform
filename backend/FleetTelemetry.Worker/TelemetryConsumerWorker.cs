@@ -43,7 +43,7 @@ public class TelemetryConsumerWorker : BackgroundService
             {
                 await DatabaseInitializer.InitializeAsync(
                     initScope.ServiceProvider,
-                    useAdvisoryLock: environment.IsDevelopment(),
+                    useAdvisoryLock: true,
                     stoppingToken);
             }
             else
