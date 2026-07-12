@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Realtime;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,7 +90,7 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        _broker.Publish("fleet-update", vehicles, _timeProvider.GetUtcNow());
+        _broker.Publish(FleetRealtimeEventTypes.FleetUpdate, vehicles, _timeProvider.GetUtcNow());
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
@@ -114,7 +115,7 @@ public class FleetSsePollerHostedService : BackgroundService
             foreach (var alert in batch)
             {
                 _broker.Publish(
-                    "alert",
+                    FleetRealtimeEventTypes.Alert,
                     new FleetAlertResponse(
                         alert.AlertId,
                         alert.VehicleId,
@@ -141,7 +142,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
         _lastHeartbeat = _timeProvider.GetUtcNow();
         _broker.Publish(
-            "heartbeat",
+            FleetRealtimeEventTypes.Heartbeat,
             new { status = "ok", subscribers = _broker.SubscriberCount },
             _lastHeartbeat);
 

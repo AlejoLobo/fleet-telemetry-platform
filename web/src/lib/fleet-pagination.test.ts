@@ -1,13 +1,31 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { CursorPage } from "@/types/pagination";
 import type { VehicleStatus } from "@/types/fleet";
-import { fetchFleetPage, fetchFleetSnapshot } from "@/lib/fleet-pagination";
+import {
+  fetchFleetPage,
+  fetchFleetSnapshot,
+  fetchTelemetrySnapshot,
+} from "@/lib/fleet-pagination";
+import { apiClient } from "@/lib/api-client";
+import { computeGlobalAnalyticsFromOps } from "@/lib/analytics";
 
 const mockFetch = vi.fn();
 
 vi.mock("@/lib/utils", () => ({
   getApiBaseUrl: () => "http://localhost:5000",
 }));
+
+function vehicle(id: string): Record<string, unknown> {
+  return {
+    VehicleId: id,
+    Name: id,
+    Status: "online",
+    LastSeenAt: "2026-07-10T10:00:00Z",
+    LastSpeedKmh: 1,
+    LastLatitude: 1,
+    LastLongitude: 1,
+  };
+}
 
 describe("fleet pagination client", () => {
   beforeEach(() => {
@@ -29,17 +47,7 @@ describe("fleet pagination client", () => {
       ok: true,
       json: async () =>
         ({
-          items: [
-            {
-              VehicleId: "VH-001",
-              Name: "VH-001",
-              Status: "online",
-              LastSeenAt: "2026-07-10T10:00:00Z",
-              LastSpeedKmh: 40,
-              LastLatitude: 4.6,
-              LastLongitude: -74.0,
-            },
-          ],
+          items: [vehicle("VH-001")],
           nextCursor: "cursor-1",
           hasMore: true,
         }) satisfies CursorPage<Record<string, unknown>>,
@@ -57,7 +65,7 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [{ VehicleId: "VH-001", Name: "VH-001", Status: "online", LastSeenAt: "2026-07-10T10:00:00Z", LastSpeedKmh: 1, LastLatitude: 1, LastLongitude: 1 }],
+          items: [vehicle("VH-001")],
           nextCursor: "c2",
           hasMore: true,
         }),
@@ -65,7 +73,7 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [{ VehicleId: "VH-002", Name: "VH-002", Status: "offline", LastSeenAt: "2026-07-10T09:00:00Z", LastSpeedKmh: 0, LastLatitude: 2, LastLongitude: 2 }],
+          items: [vehicle("VH-002")],
           nextCursor: null,
           hasMore: false,
         }),
@@ -74,14 +82,80 @@ describe("fleet pagination client", () => {
     const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
     expect(snapshot.vehicles.map((v) => v.vehicleId)).toEqual(["VH-001", "VH-002"]);
     expect(snapshot.partial).toBe(false);
+    expect(snapshot.truncated).toBe(false);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("Limite_alcanzado_con_hasMore_marca_partial", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [vehicle("VH-001"), vehicle("VH-002")],
+        nextCursor: "c2",
+        hasMore: true,
+      }),
+    });
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 2, maxVehicles: 2 });
+    expect(snapshot.vehicles).toHaveLength(2);
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.truncated).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("Limite_alcanzado_sin_hasMore_no_marca_partial", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [vehicle("VH-001"), vehicle("VH-002")],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 2, maxVehicles: 2 });
+    expect(snapshot.vehicles).toHaveLength(2);
+    expect(snapshot.partial).toBe(false);
+    expect(snapshot.truncated).toBe(false);
+  });
+
+  it("apiClient_no_descarta_estado_partial", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [vehicle("VH-001")],
+        nextCursor: "c2",
+        hasMore: true,
+      }),
+    });
+
+    const snapshot = await apiClient.fetchFleetLive({ maxVehicles: 1, pageSize: 1 });
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.vehicles).toHaveLength(1);
+  });
+
+  it("maxVehicles_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [vehicle("VH-001"), vehicle("VH-002"), vehicle("VH-003")],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 5, maxVehicles: 2 });
+    expect(snapshot.vehicles).toHaveLength(2);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.partial).toBe(true);
   });
 
   it("cursor_repetido_detiene_el_bucle", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        items: [{ VehicleId: "VH-001", Name: "VH-001", Status: "online", LastSeenAt: "2026-07-10T10:00:00Z", LastSpeedKmh: 1, LastLatitude: 1, LastLongitude: 1 }],
+        items: [vehicle("VH-001")],
         nextCursor: "same",
         hasMore: true,
       }),
@@ -101,7 +175,7 @@ describe("fleet pagination client", () => {
       return {
         ok: true,
         json: async () => ({
-          items: [{ VehicleId: id, Name: id, Status: "online", LastSeenAt: "2026-07-10T10:00:00Z", LastSpeedKmh: 1, LastLatitude: 1, LastLongitude: 1 }],
+          items: [vehicle(id)],
           nextCursor: counter < 10 ? `c-${counter}` : null,
           hasMore: counter < 10,
         }),
@@ -110,6 +184,8 @@ describe("fleet pagination client", () => {
 
     const snapshot = await fetchFleetSnapshot({ pageSize: 1, maxVehicles: 3 });
     expect(snapshot.vehicles).toHaveLength(3);
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.truncated).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
@@ -126,7 +202,7 @@ describe("fleet pagination client", () => {
         return {
           ok: true,
           json: async () => ({
-            items: [{ VehicleId: "VH-001", Name: "VH-001", Status: "online", LastSeenAt: "2026-07-10T10:00:00Z", LastSpeedKmh: 1, LastLatitude: 1, LastLongitude: 1 }],
+            items: [vehicle("VH-001")],
             nextCursor: "c2",
             hasMore: true,
           }),
@@ -148,7 +224,7 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [{ VehicleId: "VH-001", Name: "VH-001", Status: "online", LastSeenAt: "2026-07-10T10:00:00Z", LastSpeedKmh: 1, LastLatitude: 1, LastLongitude: 1 }],
+          items: [vehicle("VH-001")],
           nextCursor: "c2",
           hasMore: true,
         }),
@@ -165,26 +241,138 @@ describe("fleet pagination client", () => {
     expect(snapshot.error).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+
+  it("maxEvents_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.partial).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("maxEvents_igual_al_total_no_marca_truncated", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.truncated).toBe(false);
+    expect(snapshot.partial).toBe(false);
+  });
+
+  it("no_descarta_eventos_sin_marcar_partial", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.truncated).toBe(true);
+  });
+
+  it("resultado_nunca_supera_maxEvents", async () => {
+    let counter = 0;
+    mockFetch.mockImplementation(async () => {
+      counter += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            { eventId: `e-${counter}-1`, vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+            { eventId: `e-${counter}-2`, vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          ],
+          nextCursor: counter < 5 ? `c-${counter}` : null,
+          hasMore: counter < 5,
+        }),
+      };
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 2, maxEvents: 3 });
+    expect(snapshot.events.length).toBeLessThanOrEqual(3);
+    expect(snapshot.events).toHaveLength(3);
+  });
+
+  it("Historial_respeta_limite_total", async () => {
+    let counter = 0;
+    mockFetch.mockImplementation(async () => {
+      counter += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          items: [{ eventId: `e-${counter}`, vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+          nextCursor: counter < 5 ? `c-${counter}` : null,
+          hasMore: counter < 5,
+        }),
+      };
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 1, maxEvents: 3 });
+    expect(snapshot.events).toHaveLength(3);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.partial).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("Cursor_repetido_en_historial_reporta_estado_parcial", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{ eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+        nextCursor: "same",
+        hasMore: true,
+      }),
+    });
+
+    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 1 });
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.error).toContain("Cursor repetido");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });
 
-describe("SSE merge behavior", () => {
-  it("actualizacion_SSE_reemplaza_vehiculo_sin_duplicarlo", () => {
-    const initial: VehicleStatus[] = [
-      { vehicleId: "VH-001", name: "VH-001", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 0, lastLatitude: 1, lastLongitude: 1 },
-      { vehicleId: "VH-002", name: "VH-002", status: "online", lastSeenAt: "2026-07-10T10:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
-    ];
-    const liveUpdate: VehicleStatus[] = [
-      { vehicleId: "VH-001", name: "VH-001", status: "online", lastSeenAt: "2026-07-10T10:05:00Z", lastSpeedKmh: 35, lastLatitude: 1.1, lastLongitude: 1.1 },
-    ];
+describe("analytics with truncated snapshot", () => {
+  it("Analitica_no_presenta_5000_como_total_si_hay_mas", () => {
+    const analytics = computeGlobalAnalyticsFromOps(
+      { totalVehicles: 12000, activeVehicles: 8000 },
+      5,
+      "api",
+      { partial: true },
+    );
 
-    const merged = liveUpdate.length > 0 ? liveUpdate : initial;
-    const byId = new Map(initial.map((vehicle) => [vehicle.vehicleId, vehicle]));
-    for (const vehicle of liveUpdate) byId.set(vehicle.vehicleId, vehicle);
-    const result = Array.from(byId.values());
-
-    expect(merged).toHaveLength(1);
-    expect(result).toHaveLength(2);
-    expect(result.filter((v) => v.vehicleId === "VH-001")).toHaveLength(1);
-    expect(result.find((v) => v.vehicleId === "VH-001")?.status).toBe("online");
+    expect(analytics.totalVehicles).toBe(12000);
+    expect(analytics.activeVehicles).toBe(8000);
+    expect(analytics.partial).toBe(true);
   });
 });

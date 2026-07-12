@@ -61,12 +61,12 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             cursorPayload = CursorCodec.Decode<TelemetryHistoryCursorPayload>(cursor);
-            if (cursorPayload.Version != TelemetryHistoryCursorPayload.CurrentVersion)
-                throw new InvalidCursorException("Versión de cursor no soportada.");
-            if (!string.Equals(cursorPayload.VehicleId, vehicleId, StringComparison.Ordinal))
-                throw new InvalidCursorException("El cursor no pertenece al vehículo solicitado.");
-            if (cursorPayload.From != from || cursorPayload.To != to)
-                throw new InvalidCursorException("El cursor no coincide con el rango solicitado.");
+            CursorValidators.ValidateHistoryCursor(
+                cursorPayload,
+                vehicleId,
+                from,
+                to,
+                _queryLimits.HistoryMaxRangeDays);
         }
 
         var take = pageSize + 1;

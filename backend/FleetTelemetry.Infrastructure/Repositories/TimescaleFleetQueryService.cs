@@ -44,10 +44,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             cursorPayload = CursorCodec.Decode<FleetCursorPayload>(cursor);
-            if (cursorPayload.Version != FleetCursorPayload.CurrentVersion)
-                throw new InvalidCursorException("Versión de cursor no soportada.");
-            if (cursorPayload.LiveOnly != liveOnly || cursorPayload.ExcludeSimulated != excludeSimulated)
-                throw new InvalidCursorException("El cursor no coincide con los filtros solicitados.");
+            CursorValidators.ValidateFleetCursor(cursorPayload, liveOnly, excludeSimulated);
         }
 
         var now = _timeProvider.GetUtcNow();
@@ -144,19 +141,23 @@ public class TimescaleFleetQueryService : IFleetQueryService
         double? headingDegrees,
         DateTimeOffset now)
     {
-        var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
-        var isOnline = record.LastTimestamp >= onlineThreshold;
+        var connectivityStatus = VehicleConnectivityStatus.Resolve(
+            record.LastTimestamp,
+            now,
+            _queryLimits.OnlineThresholdMinutes);
 
         return new VehicleLatestStatusResponse(
             VehicleId: record.VehicleId,
             Name: record.VehicleId,
-            Status: isOnline ? "online" : "offline",
+            Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
             LastLatitude: record.Latitude,
             LastLongitude: record.Longitude,
             LastHeadingDegrees: headingDegrees,
-            LastLocationSource: record.LocationSource);
+            LastLocationSource: record.LocationSource,
+            LastEventId: record.LastEventId,
+            StatusEvaluatedAt: now);
     }
 
     private static void ValidatePageSize(int pageSize, int maxPageSize)

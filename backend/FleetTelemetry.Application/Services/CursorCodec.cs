@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using FleetTelemetry.Application.DTOs;
 
 namespace FleetTelemetry.Application.Services;
@@ -7,10 +8,13 @@ namespace FleetTelemetry.Application.Services;
 // Codifica y decodifica cursores opacos con validación estricta.
 public static class CursorCodec
 {
+    public const int MaxCursorLength = 4096;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
     public static string Encode<T>(T payload)
@@ -22,7 +26,10 @@ public static class CursorCodec
     public static T Decode<T>(string cursor)
     {
         if (string.IsNullOrWhiteSpace(cursor))
-            throw new InvalidCursorException("Cursor vacío.");
+            throw new InvalidCursorException("Cursor inválido.");
+
+        if (cursor.Length > MaxCursorLength)
+            throw new InvalidCursorException("Cursor inválido.");
 
         byte[] bytes;
         try
@@ -33,6 +40,9 @@ public static class CursorCodec
         {
             throw new InvalidCursorException("Cursor inválido.");
         }
+
+        if (bytes.Length > MaxCursorLength)
+            throw new InvalidCursorException("Cursor inválido.");
 
         try
         {

@@ -26,7 +26,7 @@ flowchart LR
   Kafka -->|consume| Worker[Worker]
   Worker --> Ts[TimescaleDB]
   Api --> Ts
-  Api -->|SSE_polling| Web[Dashboard_Next]
+  Api -->|SSE_kafka_push| Web[Dashboard_Next]
   Web --> Api
 ```
 
@@ -140,7 +140,7 @@ Detalle de limitaciones históricas: sección siguiente y [docs/demo-sustentacio
 
 - Terraform es **blueprint** (RDS = PostgreSQL estándar, sin MSK, ALB completo, tasks productivas ni deploy del dashboard). Persistencia Timescale en AWS: **Timescale Cloud o self-hosted**. Ver [infra/README.md](infra/README.md).
 - Analytics Druid: **no desplegado**; solo contrato `IAnalyticsQueryService` con implementación Timescale. Ver [docs/analytics-druid-mock.md](docs/analytics-druid-mock.md).
-- SSE por **polling** a DB (no push Kafka→SSE). Ver [docs/realtime-sse.md](docs/realtime-sse.md).
+- SSE **KafkaPush** por defecto (`vehicle-update` canónico + `fleet-update` legacy). Polling disponible como alternativa. Ver [docs/realtime-sse.md](docs/realtime-sse.md).
 - JWT opcional y parcial; OpenAI opcional (pulido de texto).
 - Preview mobile EAS manual (`mobile-preview.yml`), sin tiendas.
 - OpenTelemetry **opt-in** vía `OpenTelemetry:Enabled` y endpoint OTLP configurable.

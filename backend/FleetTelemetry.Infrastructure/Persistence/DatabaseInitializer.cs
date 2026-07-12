@@ -1,4 +1,5 @@
 using System.Data.Common;
+using FleetTelemetry.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -10,6 +11,8 @@ namespace FleetTelemetry.Infrastructure.Persistence;
 public static class DatabaseInitializer
 {
     private const long SchemaAdvisoryLockKey = 742001;
+    private const int ReadModelSchemaVersion = 2;
+    private const int ReadModelVerificationSchemaVersion = 3;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -20,6 +23,8 @@ public static class DatabaseInitializer
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<FleetDbContext>>();
+        var migrationHooks = scope.ServiceProvider.GetService<ISchemaMigrationHooks>()
+            ?? NoOpSchemaMigrationHooks.Instance;
 
         var connection = dbContext.Database.GetDbConnection();
         await connection.OpenAsync(cancellationToken);
@@ -33,7 +38,21 @@ public static class DatabaseInitializer
 
             try
             {
-                await InitializeSchemaAsync(connection, logger, cancellationToken);
+                await InitializeBaseSchemaAsync(connection, logger, cancellationToken);
+                var v2AppliedNow = await ApplyReadModelMigrationV2Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
+                await ApplyReadModelVerificationV3Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    v2AppliedNow,
+                    cancellationToken);
+                await using var ensureTransaction = await connection.BeginTransactionAsync(cancellationToken);
+                await EnsureFleetVehicleStateSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await ensureTransaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -79,7 +98,7 @@ public static class DatabaseInitializer
         await command.ExecuteScalarAsync(cancellationToken);
     }
 
-    private static async Task InitializeSchemaAsync(
+    private static async Task InitializeBaseSchemaAsync(
         DbConnection connection,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -198,6 +217,140 @@ public static class DatabaseInitializer
         await ExecuteSqlAsync(
             connection,
             """
+            CREATE TABLE IF NOT EXISTS fleet_connectivity_watermark (
+                "Id" integer NOT NULL DEFAULT 1,
+                "PreviousOnlineThreshold" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_connectivity_watermark" PRIMARY KEY ("Id")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_offline_publish_markers (
+                "VehicleId" character varying(64) NOT NULL,
+                "LastEventId" uuid NOT NULL,
+                "StatusEvaluatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_offline_publish_markers" PRIMARY KEY ("VehicleId")
+            );
+            """,
+            cancellationToken);
+
+        logger.LogInformation("TimescaleDB base schema initialized successfully.");
+    }
+
+    private static async Task<bool> ApplyReadModelMigrationV2Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, ReadModelSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Read model migration v{Version} already applied; preserving historical record.",
+                ReadModelSchemaVersion);
+            return false;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetVehicleStateSchemaAsync(connection, transaction, cancellationToken);
+            await migrationHooks.OnBackfillStartingAsync(cancellationToken);
+            await ExecuteDeterministicBackfillAsync(connection, transaction, cancellationToken);
+            await migrationHooks.OnBeforeRegisterVersionAsync(ReadModelSchemaVersion, cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (2, NOW(), 'fleet_vehicle_state read model with deterministic backfill');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation("Read model migration v{Version} applied successfully.", ReadModelSchemaVersion);
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task ApplyReadModelVerificationV3Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        bool v2AppliedNow,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, ReadModelVerificationSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Read model verification v{Version} already applied; skipping repair.",
+                ReadModelVerificationSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetVehicleStateSchemaAsync(connection, transaction, cancellationToken);
+
+            if (v2AppliedNow)
+            {
+                logger.LogInformation(
+                    "Read model verification v{Version} skipping repair backfill because v2 was applied in this run.",
+                    ReadModelVerificationSchemaVersion);
+            }
+            else
+            {
+                await migrationHooks.OnBackfillStartingAsync(cancellationToken);
+                await ExecuteDeterministicBackfillAsync(connection, transaction, cancellationToken);
+            }
+
+            await migrationHooks.OnBeforeRegisterVersionAsync(
+                ReadModelVerificationSchemaVersion,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (3, NOW(), 'fleet_vehicle_state verification and deterministic repair');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation(
+                "Read model verification v{Version} applied successfully.",
+                ReadModelVerificationSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task EnsureFleetVehicleStateSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
             CREATE TABLE IF NOT EXISTS fleet_vehicle_state (
                 "VehicleId" character varying(64) NOT NULL,
                 "LastEventId" uuid NOT NULL,
@@ -217,6 +370,7 @@ public static class DatabaseInitializer
 
         await ExecuteSqlAsync(
             connection,
+            transaction,
             """
             CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp
             ON fleet_vehicle_state ("LastTimestamp" DESC);
@@ -225,6 +379,7 @@ public static class DatabaseInitializer
 
         await ExecuteSqlAsync(
             connection,
+            transaction,
             """
             CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_location_source_timestamp
             ON fleet_vehicle_state ("LocationSource", "LastTimestamp" DESC);
@@ -233,15 +388,22 @@ public static class DatabaseInitializer
 
         await ExecuteSqlAsync(
             connection,
+            transaction,
             """
-            INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
-            VALUES (2, NOW(), 'fleet_vehicle_state read model with deterministic backfill')
-            ON CONFLICT ("Version") DO NOTHING;
+            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
+            ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
             """,
             cancellationToken);
+    }
 
+    private static async Task ExecuteDeterministicBackfillAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
         await ExecuteSqlAsync(
             connection,
+            transaction,
             """
             INSERT INTO fleet_vehicle_state (
                 "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
@@ -285,8 +447,27 @@ public static class DatabaseInitializer
                );
             """,
             cancellationToken);
+    }
 
-        logger.LogInformation("TimescaleDB schema initialized successfully.");
+    private static async Task<bool> SchemaVersionExistsAsync(
+        DbConnection connection,
+        int version,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM schema_versions
+                WHERE "Version" = @version
+            );
+            """;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "version";
+        parameter.Value = version;
+        command.Parameters.Add(parameter);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static async Task ExecuteSqlAsync(
@@ -295,6 +476,18 @@ public static class DatabaseInitializer
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ExecuteSqlAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

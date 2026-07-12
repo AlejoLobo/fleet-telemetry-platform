@@ -23,6 +23,7 @@ internal sealed class FakeFleetQueryService(IReadOnlyList<VehicleLatestStatusRes
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             var payload = FleetTelemetry.Application.Services.CursorCodec.Decode<FleetCursorPayload>(cursor);
+            FleetTelemetry.Application.Services.CursorValidators.ValidateFleetCursor(payload, liveOnly, excludeSimulated);
             startIndex = ordered.FindIndex(v => string.Compare(v.VehicleId, payload.LastVehicleId, StringComparison.Ordinal) > 0);
             if (startIndex < 0) startIndex = ordered.Count;
         }

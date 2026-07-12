@@ -2,10 +2,12 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
 using FleetTelemetry.Domain.Entities;
+using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 // Unidad de trabajo transaccional para procesar telemetría.
@@ -21,15 +23,24 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
     private readonly FleetDbContext _dbContext;
     private readonly IFleetRealtimePublisher _realtimePublisher;
+    private readonly IFleetOfflinePublishMarkerRepository _markerRepository;
+    private readonly TimeProvider _timeProvider;
+    private readonly QueryLimitsOptions _queryLimits;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
 
     public TimescaleTelemetryProcessingUnitOfWork(
         FleetDbContext dbContext,
         IFleetRealtimePublisher realtimePublisher,
+        IFleetOfflinePublishMarkerRepository markerRepository,
+        TimeProvider timeProvider,
+        IOptions<QueryLimitsOptions> queryLimits,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
         _realtimePublisher = realtimePublisher;
+        _markerRepository = markerRepository;
+        _timeProvider = timeProvider;
+        _queryLimits = queryLimits.Value;
         _logger = logger;
     }
 
@@ -92,7 +103,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 alert.VehicleId);
         }
 
-        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+        var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (
                 "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
@@ -134,7 +145,11 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        await PublishRealtimeUpdatesAsync(telemetryEvent, alerts, processedAt, cancellationToken);
+        await PublishRealtimeUpdatesAsync(
+            telemetryEvent,
+            alerts,
+            stateRowsAffected > 0,
+            cancellationToken);
 
         return ProcessTelemetryOutcome.Processed;
     }
@@ -142,26 +157,50 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     private async Task PublishRealtimeUpdatesAsync(
         TelemetryEvent telemetryEvent,
         IReadOnlyList<FleetAlert> alerts,
-        DateTimeOffset processedAt,
+        bool publishVehicleUpdate,
         CancellationToken cancellationToken)
     {
         try
         {
-            var vehicleUpdate = new VehicleLatestStatusResponse(
-                telemetryEvent.VehicleId,
-                telemetryEvent.VehicleId,
-                telemetryEvent.SpeedKmh <= 1 ? "stopped" : "online",
-                processedAt,
-                telemetryEvent.SpeedKmh,
-                telemetryEvent.Latitude,
-                telemetryEvent.Longitude,
-                null,
-                telemetryEvent.LocationSource);
+            if (publishVehicleUpdate)
+            {
+                var now = _timeProvider.GetUtcNow();
+                var connectivityStatus = VehicleConnectivityStatus.Resolve(
+                    telemetryEvent.Timestamp,
+                    now,
+                    _queryLimits.OnlineThresholdMinutes);
 
-            await _realtimePublisher.PublishVehicleUpdateAsync(
-                telemetryEvent.VehicleId,
-                JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
-                cancellationToken);
+                var vehicleUpdate = new VehicleLatestStatusResponse(
+                    telemetryEvent.VehicleId,
+                    telemetryEvent.VehicleId,
+                    connectivityStatus,
+                    telemetryEvent.Timestamp,
+                    telemetryEvent.SpeedKmh,
+                    telemetryEvent.Latitude,
+                    telemetryEvent.Longitude,
+                    null,
+                    telemetryEvent.LocationSource,
+                    telemetryEvent.EventId,
+                    now);
+
+                await _realtimePublisher.PublishVehicleUpdateAsync(
+                    telemetryEvent.VehicleId,
+                    JsonSerializer.Serialize(vehicleUpdate, JsonOptions),
+                    cancellationToken);
+
+                if (connectivityStatus == VehicleConnectivityStatus.Online)
+                {
+                    await _markerRepository.MarkOnlineAsync(telemetryEvent.VehicleId, cancellationToken);
+                }
+                else
+                {
+                    await _markerRepository.MarkOfflinePublishedAsync(
+                        telemetryEvent.VehicleId,
+                        telemetryEvent.EventId,
+                        now,
+                        cancellationToken);
+                }
+            }
 
             foreach (var alert in alerts)
             {

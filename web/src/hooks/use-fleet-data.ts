@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api-client";
 import { fetchTelemetrySnapshot } from "@/lib/fleet-pagination";
 import {
   computeGlobalAnalytics,
+  computeGlobalAnalyticsFromOps,
   computeSelectedAnalytics,
   toLegacyAnalytics,
   type FleetDataSource,
@@ -26,6 +27,10 @@ type FleetDataState = {
   telemetryLoading: boolean;
   fleetError: string | null;
   telemetryError: string | null;
+  fleetPartial: boolean;
+  fleetTruncated: boolean;
+  telemetryPartial: boolean;
+  telemetryTruncated: boolean;
   dataSource: FleetDataSource;
 };
 
@@ -47,6 +52,10 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryLoading: false,
     fleetError: null,
     telemetryError: null,
+    fleetPartial: false,
+    fleetTruncated: false,
+    telemetryPartial: false,
+    telemetryTruncated: false,
     dataSource: "api",
   });
 
@@ -55,26 +64,62 @@ export function useFleetData(selectedVehicleId: string | null) {
   const telemetryRequestIdRef = useRef(0);
 
   const loadFleetAndAlerts = useCallback(async () => {
-    setState((prev) => ({ ...prev, fleetLoading: true, fleetError: null }));
+    setState((prev) => ({
+      ...prev,
+      fleetLoading: true,
+      fleetError: null,
+      fleetPartial: false,
+      fleetTruncated: false,
+    }));
 
     try {
-      const [vehicles, alerts] = await Promise.all([
+      const [fleetSnapshot, alerts] = await Promise.all([
         apiClient.fetchFleetLive(),
         apiClient.fetchAlertsLive(),
       ]);
 
-      const globalAnalytics = computeGlobalAnalytics(vehicles, alerts, "api");
+      let globalAnalytics;
+      if (fleetSnapshot.truncated) {
+        try {
+          const summary = await apiClient.fetchOpsSummary();
+          globalAnalytics = computeGlobalAnalyticsFromOps(
+            {
+              totalVehicles: summary.totalVehicles,
+              activeVehicles: summary.activeVehicles,
+            },
+            alerts.length,
+            "api",
+            { partial: true },
+          );
+        } catch {
+          globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api", {
+            partial: true,
+            aggregationSource: "snapshot",
+          });
+        }
+      } else {
+        globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api");
+      }
+
+      const fleetWarning = fleetSnapshot.truncated
+        ? `Snapshot parcial: se muestran ${fleetSnapshot.vehicles.length} vehículos; existen más en el servidor.`
+        : fleetSnapshot.partial
+          ? fleetSnapshot.error ?? "Carga parcial de la flota."
+          : null;
 
       setState((prev) => ({
         ...prev,
-        vehicles,
+        vehicles: fleetSnapshot.vehicles,
         alerts,
         globalAnalytics,
         fleetLoading: false,
+        fleetPartial: fleetSnapshot.partial,
+        fleetTruncated: fleetSnapshot.truncated,
         fleetError:
-          vehicles.length === 0
+          fleetWarning ??
+          (fleetSnapshot.vehicles.length === 0
             ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
-            : null,
+            : null),
         dataSource: "api",
       }));
       dataSourceRef.current = "api";
@@ -94,18 +139,33 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryAbortRef.current = controller;
     const requestId = ++telemetryRequestIdRef.current;
 
-    setState((prev) => ({ ...prev, telemetryLoading: true, telemetryError: null }));
+    setState((prev) => ({
+      ...prev,
+      telemetryLoading: true,
+      telemetryError: null,
+      telemetryPartial: false,
+      telemetryTruncated: false,
+    }));
 
     try {
-      const telemetry = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
+      const snapshot = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
       if (requestId !== telemetryRequestIdRef.current) return;
 
-      const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetry);
+      const selectedAnalytics = computeSelectedAnalytics(vehicleId, snapshot.events);
+      const telemetryWarning = snapshot.truncated
+        ? `Historial parcial: se cargaron ${snapshot.events.length} eventos; existen más en el rango.`
+        : snapshot.partial
+          ? snapshot.error ?? "Carga parcial de telemetría."
+          : null;
+
       setState((prev) => ({
         ...prev,
-        telemetry,
+        telemetry: snapshot.events,
         selectedAnalytics,
         telemetryLoading: false,
+        telemetryPartial: snapshot.partial,
+        telemetryTruncated: snapshot.truncated,
+        telemetryError: telemetryWarning,
       }));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
@@ -127,7 +187,16 @@ export function useFleetData(selectedVehicleId: string | null) {
 
   const loadDemoData = useCallback(async () => {
     telemetryAbortRef.current?.abort();
-    setState((prev) => ({ ...prev, fleetLoading: true, fleetError: null, telemetryError: null }));
+    setState((prev) => ({
+      ...prev,
+      fleetLoading: true,
+      fleetError: null,
+      telemetryError: null,
+      fleetPartial: false,
+      fleetTruncated: false,
+      telemetryPartial: false,
+      telemetryTruncated: false,
+    }));
 
     const dataset = refreshMockDataset(10);
     const vehicleId =
@@ -148,6 +217,10 @@ export function useFleetData(selectedVehicleId: string | null) {
       telemetryLoading: false,
       fleetError: null,
       telemetryError: null,
+      fleetPartial: false,
+      fleetTruncated: false,
+      telemetryPartial: false,
+      telemetryTruncated: false,
       dataSource: "demo",
     });
     dataSourceRef.current = "demo";
@@ -205,6 +278,10 @@ export function useFleetData(selectedVehicleId: string | null) {
     error: state.fleetError ?? state.telemetryError,
     fleetError: state.fleetError,
     telemetryError: state.telemetryError,
+    fleetPartial: state.fleetPartial,
+    fleetTruncated: state.fleetTruncated,
+    telemetryPartial: state.telemetryPartial,
+    telemetryTruncated: state.telemetryTruncated,
     dataSource: state.dataSource,
     refresh,
     loadFromApi,

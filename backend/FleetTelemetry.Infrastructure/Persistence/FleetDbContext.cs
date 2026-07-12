@@ -15,6 +15,8 @@ public class FleetDbContext : DbContext
     public DbSet<ProcessedEventRecord> ProcessedEvents => Set<ProcessedEventRecord>();
     public DbSet<FleetAlertRecord> FleetAlerts => Set<FleetAlertRecord>();
     public DbSet<FleetVehicleStateRecord> FleetVehicleStates => Set<FleetVehicleStateRecord>();
+    public DbSet<FleetConnectivityWatermarkRecord> FleetConnectivityWatermarks => Set<FleetConnectivityWatermarkRecord>();
+    public DbSet<FleetOfflinePublishMarkerRecord> FleetOfflinePublishMarkers => Set<FleetOfflinePublishMarkerRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +41,12 @@ public class FleetDbContext : DbContext
         {
             entity.HasIndex(e => e.LastTimestamp);
             entity.HasIndex(e => new { e.LocationSource, e.LastTimestamp });
+            entity.HasIndex(e => new { e.LastTimestamp, e.VehicleId });
+        });
+
+        modelBuilder.Entity<FleetConnectivityWatermarkRecord>(entity =>
+        {
+            entity.Property(e => e.Id).ValueGeneratedNever();
         });
     }
 }
