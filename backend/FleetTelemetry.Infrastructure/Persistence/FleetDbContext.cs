@@ -14,13 +14,14 @@ public class FleetDbContext : DbContext
     public DbSet<TelemetryEventRecord> TelemetryEvents => Set<TelemetryEventRecord>();
     public DbSet<ProcessedEventRecord> ProcessedEvents => Set<ProcessedEventRecord>();
     public DbSet<FleetAlertRecord> FleetAlerts => Set<FleetAlertRecord>();
+    public DbSet<FleetVehicleStateRecord> FleetVehicleStates => Set<FleetVehicleStateRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<TelemetryEventRecord>(entity =>
         {
             entity.HasKey(e => new { e.EventId, e.Timestamp });
-            entity.HasIndex(e => new { e.VehicleId, e.Timestamp });
+            entity.HasIndex(e => new { e.VehicleId, e.Timestamp, e.EventId });
         });
 
         modelBuilder.Entity<ProcessedEventRecord>(entity =>
@@ -32,6 +33,12 @@ public class FleetDbContext : DbContext
         {
             entity.HasIndex(e => new { e.VehicleId, e.CreatedAt });
             entity.HasIndex(e => e.IsAcknowledged);
+        });
+
+        modelBuilder.Entity<FleetVehicleStateRecord>(entity =>
+        {
+            entity.HasIndex(e => e.LastTimestamp);
+            entity.HasIndex(e => new { e.LocationSource, e.LastTimestamp });
         });
     }
 }
