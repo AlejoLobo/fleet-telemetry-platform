@@ -6,7 +6,8 @@ public enum FleetKafkaPushReadinessState
     Starting = 0,
     Assigned = 1,
     Ready = 2,
-    Faulted = 3
+    Rebalancing = 3,
+    Faulted = 4
 }
 
 // Coordina cuándo la réplica puede admitir conexiones SSE.
@@ -16,14 +17,25 @@ public interface IFleetKafkaPushReadiness
 
     bool IsReady { get; }
 
-    // Siguiente offset a consumir tras establecer la posición inicial (High watermark).
+    // Primera posición High del proceso (línea base para initial-snapshot).
     long? InitialPositionOffset { get; }
+
+    // Offset de reanudación de la asignación actual.
+    long? CurrentResumeOffset { get; }
+
+    bool HasCompletedFirstAssignment { get; }
 
     string? FaultReason { get; }
 
+    void MarkRebalancing();
+
     void MarkAssigned();
 
-    void EstablishInitialPosition(long nextOffsetToConsume);
+    // Primera asignación: fija InitialPositionOffset (= High) y resume.
+    void EstablishFirstAssignmentPosition(long nextOffsetToConsume);
+
+    // Reasignación: resume sin consultar un nuevo High.
+    void EstablishResumePosition(long nextOffsetToConsume);
 
     void MarkReady();
 
@@ -38,8 +50,10 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
     private readonly object _sync = new();
     private FleetKafkaPushReadinessState _state = FleetKafkaPushReadinessState.Starting;
     private long? _initialPositionOffset;
+    private long? _currentResumeOffset;
     private string? _faultReason;
-    private bool _positionEstablished;
+    private bool _assignmentPositionEstablished;
+    private bool _hasCompletedFirstAssignment;
 
     public FleetKafkaPushReadinessState State
     {
@@ -68,6 +82,24 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
         }
     }
 
+    public long? CurrentResumeOffset
+    {
+        get
+        {
+            lock (_sync)
+                return _currentResumeOffset;
+        }
+    }
+
+    public bool HasCompletedFirstAssignment
+    {
+        get
+        {
+            lock (_sync)
+                return _hasCompletedFirstAssignment;
+        }
+    }
+
     public string? FaultReason
     {
         get
@@ -77,31 +109,66 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
         }
     }
 
-    public void MarkAssigned()
-    {
-        lock (_sync)
-        {
-            if (_state is FleetKafkaPushReadinessState.Ready or FleetKafkaPushReadinessState.Faulted)
-                return;
-
-            _state = FleetKafkaPushReadinessState.Assigned;
-        }
-    }
-
-    public void EstablishInitialPosition(long nextOffsetToConsume)
+    public void MarkRebalancing()
     {
         lock (_sync)
         {
             if (_state == FleetKafkaPushReadinessState.Faulted)
                 return;
 
-            if (_state == FleetKafkaPushReadinessState.Starting)
+            _state = FleetKafkaPushReadinessState.Rebalancing;
+            _assignmentPositionEstablished = false;
+            _currentResumeOffset = null;
+        }
+    }
+
+    public void MarkAssigned()
+    {
+        lock (_sync)
+        {
+            if (_state == FleetKafkaPushReadinessState.Faulted)
+                return;
+
+            _state = FleetKafkaPushReadinessState.Assigned;
+            _assignmentPositionEstablished = false;
+            _currentResumeOffset = null;
+        }
+    }
+
+    public void EstablishFirstAssignmentPosition(long nextOffsetToConsume)
+    {
+        lock (_sync)
+        {
+            if (_state == FleetKafkaPushReadinessState.Faulted)
+                return;
+
+            if (_state is FleetKafkaPushReadinessState.Starting or FleetKafkaPushReadinessState.Rebalancing)
                 _state = FleetKafkaPushReadinessState.Assigned;
 
             _initialPositionOffset = nextOffsetToConsume;
-            _positionEstablished = true;
+            _currentResumeOffset = nextOffsetToConsume;
+            _assignmentPositionEstablished = true;
         }
     }
+
+    public void EstablishResumePosition(long nextOffsetToConsume)
+    {
+        lock (_sync)
+        {
+            if (_state == FleetKafkaPushReadinessState.Faulted)
+                return;
+
+            if (_state is FleetKafkaPushReadinessState.Starting or FleetKafkaPushReadinessState.Rebalancing)
+                _state = FleetKafkaPushReadinessState.Assigned;
+
+            _currentResumeOffset = nextOffsetToConsume;
+            _assignmentPositionEstablished = true;
+        }
+    }
+
+    // Compatibilidad con tests/arranque legacy.
+    public void EstablishInitialPosition(long nextOffsetToConsume) =>
+        EstablishFirstAssignmentPosition(nextOffsetToConsume);
 
     public void MarkReady()
     {
@@ -110,11 +177,21 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
             if (_state == FleetKafkaPushReadinessState.Faulted)
                 return;
 
-            if (!_positionEstablished)
+            if (!_assignmentPositionEstablished)
+            {
                 throw new InvalidOperationException(
-                    "Cannot mark Kafka push Ready before establishing the initial consumer position.");
+                    "Cannot mark Kafka push Ready before establishing the resume position.");
+            }
+
+            if (_state is not (
+                FleetKafkaPushReadinessState.Assigned
+                or FleetKafkaPushReadinessState.Ready))
+            {
+                return;
+            }
 
             _state = FleetKafkaPushReadinessState.Ready;
+            _hasCompletedFirstAssignment = true;
         }
     }
 
@@ -124,6 +201,7 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
         {
             _state = FleetKafkaPushReadinessState.Faulted;
             _faultReason = reason;
+            _assignmentPositionEstablished = false;
         }
     }
 
@@ -132,7 +210,9 @@ public sealed class FleetKafkaPushReadiness : IFleetKafkaPushReadiness
         lock (_sync)
         {
             _initialPositionOffset = null;
-            _positionEstablished = true;
+            _currentResumeOffset = null;
+            _assignmentPositionEstablished = true;
+            _hasCompletedFirstAssignment = true;
             _faultReason = null;
             _state = FleetKafkaPushReadinessState.Ready;
         }

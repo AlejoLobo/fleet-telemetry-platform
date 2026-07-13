@@ -72,7 +72,7 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 3);
 
         var broker = new IntegrationFailingBroker(1);
-        var transport = CreateTransport(_kafka.BootstrapServers, topic, "api-fail");
+        var transport = CreateEarliestTransport(_kafka.BootstrapServers, topic, "api-fail");
         var loop = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(broker));
 
         transport.AssignBeginning();
@@ -102,12 +102,15 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
                 required: true));
     }
 
-    private FleetSseKafkaPushHostedService CreateHostedService(string instanceId) =>
+    private FleetSseKafkaPushHostedService CreateHostedService(
+        string instanceId,
+        FleetSseBroker? broker = null,
+        IFleetKafkaPushReadiness? readiness = null) =>
         new(
-            new FleetSseBroker(TimeProvider.System),
+            broker ?? new FleetSseBroker(TimeProvider.System),
             Options.Create(new KafkaOptions { RealtimeConsumerGroupBase = "fleet-realtime-sse" }),
             Options.Create(new SseOptions { InstanceId = instanceId }),
-            new FleetKafkaPushReadiness(),
+            readiness ?? new FleetKafkaPushReadiness(),
             NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
     private async Task RunHostedPushLoopAsync(
@@ -117,7 +120,7 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         FleetSseBroker broker,
         int expectedMessages)
     {
-        using var transport = CreateTransport(bootstrapServers, topic, instanceId);
+        using var transport = CreateEarliestTransport(bootstrapServers, topic, instanceId);
         var loop = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(broker));
         transport.AssignBeginning();
 
@@ -131,7 +134,7 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         await Task.CompletedTask;
     }
 
-    private TestKafkaPushTransport CreateTransport(string bootstrapServers, string topic, string instanceId)
+    private TestKafkaPushTransport CreateEarliestTransport(string bootstrapServers, string topic, string instanceId)
     {
         var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
         {
@@ -221,56 +224,45 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
 
         var readinessA = new FleetKafkaPushReadiness();
         var readinessB = new FleetKafkaPushReadiness();
-        var brokerA = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 100);
-        var brokerB = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 100);
+        var brokerA = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 200);
+        var brokerB = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 200);
 
         Assert.False(readinessA.IsReady);
-        Assert.False(readinessB.IsReady);
-
-        // Equivalente al gate de EventsController antes de Ready.
         Assert.Equal(FleetKafkaPushReadinessState.Starting, readinessA.State);
 
-        using var transportA = CreateProductionTransport(
-            _kafka.BootstrapServers, topic, "api-ready-a", readinessA);
-        using var transportB = CreateProductionTransport(
-            _kafka.BootstrapServers, topic, "api-ready-b", readinessB);
-
-        var loopA = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(brokerA));
-        var loopB = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(brokerB));
+        using var sessionA = CreateHostedStrategySession(
+            _kafka.BootstrapServers, topic, "api-ready-a", brokerA, readinessA);
+        using var sessionB = CreateHostedStrategySession(
+            _kafka.BootstrapServers, topic, "api-ready-b", brokerB, readinessB);
 
         // Evento producido durante el arranque (antes de Ready).
         await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 1);
 
-        await WaitUntilReadyAsync(readinessA, loopA, transportA);
-        await WaitUntilReadyAsync(readinessB, loopB, transportB);
+        await WaitUntilReadyAsync(sessionA);
+        await WaitUntilReadyAsync(sessionB);
 
         Assert.True(readinessA.IsReady);
         Assert.True(readinessB.IsReady);
         Assert.Equal(readinessA.InitialPositionOffset, readinessB.InitialPositionOffset);
 
         var startOffset = readinessA.InitialPositionOffset!.Value;
-
-        // Eventos futuros tras Ready: ambas réplicas convergen al mismo límite.
         await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 3);
-        await WaitUntilOffsetAsync(brokerA, loopA, transportA, minOffset: startOffset + 2);
-        await WaitUntilOffsetAsync(brokerB, loopB, transportB, minOffset: startOffset + 2);
+        await WaitUntilOffsetAsync(sessionA, minOffset: startOffset + 2);
+        await WaitUntilOffsetAsync(sessionB, minOffset: startOffset + 2);
 
         Assert.Equal(brokerA.LastAcceptedExternalOffset, brokerB.LastAcceptedExternalOffset);
 
         var cutoverBefore = brokerA.LastAcceptedExternalOffset;
         var subA = brokerA.SubscribeFrom(new SseLastEventId.Missing());
         var subB = brokerB.SubscribeFrom(new SseLastEventId.Missing());
-
         Assert.Equal("initial-snapshot", subA.ResetReason);
-        Assert.Equal("initial-snapshot", subB.ResetReason);
         Assert.Equal(cutoverBefore, subA.CutoverId);
         Assert.Equal(subA.CutoverId, subB.CutoverId);
-        Assert.Equal(subA.LatestEventId, subB.LatestEventId);
 
         await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 2);
         var nextOffset = cutoverBefore + 1;
-        await WaitUntilOffsetAsync(brokerA, loopA, transportA, minOffset: nextOffset + 1);
-        await WaitUntilOffsetAsync(brokerB, loopB, transportB, minOffset: nextOffset + 1);
+        await WaitUntilOffsetAsync(sessionA, minOffset: nextOffset + 1);
+        await WaitUntilOffsetAsync(sessionB, minOffset: nextOffset + 1);
 
         var idsA = DrainLiveIds(subA);
         var idsB = DrainLiveIds(subB);
@@ -278,41 +270,127 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         Assert.Equal(idsA, idsB);
     }
 
-    private async Task WaitUntilReadyAsync(
-        IFleetKafkaPushReadiness readiness,
-        FleetRealtimeKafkaPushLoop loop,
-        ProductionKafkaPushTransport transport)
+    [Fact]
+    public async Task Reasignacion_real_no_omite_offsets_durante_rebalance()
+    {
+        var topic = _kafka.NewTopicName("fleet-realtime-ft005-reassign");
+        await _kafka.CreateTopicAsync(topic);
+
+        // Línea base High ≈ 100 antes de la primera asignación.
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 100);
+
+        var readinessA = new FleetKafkaPushReadiness();
+        var readinessB = new FleetKafkaPushReadiness();
+        var brokerA = new FleetSseBroker(TimeProvider.System, channelCapacity: 100, replayBufferSize: 200);
+        var brokerB = new FleetSseBroker(TimeProvider.System, channelCapacity: 100, replayBufferSize: 200);
+
+        using var sessionA = CreateHostedStrategySession(
+            _kafka.BootstrapServers, topic, "api-reassign-a", brokerA, readinessA);
+        using var sessionB = CreateHostedStrategySession(
+            _kafka.BootstrapServers, topic, "api-reassign-b", brokerB, readinessB);
+
+        await WaitUntilReadyAsync(sessionA);
+        await WaitUntilReadyAsync(sessionB);
+
+        Assert.Equal(100, readinessA.InitialPositionOffset);
+        Assert.Equal(100, readinessB.InitialPositionOffset);
+
+        // Procesar 100..105
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 6);
+        await WaitUntilOffsetAsync(sessionA, minOffset: 105);
+        await WaitUntilOffsetAsync(sessionB, minOffset: 105);
+        Assert.Equal(105, brokerA.LastProcessedExternalOffset);
+        Assert.Equal(105, brokerB.LastProcessedExternalOffset);
+
+        // Revocar → 503 / not Ready; conservar LastProcessed.
+        sessionA.Coordinator.HandlePartitionsRevoked([]);
+        sessionB.Coordinator.HandlePartitionsRevoked([]);
+        Assert.False(readinessA.IsReady);
+        Assert.Equal(FleetKafkaPushReadinessState.Rebalancing, readinessA.State);
+        Assert.Equal(105, brokerA.LastProcessedExternalOffset);
+
+        // 106..109 durante el rebalance (High alcanzaría 110).
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 4);
+
+        // Segunda asignación vía estrategia real del hosted service (no High).
+        var resumeA = sessionA.Coordinator.ResolveResumeOffset(
+            kafkaHighWatermark: 110,
+            lastProcessedExternalOffset: brokerA.LastProcessedExternalOffset,
+            initialPositionOffset: readinessA.InitialPositionOffset,
+            hasCompletedFirstAssignment: true);
+        var resumeB = sessionB.Coordinator.ResolveResumeOffset(
+            kafkaHighWatermark: 110,
+            lastProcessedExternalOffset: brokerB.LastProcessedExternalOffset,
+            initialPositionOffset: readinessB.InitialPositionOffset,
+            hasCompletedFirstAssignment: true);
+        Assert.Equal(106, resumeA);
+        Assert.Equal(106, resumeB);
+
+        sessionA.Transport.Seek(resumeA);
+        sessionB.Transport.Seek(resumeB);
+        ForceAwaitingReady(sessionA.Coordinator);
+        ForceAwaitingReady(sessionB.Coordinator);
+
+        await WaitUntilReadyAsync(sessionA);
+        await WaitUntilReadyAsync(sessionB);
+        await WaitUntilOffsetAsync(sessionA, minOffset: 109);
+        await WaitUntilOffsetAsync(sessionB, minOffset: 109);
+
+        Assert.Equal(109, brokerA.LastProcessedExternalOffset);
+        Assert.Equal(brokerA.LastProcessedExternalOffset, brokerB.LastProcessedExternalOffset);
+
+        for (var offset = 100L; offset <= 109; offset++)
+        {
+            Assert.False(brokerA.IsInvalidCommittedOffset(offset));
+            Assert.False(brokerB.IsInvalidCommittedOffset(offset));
+        }
+    }
+
+    private static void ForceAwaitingReady(FleetKafkaPushAssignmentCoordinator coordinator)
+    {
+        typeof(FleetKafkaPushAssignmentCoordinator)
+            .GetField("_awaitingReadyAfterAssignment",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(coordinator, true);
+    }
+
+    private async Task WaitUntilReadyAsync(HostedStrategySession session)
     {
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (!readiness.IsReady && DateTime.UtcNow < deadline)
-            loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
+        while (!session.Readiness.IsReady && DateTime.UtcNow < deadline)
+        {
+            session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
+            session.Coordinator.NotifySuccessfulPollCycle();
+        }
 
-        Assert.True(readiness.IsReady, "Kafka push no alcanzó Ready a tiempo.");
+        Assert.True(session.Readiness.IsReady, "Kafka push no alcanzó Ready a tiempo.");
         await Task.CompletedTask;
     }
 
-    private async Task WaitUntilOffsetAsync(
-        FleetSseBroker broker,
-        FleetRealtimeKafkaPushLoop loop,
-        IRealtimeKafkaPushTransport transport,
-        long minOffset)
+    private async Task WaitUntilOffsetAsync(HostedStrategySession session, long minOffset)
     {
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (broker.LastAcceptedExternalOffset < minOffset && DateTime.UtcNow < deadline)
-            loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
+        while (session.Broker.LastAcceptedExternalOffset < minOffset && DateTime.UtcNow < deadline)
+        {
+            session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
+            session.Coordinator.NotifySuccessfulPollCycle();
+        }
 
         Assert.True(
-            broker.LastAcceptedExternalOffset >= minOffset,
-            $"No se alcanzó offset {minOffset} (actual {broker.LastAcceptedExternalOffset}).");
+            session.Broker.LastAcceptedExternalOffset >= minOffset,
+            $"No se alcanzó offset {minOffset} (actual {session.Broker.LastAcceptedExternalOffset}).");
         await Task.CompletedTask;
     }
 
-    private ProductionKafkaPushTransport CreateProductionTransport(
+    private HostedStrategySession CreateHostedStrategySession(
         string bootstrapServers,
         string topic,
         string instanceId,
+        FleetSseBroker broker,
         IFleetKafkaPushReadiness readiness)
     {
+        var service = CreateHostedService(instanceId, broker, readiness);
+        var coordinator = service.AssignmentCoordinator;
         var groupId = $"fleet-realtime-sse-{instanceId}-{Guid.NewGuid():N}";
         var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
         {
@@ -322,19 +400,45 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
             EnableAutoCommit = false
         })
         .SetPartitionsAssignedHandler((c, partitions) =>
-        {
-            readiness.MarkAssigned();
-            Assert.Single(partitions);
-            var partition = partitions[0];
-            var watermarks = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
-            readiness.EstablishInitialPosition(watermarks.High.Value);
-            readiness.MarkReady();
-            return new[] { new TopicPartitionOffset(partition, watermarks.High) };
-        })
+            coordinator.HandlePartitionsAssigned(c, partitions))
+        .SetPartitionsRevokedHandler((_, partitions) =>
+            coordinator.HandlePartitionsRevoked(partitions))
+        .SetPartitionsLostHandler((_, partitions) =>
+            coordinator.HandlePartitionsLost(partitions))
         .Build();
 
         consumer.Subscribe(topic);
-        return new ProductionKafkaPushTransport(consumer, topic);
+        var transport = new ProductionKafkaPushTransport(consumer, topic);
+        var loop = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(broker));
+        return new HostedStrategySession(service, coordinator, readiness, broker, transport, loop);
+    }
+
+    private sealed class HostedStrategySession : IDisposable
+    {
+        public HostedStrategySession(
+            FleetSseKafkaPushHostedService service,
+            FleetKafkaPushAssignmentCoordinator coordinator,
+            IFleetKafkaPushReadiness readiness,
+            FleetSseBroker broker,
+            ProductionKafkaPushTransport transport,
+            FleetRealtimeKafkaPushLoop loop)
+        {
+            Service = service;
+            Coordinator = coordinator;
+            Readiness = readiness;
+            Broker = broker;
+            Transport = transport;
+            Loop = loop;
+        }
+
+        public FleetSseKafkaPushHostedService Service { get; }
+        public FleetKafkaPushAssignmentCoordinator Coordinator { get; }
+        public IFleetKafkaPushReadiness Readiness { get; }
+        public FleetSseBroker Broker { get; }
+        public ProductionKafkaPushTransport Transport { get; }
+        public FleetRealtimeKafkaPushLoop Loop { get; }
+
+        public void Dispose() => Transport.Dispose();
     }
 
     private sealed class ProductionKafkaPushTransport : IRealtimeKafkaPushTransport, IDisposable

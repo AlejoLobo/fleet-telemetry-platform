@@ -16,6 +16,7 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
     private readonly IFleetKafkaPushReadiness _readiness;
     private readonly ILogger<FleetSseKafkaPushHostedService> _logger;
     private readonly FleetTelemetryMetrics? _metrics;
+    private readonly FleetKafkaPushAssignmentCoordinator _assignment;
 
     public FleetSseKafkaPushHostedService(
         FleetSseBroker broker,
@@ -31,7 +32,11 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         _readiness = readiness;
         _logger = logger;
         _metrics = metrics;
+        _assignment = new FleetKafkaPushAssignmentCoordinator(broker, readiness, logger);
     }
+
+    // Tests: misma estrategia de asignación que producción.
+    internal FleetKafkaPushAssignmentCoordinator AssignmentCoordinator => _assignment;
 
     internal string ConsumerGroupId =>
         $"{_kafkaOptions.RealtimeConsumerGroupBase}-{_sseOptions.InstanceId}";
@@ -55,7 +60,12 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
             };
 
             using var consumer = new ConsumerBuilder<string, string>(consumerConfig)
-                .SetPartitionsAssignedHandler((c, partitions) => OnPartitionsAssigned(c, partitions))
+                .SetPartitionsAssignedHandler((c, partitions) =>
+                    _assignment.HandlePartitionsAssigned(c, partitions))
+                .SetPartitionsRevokedHandler((_, partitions) =>
+                    _assignment.HandlePartitionsRevoked(partitions))
+                .SetPartitionsLostHandler((_, partitions) =>
+                    _assignment.HandlePartitionsLost(partitions))
                 .Build();
 
             consumer.Subscribe(_kafkaOptions.RealtimeTopic);
@@ -74,9 +84,24 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
+                    if (_readiness.State == FleetKafkaPushReadinessState.Faulted)
+                    {
+                        _logger.LogError(
+                            "SSE Kafka push consumer stopped: Faulted. Reason={Reason}",
+                            _readiness.FaultReason);
+                        break;
+                    }
+
                     try
                     {
                         await loop.RunOnceAsync(transport, TimeSpan.FromMilliseconds(500), stoppingToken);
+                        _assignment.NotifySuccessfulPollCycle();
+                    }
+                    catch (ConsumeException ex) when (ex.Error.IsFatal)
+                    {
+                        _readiness.MarkFaulted($"Fatal Kafka consume error: {ex.Error.Reason}");
+                        _logger.LogCritical(ex, "Fatal Kafka realtime consume error");
+                        break;
                     }
                     catch (ConsumeException ex)
                     {
@@ -112,32 +137,9 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         await Task.CompletedTask;
     }
 
-    // Asigna la partición única en High (Latest) y marca Ready solo con posición establecida.
+    // Delega a la estrategia compartida (tests / diagnóstico).
     internal IEnumerable<TopicPartitionOffset> OnPartitionsAssigned(
         IConsumer<string, string> consumer,
-        IReadOnlyList<TopicPartition> partitions)
-    {
-        _readiness.MarkAssigned();
-
-        if (partitions.Count != 1)
-        {
-            var reason = $"Expected exactly one partition assignment, got {partitions.Count}.";
-            _readiness.MarkFaulted(reason);
-            throw new InvalidOperationException(reason);
-        }
-
-        var partition = partitions[0];
-        var watermarks = consumer.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
-        var nextOffset = watermarks.High.Value;
-        _readiness.EstablishInitialPosition(nextOffset);
-        _readiness.MarkReady();
-
-        _logger.LogInformation(
-            "SSE Kafka push Ready. Topic={Topic} Partition={Partition} NextOffset={NextOffset}",
-            partition.Topic,
-            partition.Partition.Value,
-            nextOffset);
-
-        return [new TopicPartitionOffset(partition, watermarks.High)];
-    }
+        IReadOnlyList<TopicPartition> partitions) =>
+        _assignment.HandlePartitionsAssigned(consumer, partitions);
 }

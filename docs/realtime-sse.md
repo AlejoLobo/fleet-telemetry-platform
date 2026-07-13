@@ -18,6 +18,7 @@ El stack local y la configuración por defecto usan `Sse:Mode = KafkaPush`:
 | `fleet-update` | Legacy | Array de vehículos; soportado por compatibilidad en el cliente |
 | `alert` | Activo | Nueva alerta operativa |
 | `heartbeat` | Activo | Mantiene viva la conexión |
+| `stream-reset` | Activo | Cortocircuito de cursor; el cliente ejecuta snapshot REST |
 
 El cliente web fusiona parches `vehicle-update` con el snapshot REST usando `lastSeenAt` + `lastEventId` (misma regla que PostgreSQL).
 
@@ -75,21 +76,59 @@ Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador 
 - En KafkaPush, `id:` del SSE = **offset Kafka** (`ConsumeResult.Offset.Value`).
 - `connected`, `heartbeat` y `stream-reset` son efímeros: **sin** `id:` y fuera del replay.
 
+### Snapshot inicial sin `Last-Event-ID`
+
+Una suscripción `Missing` (sin `Last-Event-ID`) **no** continúa en live directamente:
+
+- el broker captura el `cutoverId` actual;
+- emite `stream-reset` con `reason=initial-snapshot` y `latestEventId` nullable;
+- el cliente bloquea live hasta completar `refreshForResync`;
+- el cutover se persiste solo tras el snapshot exitoso;
+- los live con `id > cutoverId` se aplican después, una vez y en orden.
+
 ### Replay local acotado
 
 - `FleetSseBroker.SubscribeFrom(lastEventId)` entrega replay + live de forma atómica (`cutoverId`).
 - Si `Last-Event-ID` queda fuera del buffer → `event: stream-reset` con `reason`:
+  - `initial-snapshot` — primera conexión / sin cursor
   - `replay-gap`
   - `instance-restarted`
   - `invalid-last-event-id`
+  - `invalid-payload-gap` — offsets Kafka inválidos (tombstone/contrato) en el rango
 - El cliente web limpia el cursor, recarga snapshot completo y continúa con eventos live.
+
+### Readiness del consumidor KafkaPush
+
+Estados: `Starting` → `Assigned` → `Ready` ↔ `Rebalancing` → (`Faulted`).
+
+| Estado | SSE `/api/events/stream` | `/health/ready` (`kafka_push`) |
+|--------|--------------------------|--------------------------------|
+| Starting / Assigned | **503** | `starting` |
+| Rebalancing | **503** | `rebalancing` |
+| Ready | admite stream | `ok` |
+| Faulted | **503** | `faulted` |
+| Polling (sin KafkaPush) | admite | `bypassed` |
+
+`Ready` solo se marca después de:
+
+1. asignación aplicada;
+2. posición de reanudación establecida;
+3. un ciclo de poll válido tras la asignación.
+
+### Primera asignación vs reasignación
+
+- **Primera asignación del proceso:** comienza en el High watermark Kafka, guarda `InitialPositionOffset` y deja que `initial-snapshot` cubra todo lo anterior.
+- **Reasignaciones posteriores:** **no** vuelven a High. Continúan desde `broker.LastProcessedExternalOffset + 1`. Si aún no hubo eventos procesados, continúan desde `InitialPositionOffset`.
+- Ejemplo: initial=100, procesados hasta 105, High llega a 110 durante el revoke → reasignación en **106**, no en 110.
+- Handlers: `SetPartitionsAssignedHandler`, `SetPartitionsRevokedHandler`, `SetPartitionsLostHandler`.
+- Revoke → `Rebalancing` (SSE 503). Pérdida definitiva o `ConsumeException` fatal → `Faulted` (deja de aceptar SSE como Ready).
 
 ### Configuración (`Sse` / `Kafka`)
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
 | `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo del consumer group |
-| `Sse:InstanceId` | `HOSTNAME` / `api-local` | Sufijo estable por proceso |
+| `Sse:InstanceId` | `HOSTNAME` o `MachineName` | Sufijo estable por proceso (post-configure) |
 | `Sse:RequireSingleRealtimePartition` | `true` | Falla al iniciar si el tópico tiene >1 partición |
 | `Sse:ReplayBufferSize` | `200` | Eventos retenidos para replay local |
 
@@ -97,6 +136,7 @@ Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador 
 
 - `SseParser` soporta `id:`, `event:`, `data:`, `retry:`.
 - `useSseStream` envía `Last-Event-ID` por header en reconexión y persiste el cursor en `sessionStorage`.
+- Tras `stream-reset` (incluido `initial-snapshot`) no escribe cursor si la conexión ya fue reemplazada o el token cambió.
 
 ## Autenticación segura para SSE
 
