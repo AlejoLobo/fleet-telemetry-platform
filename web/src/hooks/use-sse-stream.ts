@@ -48,6 +48,9 @@ export function useSseStream({
   handlersRef.current = { onFleetUpdate, onAlert, onStreamReset };
   const lastEventIdRef = useRef<string | null>(null);
   const previousTokenRef = useRef<string | null | undefined>(authToken);
+  const authTokenRef = useRef(authToken);
+  authTokenRef.current = authToken;
+  const activeConnectionIdRef = useRef(0);
 
   const connect = useCallback(() => {
     if (!enabled) {
@@ -55,6 +58,8 @@ export function useSseStream({
       return () => setConnectionState("disconnected");
     }
 
+    const connectionId = ++activeConnectionIdRef.current;
+    const connectionToken = authToken;
     lastEventIdRef.current = readStoredLastEventId();
 
     const abortController = new AbortController();
@@ -65,8 +70,13 @@ export function useSseStream({
     let pendingCutoverEventId: string | null = null;
     let snapshotCompletedThisSession = false;
 
+    const isActiveConnection = () =>
+      !closed
+      && connectionId === activeConnectionIdRef.current
+      && authTokenRef.current === connectionToken;
+
     const scheduleReconnect = () => {
-      if (closed) return;
+      if (closed || !isActiveConnection()) return;
       const delay = computeReconnectDelayMs(reconnectAttempt++);
       reconnectTimer = setTimeout(() => {
         void run();
@@ -74,6 +84,7 @@ export function useSseStream({
     };
 
     const persistLastEventId = (id: string) => {
+      if (!isActiveConnection()) return;
       if (!DECIMAL_EVENT_ID_PATTERN.test(id)) return;
       lastEventIdRef.current = id;
       writeStoredLastEventId(id);
@@ -81,6 +92,7 @@ export function useSseStream({
     };
 
     const clearLastEventId = () => {
+      if (!isActiveConnection()) return;
       lastEventIdRef.current = null;
       writeStoredLastEventId(null);
     };
@@ -90,9 +102,14 @@ export function useSseStream({
     });
 
     const completeResync = async () => {
-      while (resyncRequired && !closed) {
+      while (resyncRequired && isActiveConnection()) {
         try {
           await handlersRef.current.onStreamReset?.();
+          if (!isActiveConnection()) {
+            // Conexión desmontada, abortada o reemplazada: no escribir storage ni estado.
+            return;
+          }
+
           if (pendingCutoverEventId !== null) {
             persistLastEventId(pendingCutoverEventId);
             pendingCutoverEventId = null;
@@ -102,6 +119,7 @@ export function useSseStream({
           snapshotCompletedThisSession = true;
           return;
         } catch (error) {
+          if (!isActiveConnection()) return;
           if (error instanceof ResyncSupersededError) {
             await wait(RESYNC_RETRY_MS);
             continue;
@@ -112,16 +130,19 @@ export function useSseStream({
     };
 
     const ensureResyncBeforeLive = async () => {
+      if (!isActiveConnection()) return false;
       if (snapshotCompletedThisSession) return true;
       if (!resyncRequired && readStoredResyncMarker()) {
         resyncRequired = true;
       }
       if (!resyncRequired) return true;
       await completeResync();
+      if (!isActiveConnection()) return false;
       return !resyncRequired;
     };
 
     const handleStreamReset = async (data: string) => {
+      if (!isActiveConnection()) return;
       resyncRequired = true;
       writeStoredResyncMarker(true);
       const resetPayload = parseStreamResetPayload(data);
@@ -131,6 +152,8 @@ export function useSseStream({
     };
 
     const handleEvent = async ({ event: eventName, data, id: eventId }: SseParsedEvent) => {
+      if (!isActiveConnection()) return;
+
       if (eventName === REALTIME_EVENTS.connected) {
         reconnectAttempt = 0;
         setConnectionState("connected");
@@ -149,6 +172,7 @@ export function useSseStream({
       }
 
       if (!(await ensureResyncBeforeLive())) return;
+      if (!isActiveConnection()) return;
 
       if (eventName === REALTIME_EVENTS.vehicleUpdate) {
         const vehicle = parseVehicleUpdatePayload(data);
@@ -178,14 +202,15 @@ export function useSseStream({
     };
 
     const run = async () => {
-      if (closed) return;
+      if (!isActiveConnection()) return;
       setConnectionState("reconnecting");
       snapshotCompletedThisSession = false;
       resyncRequired = readStoredResyncMarker() || resyncRequired;
 
       try {
         const authStatus = await apiClient.fetchAuthStatus();
-        const token = authToken ?? apiClient.getAuthToken();
+        if (!isActiveConnection()) return;
+        const token = connectionToken ?? apiClient.getAuthToken();
         const headers = buildSseHeaders(
           authStatus.enabled,
           token,
@@ -196,14 +221,16 @@ export function useSseStream({
           apiClient.getSseUrl(),
           { headers, signal: abortController.signal },
           {
-            onOpen: () => setConnectionState("connected"),
+            onOpen: () => {
+              if (isActiveConnection()) setConnectionState("connected");
+            },
             onEvent: handleEvent,
           },
         );
 
-        if (!closed) scheduleReconnect();
+        if (isActiveConnection()) scheduleReconnect();
       } catch (error) {
-        if (abortController.signal.aborted || closed) return;
+        if (abortController.signal.aborted || !isActiveConnection()) return;
 
         if (isSseAuthError(error)) {
           setConnectionState("disconnected");

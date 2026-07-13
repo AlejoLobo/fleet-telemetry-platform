@@ -23,6 +23,8 @@ public sealed class FleetTelemetryMetrics
     public Counter<long> KafkaMessagesConsumed { get; }
     public Counter<long> DlqMessagesPublished { get; }
     public Counter<long> RealtimeInvalidPayloadTotal { get; }
+    public Counter<long> RealtimeCommitFailuresTotal { get; }
+    public Counter<long> RealtimeSeekFailuresTotal { get; }
 
     public FleetTelemetryMetrics(FleetSseBroker? sseBroker = null)
     {
@@ -77,6 +79,14 @@ public sealed class FleetTelemetryMetrics
         RealtimeInvalidPayloadTotal = _meter.CreateCounter<long>(
             "fleet.realtime.invalid_payload_total",
             description: "Payloads inválidos en fleet.realtime avanzados sin reintento");
+
+        RealtimeCommitFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.commit_failures_total",
+            description: "Fallos al confirmar offsets del consumidor SSE Kafka");
+
+        RealtimeSeekFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.seek_failures_total",
+            description: "Fallos al repositionar el consumidor SSE Kafka");
 
         if (sseBroker is not null)
         {

@@ -15,6 +15,11 @@ internal static class FleetRealtimeKafkaMessageValidator
 
     public static void Validate(FleetRealtimeKafkaMessage message)
     {
+        if (message.SchemaVersion is null)
+        {
+            throw new RealtimeKafkaInvalidPayloadException("schemaVersion is required.");
+        }
+
         if (message.SchemaVersion != FleetRealtimeKafkaMessage.CurrentSchemaVersion)
         {
             throw new RealtimeKafkaInvalidPayloadException(
@@ -41,31 +46,100 @@ internal static class FleetRealtimeKafkaMessageValidator
         switch (message.EventType)
         {
             case FleetRealtimeEventTypes.VehicleUpdate:
-                RequireStringProperty(message.Payload, "vehicleId");
+                ValidateVehiclePayload(message.Payload);
                 break;
             case FleetRealtimeEventTypes.Alert:
-                RequireStringProperty(message.Payload, "vehicleId");
-                RequireStringProperty(message.Payload, "alertType");
+                ValidateAlertPayload(message.Payload);
                 break;
             case FleetRealtimeEventTypes.FleetUpdate:
-                if (message.Payload.ValueKind != JsonValueKind.Array)
-                {
-                    throw new RealtimeKafkaInvalidPayloadException(
-                        "fleet-update payload must be an array.");
-                }
+                ValidateFleetUpdatePayload(message.Payload);
                 break;
         }
     }
 
-    private static void RequireStringProperty(JsonElement payload, string propertyName)
+    private static void ValidateVehiclePayload(JsonElement payload)
     {
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty(propertyName, out var property)
+        if (payload.ValueKind != JsonValueKind.Object)
+        {
+            throw new RealtimeKafkaInvalidPayloadException("vehicle-update payload must be an object.");
+        }
+
+        RequireNonEmptyString(payload, "vehicleId");
+        RequireNonEmptyString(payload, "name");
+        RequireNonEmptyString(payload, "status");
+        RequireTemporalProperty(payload, "lastSeenAt");
+    }
+
+    private static void ValidateAlertPayload(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object)
+        {
+            throw new RealtimeKafkaInvalidPayloadException("alert payload must be an object.");
+        }
+
+        RequireNonEmptyString(payload, "alertId");
+        RequireNonEmptyString(payload, "vehicleId");
+        RequireNonEmptyString(payload, "alertType");
+        RequireNonEmptyString(payload, "severity");
+        RequireNonEmptyString(payload, "message");
+        RequireTemporalProperty(payload, "createdAt");
+        RequireBooleanProperty(payload, "isAcknowledged");
+    }
+
+    private static void ValidateFleetUpdatePayload(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Array)
+        {
+            throw new RealtimeKafkaInvalidPayloadException("fleet-update payload must be an array.");
+        }
+
+        var index = 0;
+        foreach (var item in payload.EnumerateArray())
+        {
+            try
+            {
+                ValidateVehiclePayload(item);
+            }
+            catch (RealtimeKafkaInvalidPayloadException ex)
+            {
+                throw new RealtimeKafkaInvalidPayloadException(
+                    $"fleet-update element[{index}] invalid: {ex.Message}",
+                    ex);
+            }
+
+            index++;
+        }
+    }
+
+    private static void RequireNonEmptyString(JsonElement payload, string propertyName)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property)
             || property.ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(property.GetString()))
         {
             throw new RealtimeKafkaInvalidPayloadException(
                 $"Payload missing required property '{propertyName}'.");
+        }
+    }
+
+    private static void RequireBooleanProperty(JsonElement payload, string propertyName)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property)
+            || (property.ValueKind != JsonValueKind.True && property.ValueKind != JsonValueKind.False))
+        {
+            throw new RealtimeKafkaInvalidPayloadException(
+                $"Payload missing required boolean property '{propertyName}'.");
+        }
+    }
+
+    private static void RequireTemporalProperty(JsonElement payload, string propertyName)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(property.GetString(), out _))
+        {
+            throw new RealtimeKafkaInvalidPayloadException(
+                $"Payload missing required temporal property '{propertyName}'.");
         }
     }
 }
