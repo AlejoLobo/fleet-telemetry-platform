@@ -114,7 +114,7 @@ export function isSseAuthError(error: unknown): error is SseAuthError {
 }
 
 export type SseFetchHandlers = {
-  onEvent: (event: SseParsedEvent) => void;
+  onEvent: (event: SseParsedEvent) => void | Promise<void>;
   onOpen?: () => void;
 };
 
@@ -132,7 +132,7 @@ export function readStoredLastEventId(): string | null {
 export function writeStoredLastEventId(value: string | null) {
   if (typeof window === "undefined") return;
   try {
-    if (!value) window.sessionStorage.removeItem(LAST_EVENT_ID_STORAGE_KEY);
+    if (value === null) window.sessionStorage.removeItem(LAST_EVENT_ID_STORAGE_KEY);
     else window.sessionStorage.setItem(LAST_EVENT_ID_STORAGE_KEY, value);
   } catch {
     /* storage no disponible */
@@ -179,13 +179,13 @@ export async function consumeSseFetchStream(
     const { done, value } = await reader.read();
     if (done) {
       for (const event of parser.flush()) {
-        handlers.onEvent(event);
+        await handlers.onEvent(event);
       }
       break;
     }
     const chunk = decoder.decode(value, { stream: true });
     for (const event of parser.feed(chunk)) {
-      handlers.onEvent(event);
+      await handlers.onEvent(event);
     }
   }
 }
@@ -197,7 +197,9 @@ export function buildSseHeaders(
 ): Record<string, string> {
   const headers: Record<string, string> = {};
   if (authEnabled && token) headers.Authorization = `Bearer ${token}`;
-  if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+  if (lastEventId !== null && lastEventId !== undefined) {
+    headers["Last-Event-ID"] = lastEventId;
+  }
   return headers;
 }
 

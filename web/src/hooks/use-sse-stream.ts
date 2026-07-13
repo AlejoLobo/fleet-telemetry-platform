@@ -10,6 +10,7 @@ import {
   isSseAuthError,
   readStoredLastEventId,
   writeStoredLastEventId,
+  type SseParsedEvent,
 } from "@/lib/sse-fetch-client";
 import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
 import { REALTIME_EVENTS } from "@/lib/realtime-events";
@@ -29,6 +30,8 @@ function shouldTrackEventId(eventName: string): boolean {
     || eventName === REALTIME_EVENTS.fleetUpdate
     || eventName === REALTIME_EVENTS.alert;
 }
+
+const RESYNC_RETRY_MS = 250;
 
 /** Mantiene conexión SSE con fetch, JWT, Last-Event-ID y reconexión controlada. */
 export function useSseStream({
@@ -56,6 +59,7 @@ export function useSseStream({
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
     let closed = false;
+    let resyncRequired = false;
 
     const scheduleReconnect = () => {
       if (closed) return;
@@ -75,7 +79,23 @@ export function useSseStream({
       writeStoredLastEventId(null);
     };
 
-    const handleEvent = async (eventName: string, data: string, eventId?: string) => {
+    const wait = (ms: number) => new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+    const completeResync = async () => {
+      while (resyncRequired && !closed) {
+        try {
+          await handlersRef.current.onStreamReset?.();
+          resyncRequired = false;
+          return;
+        } catch {
+          await wait(RESYNC_RETRY_MS);
+        }
+      }
+    };
+
+    const handleEvent = async ({ event: eventName, data, id: eventId }: SseParsedEvent) => {
       if (eventName === REALTIME_EVENTS.connected) {
         reconnectAttempt = 0;
         setConnectionState("connected");
@@ -88,9 +108,15 @@ export function useSseStream({
       }
 
       if (eventName === REALTIME_EVENTS.streamReset) {
+        resyncRequired = true;
         clearLastEventId();
-        await handlersRef.current.onStreamReset?.();
+        await completeResync();
         return;
+      }
+
+      if (resyncRequired) {
+        await completeResync();
+        if (resyncRequired) return;
       }
 
       if (eventName === REALTIME_EVENTS.vehicleUpdate) {
@@ -138,9 +164,7 @@ export function useSseStream({
           { headers, signal: abortController.signal },
           {
             onOpen: () => setConnectionState("connected"),
-            onEvent: async ({ event, data, id }) => {
-              await handleEvent(event, data, shouldTrackEventId(event) ? id : undefined);
-            },
+            onEvent: handleEvent,
           },
         );
 

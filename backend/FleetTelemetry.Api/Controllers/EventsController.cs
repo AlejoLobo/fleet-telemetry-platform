@@ -32,11 +32,16 @@ public class EventsController : ControllerBase
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
     {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            HttpContext.RequestAborted);
+        var streamCancellation = linkedCts.Token;
+
         Response.Headers.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
 
-        var lastEventId = ParseLastEventId(Request.Headers["Last-Event-ID"].FirstOrDefault());
+        var lastEventId = SseLastEventId.Parse(Request.Headers["Last-Event-ID"].FirstOrDefault());
         var subscription = _broker.SubscribeFrom(lastEventId);
 
         try
@@ -44,27 +49,27 @@ public class EventsController : ControllerBase
             await WriteEphemeralEventAsync(
                 FleetRealtimeEventTypes.Connected,
                 new { status = "connected", mode = _sseOptions.Mode.ToString() },
-                cancellationToken);
+                streamCancellation);
 
             if (subscription.ReplayStatus != SseReplayStatus.ReplayAvailable)
             {
-                await WriteStreamResetAsync(subscription, cancellationToken);
+                await WriteStreamResetAsync(subscription, streamCancellation);
             }
             else
             {
                 foreach (var replayEvent in subscription.ReplayEvents)
-                    await WriteSseEventAsync(replayEvent, cancellationToken);
+                    await WriteSseEventAsync(replayEvent, streamCancellation);
             }
 
-            await foreach (var sseEvent in subscription.LiveReader.ReadAllAsync(cancellationToken))
+            await foreach (var sseEvent in subscription.LiveReader.ReadAllAsync(streamCancellation))
             {
                 if (sseEvent.StreamId >= 0 && sseEvent.StreamId <= subscription.CutoverId)
                     continue;
 
                 if (sseEvent.StreamId < 0)
-                    await WriteEphemeralEventAsync(sseEvent.EventType, sseEvent.Data, cancellationToken);
+                    await WriteEphemeralEventAsync(sseEvent.EventType, sseEvent.Data, streamCancellation);
                 else
-                    await WriteSseEventAsync(sseEvent, cancellationToken);
+                    await WriteSseEventAsync(sseEvent, streamCancellation);
             }
         }
         finally
@@ -103,13 +108,5 @@ public class EventsController : ControllerBase
         await Response.WriteAsync($"event: {eventType}\n", cancellationToken);
         await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
         await Response.Body.FlushAsync(cancellationToken);
-    }
-
-    private static long ParseLastEventId(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return 0;
-
-        return long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : -1;
     }
 }

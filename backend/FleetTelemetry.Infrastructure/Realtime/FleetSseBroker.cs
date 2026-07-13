@@ -6,7 +6,7 @@ using FleetTelemetry.Application.Realtime;
 namespace FleetTelemetry.Infrastructure.Realtime;
 
 // Distribuye eventos SSE con IDs Kafka (offset), replay acotado y handoff atómico replay→live.
-public sealed class FleetSseBroker
+public class FleetSseBroker
 {
     private readonly int _channelCapacity;
     private readonly int _replayBufferSize;
@@ -16,6 +16,8 @@ public sealed class FleetSseBroker
     private readonly List<FleetSseEvent> _replayBuffer = [];
     private readonly HashSet<long> _replayIds = [];
     private long _latestStreamId;
+    private long _lastAcceptedExternalOffset = -1;
+    private long _firstAcceptedExternalOffset = -1;
     private long _nextLocalStreamId = 1;
 
     private long _publishedEvents;
@@ -23,6 +25,7 @@ public sealed class FleetSseBroker
     private long _totalSubscriptions;
     private long _totalUnsubscribes;
     private long _duplicateEvents;
+    private long _outOfOrderEvents;
 
     public FleetSseBroker(TimeProvider timeProvider, int channelCapacity = 100, int replayBufferSize = 200)
     {
@@ -34,8 +37,18 @@ public sealed class FleetSseBroker
     public long PublishedEvents => Interlocked.Read(ref _publishedEvents);
     public long DroppedEvents => Interlocked.Read(ref _droppedEvents);
     public long DuplicateEvents => Interlocked.Read(ref _duplicateEvents);
+    public long OutOfOrderEvents => Interlocked.Read(ref _outOfOrderEvents);
     public long TotalSubscriptions => Interlocked.Read(ref _totalSubscriptions);
     public long TotalUnsubscribes => Interlocked.Read(ref _totalUnsubscribes);
+    public long LastAcceptedExternalOffset
+    {
+        get
+        {
+            lock (_sync)
+                return _lastAcceptedExternalOffset;
+        }
+    }
+
     public long LatestStreamId
     {
         get
@@ -47,35 +60,32 @@ public sealed class FleetSseBroker
 
     public int SubscriberCount => _subscribers.Count;
 
-    public SseSubscription SubscribeFrom(long lastEventId)
+    public SseSubscription SubscribeFrom(SseLastEventId lastEventId)
     {
         lock (_sync)
         {
             var subscriptionId = Guid.NewGuid();
-            // -1 indica broker vacío: el primer offset Kafka (0) debe entrar por live.
             var cutoverId = _replayBuffer.Count == 0 ? -1L : _latestStreamId;
-            var replayStatus = DetermineReplayStatus(lastEventId, cutoverId, out var resetReason);
-            var replayEvents = replayStatus == SseReplayStatus.ReplayAvailable
-                ? BuildReplay(lastEventId, cutoverId)
-                : Array.Empty<FleetSseEvent>();
 
-            var channel = CreateChannel();
-            _subscribers[subscriptionId] = new SubscriberState(
-                channel.Writer,
-                cutoverId,
-                _timeProvider.GetUtcNow());
-
-            Interlocked.Increment(ref _totalSubscriptions);
-
-            return new SseSubscription
+            return lastEventId switch
             {
-                SubscriptionId = subscriptionId,
-                ReplayStatus = replayStatus,
-                ReplayEvents = replayEvents,
-                LiveReader = channel.Reader,
-                CutoverId = cutoverId,
-                LatestEventId = cutoverId >= 0 ? cutoverId : null,
-                ResetReason = resetReason
+                SseLastEventId.Missing => CreateSubscription(
+                    subscriptionId,
+                    cutoverId,
+                    SseReplayStatus.ReplayAvailable,
+                    Array.Empty<FleetSseEvent>(),
+                    null),
+                SseLastEventId.InvalidCursor => CreateSubscription(
+                    subscriptionId,
+                    cutoverId,
+                    SseReplayStatus.LastEventIdAhead,
+                    Array.Empty<FleetSseEvent>(),
+                    "invalid-last-event-id"),
+                SseLastEventId.ValidCursor valid => CreateValidCursorSubscription(
+                    subscriptionId,
+                    valid.Value,
+                    cutoverId),
+                _ => throw new InvalidOperationException("Unsupported SSE cursor type.")
             };
         }
     }
@@ -89,21 +99,39 @@ public sealed class FleetSseBroker
         }
     }
 
-    // Publica evento con StreamId externo (offset Kafka). Retorna false si es duplicado.
-    public bool TryPublishExternal(long streamId, string eventType, object data, DateTimeOffset? timestamp = null)
+    public virtual ExternalPublishResult PublishExternal(
+        long streamId,
+        string eventType,
+        object data,
+        DateTimeOffset? timestamp = null)
     {
         if (streamId < 0)
-            return false;
+        {
+            Interlocked.Increment(ref _outOfOrderEvents);
+            return ExternalPublishResult.OutOfOrder;
+        }
 
         FleetSseEvent? sseEvent = null;
-        var accepted = false;
+        ExternalPublishResult result;
 
         lock (_sync)
         {
+            if (streamId <= _lastAcceptedExternalOffset)
+            {
+                if (_firstAcceptedExternalOffset >= 0 && streamId >= _firstAcceptedExternalOffset)
+                {
+                    Interlocked.Increment(ref _duplicateEvents);
+                    return ExternalPublishResult.Duplicate;
+                }
+
+                Interlocked.Increment(ref _outOfOrderEvents);
+                return ExternalPublishResult.OutOfOrder;
+            }
+
             if (_replayIds.Contains(streamId))
             {
                 Interlocked.Increment(ref _duplicateEvents);
-                return false;
+                return ExternalPublishResult.Duplicate;
             }
 
             sseEvent = new FleetSseEvent(
@@ -113,18 +141,15 @@ public sealed class FleetSseBroker
                 timestamp ?? _timeProvider.GetUtcNow());
 
             EnqueueReplayLocked(sseEvent);
+            if (_firstAcceptedExternalOffset < 0)
+                _firstAcceptedExternalOffset = streamId;
+            _lastAcceptedExternalOffset = streamId;
             _latestStreamId = Math.Max(_latestStreamId, streamId);
-            accepted = true;
+            result = ExternalPublishResult.Accepted;
         }
 
-        if (!accepted || sseEvent is null)
-        {
-            Interlocked.Increment(ref _duplicateEvents);
-            return false;
-        }
-
-        FanOutLive(sseEvent);
-        return true;
+        FanOutLive(sseEvent!);
+        return result;
     }
 
     // Eventos locales del modo polling con ID autogenerado (no Kafka).
@@ -177,6 +202,46 @@ public sealed class FleetSseBroker
         }
     }
 
+    private SseSubscription CreateValidCursorSubscription(
+        Guid subscriptionId,
+        long lastEventId,
+        long cutoverId)
+    {
+        var replayStatus = DetermineReplayStatus(lastEventId, cutoverId, out var resetReason);
+        var replayEvents = replayStatus == SseReplayStatus.ReplayAvailable
+            ? BuildReplay(lastEventId, cutoverId)
+            : Array.Empty<FleetSseEvent>();
+
+        return CreateSubscription(subscriptionId, cutoverId, replayStatus, replayEvents, resetReason);
+    }
+
+    private SseSubscription CreateSubscription(
+        Guid subscriptionId,
+        long cutoverId,
+        SseReplayStatus replayStatus,
+        IReadOnlyList<FleetSseEvent> replayEvents,
+        string? resetReason)
+    {
+        var channel = CreateChannel();
+        _subscribers[subscriptionId] = new SubscriberState(
+            channel.Writer,
+            cutoverId,
+            _timeProvider.GetUtcNow());
+
+        Interlocked.Increment(ref _totalSubscriptions);
+
+        return new SseSubscription
+        {
+            SubscriptionId = subscriptionId,
+            ReplayStatus = replayStatus,
+            ReplayEvents = replayEvents,
+            LiveReader = channel.Reader,
+            CutoverId = cutoverId,
+            LatestEventId = cutoverId >= 0 ? cutoverId : null,
+            ResetReason = resetReason
+        };
+    }
+
     private void FanOutLive(FleetSseEvent sseEvent)
     {
         foreach (var pair in _subscribers)
@@ -199,15 +264,6 @@ public sealed class FleetSseBroker
     private SseReplayStatus DetermineReplayStatus(long lastEventId, long cutoverId, out string? resetReason)
     {
         resetReason = null;
-
-        if (lastEventId < 0)
-        {
-            resetReason = "invalid-last-event-id";
-            return SseReplayStatus.LastEventIdAhead;
-        }
-
-        if (lastEventId == 0)
-            return SseReplayStatus.ReplayAvailable;
 
         var firstBufferedId = _replayBuffer.Count == 0 ? (long?)null : _replayBuffer[0].StreamId;
         if (firstBufferedId is null)
