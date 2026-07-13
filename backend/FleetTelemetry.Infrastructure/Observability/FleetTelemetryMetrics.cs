@@ -81,9 +81,9 @@ public sealed class FleetTelemetryMetrics
                 description: "Suscriptores SSE activos");
 
             _meter.CreateObservableCounter(
-                "fleet.sse.events_dropped_total",
-                () => new Measurement<long>(sseBroker.DroppedEvents),
-                description: "Eventos SSE descartados por suscriptores lentos");
+                "fleet.sse.events_overflow_total",
+                () => new Measurement<long>(sseBroker.OverflowEvents),
+                description: "Desbordes SSE que cierran la suscripción para forzar reconexión");
         }
     }
 

@@ -21,7 +21,7 @@ public class FleetSseBroker
     private long _nextLocalStreamId = 1;
 
     private long _publishedEvents;
-    private long _droppedEvents;
+    private long _overflowEvents;
     private long _totalSubscriptions;
     private long _totalUnsubscribes;
     private long _duplicateEvents;
@@ -35,7 +35,7 @@ public class FleetSseBroker
     }
 
     public long PublishedEvents => Interlocked.Read(ref _publishedEvents);
-    public long DroppedEvents => Interlocked.Read(ref _droppedEvents);
+    public long OverflowEvents => Interlocked.Read(ref _overflowEvents);
     public long DuplicateEvents => Interlocked.Read(ref _duplicateEvents);
     public long OutOfOrderEvents => Interlocked.Read(ref _outOfOrderEvents);
     public long TotalSubscriptions => Interlocked.Read(ref _totalSubscriptions);
@@ -111,9 +111,6 @@ public class FleetSseBroker
             return ExternalPublishResult.OutOfOrder;
         }
 
-        FleetSseEvent? sseEvent = null;
-        ExternalPublishResult result;
-
         lock (_sync)
         {
             if (streamId <= _lastAcceptedExternalOffset)
@@ -134,7 +131,7 @@ public class FleetSseBroker
                 return ExternalPublishResult.Duplicate;
             }
 
-            sseEvent = new FleetSseEvent(
+            var sseEvent = new FleetSseEvent(
                 streamId,
                 eventType,
                 data,
@@ -145,22 +142,19 @@ public class FleetSseBroker
                 _firstAcceptedExternalOffset = streamId;
             _lastAcceptedExternalOffset = streamId;
             _latestStreamId = Math.Max(_latestStreamId, streamId);
-            result = ExternalPublishResult.Accepted;
-        }
 
-        FanOutLive(sseEvent!);
-        return result;
+            FanOutLiveLocked(sseEvent);
+            return ExternalPublishResult.Accepted;
+        }
     }
 
     // Eventos locales del modo polling con ID autogenerado (no Kafka).
     public FleetSseEvent PublishLocal(string eventType, object data, DateTimeOffset? timestamp = null)
     {
-        FleetSseEvent sseEvent;
-
         lock (_sync)
         {
             var streamId = Interlocked.Increment(ref _nextLocalStreamId);
-            sseEvent = new FleetSseEvent(
+            var sseEvent = new FleetSseEvent(
                 streamId,
                 eventType,
                 data,
@@ -168,10 +162,9 @@ public class FleetSseBroker
 
             EnqueueReplayLocked(sseEvent);
             _latestStreamId = Math.Max(_latestStreamId, streamId);
+            FanOutLiveLocked(sseEvent);
+            return sseEvent;
         }
-
-        FanOutLive(sseEvent);
-        return sseEvent;
     }
 
     // Heartbeat u otros eventos efímeros: solo live, sin replay ni ID global Kafka.
@@ -183,17 +176,13 @@ public class FleetSseBroker
             data,
             timestamp ?? _timeProvider.GetUtcNow());
 
-        foreach (var pair in _subscribers)
-        {
-            if (pair.Value.Writer.TryWrite(sseEvent))
-                Interlocked.Increment(ref _publishedEvents);
-            else
-                Interlocked.Increment(ref _droppedEvents);
-        }
+        lock (_sync)
+            FanOutLiveLocked(sseEvent);
     }
 
-    public void PruneStaleSubscribers()
+    public void PruneStaleSubscribers(CancellationToken cancellationToken = default)
     {
+        _ = cancellationToken;
         var staleBefore = _timeProvider.GetUtcNow() - TimeSpan.FromMinutes(30);
         foreach (var pair in _subscribers)
         {
@@ -242,8 +231,10 @@ public class FleetSseBroker
         };
     }
 
-    private void FanOutLive(FleetSseEvent sseEvent)
+    private void FanOutLiveLocked(FleetSseEvent sseEvent)
     {
+        List<Guid>? overflowed = null;
+
         foreach (var pair in _subscribers)
         {
             if (sseEvent.StreamId >= 0 && sseEvent.StreamId <= pair.Value.CutoverId)
@@ -253,12 +244,19 @@ public class FleetSseBroker
             {
                 Interlocked.Increment(ref _publishedEvents);
                 pair.Value.Touch(_timeProvider.GetUtcNow());
+                continue;
             }
-            else
-            {
-                Interlocked.Increment(ref _droppedEvents);
-            }
+
+            Interlocked.Increment(ref _overflowEvents);
+            overflowed ??= [];
+            overflowed.Add(pair.Key);
         }
+
+        if (overflowed is null)
+            return;
+
+        foreach (var subscriptionId in overflowed)
+            Unsubscribe(subscriptionId);
     }
 
     private SseReplayStatus DetermineReplayStatus(long lastEventId, long cutoverId, out string? resetReason)
@@ -310,7 +308,7 @@ public class FleetSseBroker
     private Channel<FleetSseEvent> CreateChannel() =>
         Channel.CreateBounded<FleetSseEvent>(new BoundedChannelOptions(_channelCapacity)
         {
-            FullMode = BoundedChannelFullMode.DropWrite,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false
         });

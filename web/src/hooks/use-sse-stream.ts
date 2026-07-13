@@ -13,6 +13,7 @@ import {
   type SseParsedEvent,
 } from "@/lib/sse-fetch-client";
 import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
+import { parseStreamResetPayload } from "@/lib/sse-resync";
 import { REALTIME_EVENTS } from "@/lib/realtime-events";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
@@ -60,6 +61,7 @@ export function useSseStream({
     let reconnectAttempt = 0;
     let closed = false;
     let resyncRequired = false;
+    let pendingCutoverEventId: number | null = null;
 
     const scheduleReconnect = () => {
       if (closed) return;
@@ -87,6 +89,10 @@ export function useSseStream({
       while (resyncRequired && !closed) {
         try {
           await handlersRef.current.onStreamReset?.();
+          if (pendingCutoverEventId !== null) {
+            persistLastEventId(String(pendingCutoverEventId));
+          }
+          pendingCutoverEventId = null;
           resyncRequired = false;
           return;
         } catch {
@@ -109,6 +115,8 @@ export function useSseStream({
 
       if (eventName === REALTIME_EVENTS.streamReset) {
         resyncRequired = true;
+        const resetPayload = parseStreamResetPayload(data);
+        pendingCutoverEventId = resetPayload?.latestEventId ?? null;
         clearLastEventId();
         await completeResync();
         return;
