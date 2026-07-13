@@ -171,15 +171,27 @@ public class FleetRealtimeKafkaPushLoopTests
     }
 
     [Fact]
-    public void Seek_transitorio_mantiene_bloqueado_sin_avanzar()
+    public void Publish_transitorio_aplica_backoff_aunque_Seek_sea_exitoso()
     {
-        var transport = new FakeKafkaPushTransport { FailSeekTimes = 1 };
+        var delays = new List<TimeSpan>();
+        var transport = new FakeKafkaPushTransport();
         var broker = new FailingBroker(50);
-        var loop = CreateLoop(broker);
+        var loop = new FleetRealtimeKafkaPushLoop(
+            new RealtimeKafkaPushProcessor(broker),
+            delayAsync: (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            },
+            backoff: TimeSpan.FromMilliseconds(25));
 
         transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
         loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+
+        Assert.Empty(transport.CommittedOffsets);
         Assert.Equal(50, loop.BlockedOffset);
+        Assert.Contains(50, transport.SeekCalls);
+        Assert.NotEmpty(delays);
 
         transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
         loop.RunOnce(transport, TimeSpan.FromSeconds(1));
@@ -190,6 +202,10 @@ public class FleetRealtimeKafkaPushLoopTests
         transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
         loop.RunOnce(transport, TimeSpan.FromSeconds(1));
         Assert.Equal([50], transport.CommittedOffsets);
+
+        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
+        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Equal([50, 51], transport.CommittedOffsets);
         Assert.Null(loop.BlockedOffset);
     }
 

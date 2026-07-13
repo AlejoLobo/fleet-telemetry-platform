@@ -107,6 +107,7 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
             new FleetSseBroker(TimeProvider.System),
             Options.Create(new KafkaOptions { RealtimeConsumerGroupBase = "fleet-realtime-sse" }),
             Options.Create(new SseOptions { InstanceId = instanceId }),
+            new FleetKafkaPushReadiness(),
             NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
     private async Task RunHostedPushLoopAsync(
@@ -205,6 +206,153 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
             _consumer.Commit(result);
             CommittedOffsets.Add(result.Offset.Value);
         }
+
+        public void Seek(long offset) =>
+            _consumer.Seek(new TopicPartitionOffset(_topic, 0, offset));
+
+        public void Dispose() => _consumer.Dispose();
+    }
+
+    [Fact]
+    public async Task Produccion_Latest_no_admite_SSE_antes_de_Ready_y_no_pierde_eventos()
+    {
+        var topic = _kafka.NewTopicName("fleet-realtime-ft005-ready");
+        await _kafka.CreateTopicAsync(topic);
+
+        var readinessA = new FleetKafkaPushReadiness();
+        var readinessB = new FleetKafkaPushReadiness();
+        var brokerA = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 100);
+        var brokerB = new FleetSseBroker(TimeProvider.System, channelCapacity: 50, replayBufferSize: 100);
+
+        Assert.False(readinessA.IsReady);
+        Assert.False(readinessB.IsReady);
+
+        // Equivalente al gate de EventsController antes de Ready.
+        Assert.Equal(FleetKafkaPushReadinessState.Starting, readinessA.State);
+
+        using var transportA = CreateProductionTransport(
+            _kafka.BootstrapServers, topic, "api-ready-a", readinessA);
+        using var transportB = CreateProductionTransport(
+            _kafka.BootstrapServers, topic, "api-ready-b", readinessB);
+
+        var loopA = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(brokerA));
+        var loopB = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(brokerB));
+
+        // Evento producido durante el arranque (antes de Ready).
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 1);
+
+        await WaitUntilReadyAsync(readinessA, loopA, transportA);
+        await WaitUntilReadyAsync(readinessB, loopB, transportB);
+
+        Assert.True(readinessA.IsReady);
+        Assert.True(readinessB.IsReady);
+        Assert.Equal(readinessA.InitialPositionOffset, readinessB.InitialPositionOffset);
+
+        var startOffset = readinessA.InitialPositionOffset!.Value;
+
+        // Eventos futuros tras Ready: ambas réplicas convergen al mismo límite.
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 3);
+        await WaitUntilOffsetAsync(brokerA, loopA, transportA, minOffset: startOffset + 2);
+        await WaitUntilOffsetAsync(brokerB, loopB, transportB, minOffset: startOffset + 2);
+
+        Assert.Equal(brokerA.LastAcceptedExternalOffset, brokerB.LastAcceptedExternalOffset);
+
+        var cutoverBefore = brokerA.LastAcceptedExternalOffset;
+        var subA = brokerA.SubscribeFrom(new SseLastEventId.Missing());
+        var subB = brokerB.SubscribeFrom(new SseLastEventId.Missing());
+
+        Assert.Equal("initial-snapshot", subA.ResetReason);
+        Assert.Equal("initial-snapshot", subB.ResetReason);
+        Assert.Equal(cutoverBefore, subA.CutoverId);
+        Assert.Equal(subA.CutoverId, subB.CutoverId);
+        Assert.Equal(subA.LatestEventId, subB.LatestEventId);
+
+        await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 2);
+        var nextOffset = cutoverBefore + 1;
+        await WaitUntilOffsetAsync(brokerA, loopA, transportA, minOffset: nextOffset + 1);
+        await WaitUntilOffsetAsync(brokerB, loopB, transportB, minOffset: nextOffset + 1);
+
+        var idsA = DrainLiveIds(subA);
+        var idsB = DrainLiveIds(subB);
+        Assert.Equal(new[] { nextOffset, nextOffset + 1 }, idsA);
+        Assert.Equal(idsA, idsB);
+    }
+
+    private async Task WaitUntilReadyAsync(
+        IFleetKafkaPushReadiness readiness,
+        FleetRealtimeKafkaPushLoop loop,
+        ProductionKafkaPushTransport transport)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!readiness.IsReady && DateTime.UtcNow < deadline)
+            loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
+
+        Assert.True(readiness.IsReady, "Kafka push no alcanzó Ready a tiempo.");
+        await Task.CompletedTask;
+    }
+
+    private async Task WaitUntilOffsetAsync(
+        FleetSseBroker broker,
+        FleetRealtimeKafkaPushLoop loop,
+        IRealtimeKafkaPushTransport transport,
+        long minOffset)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (broker.LastAcceptedExternalOffset < minOffset && DateTime.UtcNow < deadline)
+            loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
+
+        Assert.True(
+            broker.LastAcceptedExternalOffset >= minOffset,
+            $"No se alcanzó offset {minOffset} (actual {broker.LastAcceptedExternalOffset}).");
+        await Task.CompletedTask;
+    }
+
+    private ProductionKafkaPushTransport CreateProductionTransport(
+        string bootstrapServers,
+        string topic,
+        string instanceId,
+        IFleetKafkaPushReadiness readiness)
+    {
+        var groupId = $"fleet-realtime-sse-{instanceId}-{Guid.NewGuid():N}";
+        var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
+        {
+            BootstrapServers = bootstrapServers,
+            GroupId = groupId,
+            AutoOffsetReset = AutoOffsetReset.Latest,
+            EnableAutoCommit = false
+        })
+        .SetPartitionsAssignedHandler((c, partitions) =>
+        {
+            readiness.MarkAssigned();
+            Assert.Single(partitions);
+            var partition = partitions[0];
+            var watermarks = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
+            readiness.EstablishInitialPosition(watermarks.High.Value);
+            readiness.MarkReady();
+            return new[] { new TopicPartitionOffset(partition, watermarks.High) };
+        })
+        .Build();
+
+        consumer.Subscribe(topic);
+        return new ProductionKafkaPushTransport(consumer, topic);
+    }
+
+    private sealed class ProductionKafkaPushTransport : IRealtimeKafkaPushTransport, IDisposable
+    {
+        private readonly IConsumer<string, string> _consumer;
+        private readonly string _topic;
+
+        public ProductionKafkaPushTransport(IConsumer<string, string> consumer, string topic)
+        {
+            _consumer = consumer;
+            _topic = topic;
+        }
+
+        public ConsumeResult<string, string>? Consume(TimeSpan timeout) =>
+            _consumer.Consume(timeout);
+
+        public void Commit(ConsumeResult<string, string> result) =>
+            _consumer.Commit(result);
 
         public void Seek(long offset) =>
             _consumer.Seek(new TopicPartitionOffset(_topic, 0, offset));

@@ -15,6 +15,7 @@ using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 // Registro de dependencias de infraestructura.
@@ -93,6 +94,15 @@ public static class DependencyInjection
                     sseOptions.ReplayBufferSize);
             });
 
+            services.AddSingleton<IFleetKafkaPushReadiness>(sp =>
+            {
+                var readiness = new FleetKafkaPushReadiness();
+                var mode = sp.GetRequiredService<IOptions<SseOptions>>().Value.Mode;
+                if (mode != SseDeliveryMode.KafkaPush)
+                    readiness.MarkBypassed();
+                return readiness;
+            });
+
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IFleetQueryService, TimescaleFleetQueryService>();
             services.AddScoped<IFleetOperationalQueryService, TimescaleFleetOperationalQueryService>();
@@ -148,6 +158,7 @@ public static class DependencyInjection
     // Consume fleet.realtime y empuja al broker SSE (modo kafka-push).
     public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
     {
+        services.TryAddSingleton<IFleetKafkaPushReadiness, FleetKafkaPushReadiness>();
         services.AddHostedService<FleetSseKafkaPushHostedService>();
         return services;
     }

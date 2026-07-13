@@ -25,6 +25,7 @@ public sealed class FleetTelemetryMetrics
     public Counter<long> RealtimeInvalidPayloadTotal { get; }
     public Counter<long> RealtimeCommitFailuresTotal { get; }
     public Counter<long> RealtimeSeekFailuresTotal { get; }
+    public Counter<long> RealtimePublishFailuresTotal { get; }
 
     public FleetTelemetryMetrics(FleetSseBroker? sseBroker = null)
     {
@@ -87,6 +88,10 @@ public sealed class FleetTelemetryMetrics
         RealtimeSeekFailuresTotal = _meter.CreateCounter<long>(
             "fleet.realtime.seek_failures_total",
             description: "Fallos al repositionar el consumidor SSE Kafka");
+
+        RealtimePublishFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.publish_failures_total",
+            description: "Fallos transitorios al publicar offsets Kafka en el broker SSE");
 
         if (sseBroker is not null)
         {
