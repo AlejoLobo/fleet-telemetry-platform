@@ -105,12 +105,13 @@ public class FleetSseBroker
 
             return lastEventId switch
             {
+                // Sin Last-Event-ID: forzar snapshot REST antes de live (cutover actual).
                 SseLastEventId.Missing => CreateSubscription(
                     subscriptionId,
                     cutoverId,
-                    SseReplayStatus.ReplayAvailable,
+                    SseReplayStatus.ReplayGap,
                     Array.Empty<FleetSseEvent>(),
-                    null),
+                    "initial-snapshot"),
                 SseLastEventId.InvalidCursor => CreateSubscription(
                     subscriptionId,
                     cutoverId,

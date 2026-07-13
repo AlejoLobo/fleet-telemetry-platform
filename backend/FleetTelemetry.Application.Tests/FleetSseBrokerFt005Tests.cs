@@ -47,6 +47,7 @@ public class FleetSseBrokerFt005Tests
     [Fact]
     public void Replicas_no_comparten_consumer_group()
     {
+        var readiness = new FleetKafkaPushReadiness();
         var serviceA = new FleetSseKafkaPushHostedService(
             new FleetSseBroker(TimeProvider.System),
             Microsoft.Extensions.Options.Options.Create(new Infrastructure.Configuration.KafkaOptions
@@ -57,6 +58,7 @@ public class FleetSseBrokerFt005Tests
             {
                 InstanceId = "api-1"
             }),
+            readiness,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         var serviceB = new FleetSseKafkaPushHostedService(
@@ -69,6 +71,7 @@ public class FleetSseBrokerFt005Tests
             {
                 InstanceId = "api-2"
             }),
+            readiness,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         Assert.Equal("fleet-realtime-sse-api-1", serviceA.ConsumerGroupId);
@@ -180,7 +183,7 @@ public class FleetSseBrokerFt005Tests
     }
 
     [Fact]
-    public void Sin_Last_Event_ID_no_reproduce_buffer_antiguo()
+    public void Sin_Last_Event_ID_exige_snapshot_inicial_sin_replay()
     {
         var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 20);
         broker.PublishExternal(10, "alert", new { n = 1 });
@@ -188,13 +191,67 @@ public class FleetSseBrokerFt005Tests
 
         var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
-        Assert.Equal(SseReplayStatus.ReplayAvailable, subscription.ReplayStatus);
+        Assert.Equal(SseReplayStatus.ReplayGap, subscription.ReplayStatus);
+        Assert.Equal("initial-snapshot", subscription.ResetReason);
         Assert.Empty(subscription.ReplayEvents);
         Assert.Equal(11, subscription.CutoverId);
+        Assert.Equal("11", subscription.LatestEventId);
 
         broker.PublishExternal(12, "alert", new { n = 3 });
         Assert.True(subscription.LiveReader.TryRead(out var live));
         Assert.Equal(12, live.StreamId);
+    }
+
+    [Fact]
+    public void Missing_con_evento_previo_al_subscribe_usa_cutover_actual()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
+        broker.PublishExternal(100, "vehicle-update", new { vehicleId = "VH-100" });
+        // Snapshot REST simbólico en offset 100; 101 llega al broker antes del SSE.
+        broker.PublishExternal(101, "vehicle-update", new { vehicleId = "VH-101" });
+
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
+
+        Assert.Equal(SseReplayStatus.ReplayGap, subscription.ReplayStatus);
+        Assert.Equal("initial-snapshot", subscription.ResetReason);
+        Assert.Equal(101, subscription.CutoverId);
+        Assert.Equal("101", subscription.LatestEventId);
+        Assert.Empty(subscription.ReplayEvents);
+        // 101 queda cubierto por cutover; no se omite: el cliente re-sincroniza desde 101.
+        Assert.False(subscription.LiveReader.TryRead(out _));
+    }
+
+    [Fact]
+    public void Missing_durante_snapshot_retiene_live_posteriores_en_orden()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
+        broker.PublishExternal(100, "vehicle-update", new { vehicleId = "VH-100" });
+
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
+        Assert.Equal(100, subscription.CutoverId);
+        Assert.Equal("initial-snapshot", subscription.ResetReason);
+
+        broker.PublishExternal(101, "vehicle-update", new { vehicleId = "VH-101" });
+        broker.PublishExternal(102, "vehicle-update", new { vehicleId = "VH-102" });
+
+        var liveIds = new List<long>();
+        while (subscription.LiveReader.TryRead(out var live))
+            liveIds.Add(live.StreamId);
+
+        Assert.Equal(new long[] { 101, 102 }, liveIds);
+        Assert.Equal(liveIds.Count, liveIds.Distinct().Count());
+    }
+
+    [Fact]
+    public void Missing_con_broker_vacio_emite_initial_snapshot_sin_cutover()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
+
+        Assert.Equal(SseReplayStatus.ReplayGap, subscription.ReplayStatus);
+        Assert.Equal("initial-snapshot", subscription.ResetReason);
+        Assert.Equal(-1, subscription.CutoverId);
+        Assert.Null(subscription.LatestEventId);
     }
 
     [Fact]
@@ -236,7 +293,9 @@ public class FleetSseBrokerFt005Tests
 
         Assert.Empty(afterReset.ReplayEvents);
         Assert.Equal(31, afterReset.CutoverId);
-        Assert.Equal(SseReplayStatus.ReplayAvailable, afterReset.ReplayStatus);
+        Assert.Equal(SseReplayStatus.ReplayGap, afterReset.ReplayStatus);
+        Assert.Equal("initial-snapshot", afterReset.ResetReason);
+        Assert.Equal("31", afterReset.LatestEventId);
     }
 
     [Fact]

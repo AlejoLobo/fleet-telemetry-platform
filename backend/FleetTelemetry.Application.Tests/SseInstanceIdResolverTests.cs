@@ -23,16 +23,19 @@ public class SseInstanceIdResolverTests
     [Fact]
     public void Dos_replicas_con_hostname_distinto_generan_grupos_distintos()
     {
+        var readiness = new FleetKafkaPushReadiness();
         var serviceA = new FleetSseKafkaPushHostedService(
             new FleetSseBroker(TimeProvider.System),
             Options.Create(new KafkaOptions { RealtimeConsumerGroupBase = "fleet-realtime-sse" }),
             Options.Create(new SseOptions { InstanceId = "replica-host-a" }),
+            readiness,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         var serviceB = new FleetSseKafkaPushHostedService(
             new FleetSseBroker(TimeProvider.System),
             Options.Create(new KafkaOptions { RealtimeConsumerGroupBase = "fleet-realtime-sse" }),
             Options.Create(new SseOptions { InstanceId = "replica-host-b" }),
+            readiness,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         Assert.Equal("fleet-realtime-sse-replica-host-a", serviceA.ConsumerGroupId);

@@ -208,9 +208,17 @@ internal sealed class FleetRealtimeKafkaPushLoop
                 return;
             }
 
+            // Retry: mantener bloqueado, Seek y backoff aunque Seek sea exitoso.
             _blockedOffset = offset;
-            if (!TrySeek(transport, offset))
-                await DelayBackoffAsync(cancellationToken);
+            _transportFailureStreak++;
+            _metrics?.RealtimePublishFailuresTotal.Add(1);
+            _logger?.LogWarning(
+                "Transient Kafka publish failure at {Topic}/{Partition}@{Offset}; will retry",
+                result.Topic,
+                result.Partition.Value,
+                offset);
+            _ = TrySeek(transport, offset);
+            await DelayBackoffAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

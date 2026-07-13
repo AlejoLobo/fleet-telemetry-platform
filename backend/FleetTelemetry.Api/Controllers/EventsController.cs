@@ -21,17 +21,36 @@ public class EventsController : ControllerBase
 
     private readonly FleetSseBroker _broker;
     private readonly SseOptions _sseOptions;
+    private readonly IFleetKafkaPushReadiness _kafkaPushReadiness;
 
-    public EventsController(FleetSseBroker broker, IOptions<SseOptions> sseOptions)
+    public EventsController(
+        FleetSseBroker broker,
+        IOptions<SseOptions> sseOptions,
+        IFleetKafkaPushReadiness kafkaPushReadiness)
     {
         _broker = broker;
         _sseOptions = sseOptions.Value;
+        _kafkaPushReadiness = kafkaPushReadiness;
     }
 
     [HttpGet("stream")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
     {
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush && !_kafkaPushReadiness.IsReady)
+        {
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await Response.WriteAsJsonAsync(
+                new
+                {
+                    status = "not_ready",
+                    reason = "kafka-push-not-ready",
+                    state = _kafkaPushReadiness.State.ToString()
+                },
+                cancellationToken);
+            return;
+        }
+
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             HttpContext.RequestAborted);

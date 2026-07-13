@@ -554,19 +554,51 @@ describe("useSseStream FT-005", () => {
     expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBe("1");
   });
 
-  it("LatestEventId_null_mantiene_marca_hasta_primer_evento_con_id", async () => {
+  it("Initial_snapshot_con_cutover_persiste_despues_del_resync", async () => {
     const onStreamReset = vi.fn(async () => undefined);
-    const headers: Record<string, string>[] = [];
+    const onFleetUpdate = vi.fn();
+    const vehiclePayload = {
+      vehicleId: "VH-INIT",
+      name: "VH-INIT",
+      status: "online",
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 40,
+      lastLatitude: 4.6,
+      lastLongitude: -74.0,
+    };
 
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, init, handlers) => {
-      headers.push(Object.fromEntries(new Headers(init.headers).entries()));
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "instance-restarted", latestEventId: null }),
+        data: JSON.stringify({ reason: "initial-snapshot", latestEventId: "100" }),
       });
-      throw new Error("disconnect");
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "101",
+        data: JSON.stringify(vehiclePayload),
+      });
+      return new Promise(() => {
+        /* abierta */
+      });
     });
-    vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(10);
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1));
+    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("101");
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
+  });
+
+  it("Broker_vacio_initial_snapshot_conserva_marca_hasta_primer_id", async () => {
+    const onStreamReset = vi.fn(async () => undefined);
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "initial-snapshot", latestEventId: null }),
+      });
+    });
 
     renderHook(() => useSseStream({ enabled: true, onStreamReset }));
     await waitFor(() => expect(onStreamReset).toHaveBeenCalled());
