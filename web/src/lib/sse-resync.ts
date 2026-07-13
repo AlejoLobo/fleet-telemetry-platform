@@ -6,6 +6,14 @@ export class ResyncFailedError extends Error {
   }
 }
 
+/** Error cuando un resync o carga quedó obsoleto por otra generación. */
+export class ResyncSupersededError extends Error {
+  constructor(message = "Resync superseded by a newer snapshot generation.") {
+    super(message);
+    this.name = "ResyncSupersededError";
+  }
+}
+
 /** Regex para IDs decimales de offset Kafka (64-bit seguro como string). */
 export const DECIMAL_EVENT_ID_PATTERN = /^(0|[1-9]\d*)$/;
 
@@ -49,4 +57,5 @@ export function parseStreamResetPayload(data: string): StreamResetPayload | null
 
 export type ResyncSnapshotResult = {
   resolvedVehicleId: string | null;
+  applied: true;
 };

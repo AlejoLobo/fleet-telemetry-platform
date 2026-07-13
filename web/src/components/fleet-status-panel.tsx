@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string;
+  selectedVehicleId?: string | null;
   fleetTruncated?: boolean;
   aggregationSource?: AggregationSource;
   totalVehiclesGlobal?: number;

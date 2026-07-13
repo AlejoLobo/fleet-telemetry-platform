@@ -16,7 +16,11 @@ import {
   type SseParsedEvent,
 } from "@/lib/sse-fetch-client";
 import { parseAlertPayload, parseFleetUpdatePayload, parseVehicleUpdatePayload } from "@/lib/sse-parser";
-import { DECIMAL_EVENT_ID_PATTERN, parseStreamResetPayload } from "@/lib/sse-resync";
+import {
+  DECIMAL_EVENT_ID_PATTERN,
+  parseStreamResetPayload,
+  ResyncSupersededError,
+} from "@/lib/sse-resync";
 import { REALTIME_EVENTS } from "@/lib/realtime-events";
 import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
@@ -93,10 +97,15 @@ export function useSseStream({
             persistLastEventId(pendingCutoverEventId);
             pendingCutoverEventId = null;
           }
+          // Con cutover null la marca permanece hasta el primer evento reproducible.
           resyncRequired = false;
           snapshotCompletedThisSession = true;
           return;
-        } catch {
+        } catch (error) {
+          if (error instanceof ResyncSupersededError) {
+            await wait(RESYNC_RETRY_MS);
+            continue;
+          }
           await wait(RESYNC_RETRY_MS);
         }
       }
@@ -114,14 +123,10 @@ export function useSseStream({
 
     const handleStreamReset = async (data: string) => {
       resyncRequired = true;
+      writeStoredResyncMarker(true);
       const resetPayload = parseStreamResetPayload(data);
       clearLastEventId();
-      if (resetPayload?.latestEventId) {
-        pendingCutoverEventId = resetPayload.latestEventId;
-      } else {
-        pendingCutoverEventId = null;
-        writeStoredResyncMarker(true);
-      }
+      pendingCutoverEventId = resetPayload?.latestEventId ?? null;
       await completeResync();
     };
 
