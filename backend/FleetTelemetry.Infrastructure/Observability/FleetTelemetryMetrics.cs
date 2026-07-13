@@ -22,6 +22,7 @@ public sealed class FleetTelemetryMetrics
     public Histogram<double> AiToolDuration { get; }
     public Counter<long> KafkaMessagesConsumed { get; }
     public Counter<long> DlqMessagesPublished { get; }
+    public Counter<long> RealtimeInvalidPayloadTotal { get; }
 
     public FleetTelemetryMetrics(FleetSseBroker? sseBroker = null)
     {
@@ -72,6 +73,10 @@ public sealed class FleetTelemetryMetrics
         DlqMessagesPublished = _meter.CreateCounter<long>(
             "fleet.kafka.dlq.published",
             description: "Mensajes publicados en el tópico dead-letter");
+
+        RealtimeInvalidPayloadTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.invalid_payload_total",
+            description: "Payloads inválidos en fleet.realtime avanzados sin reintento");
 
         if (sseBroker is not null)
         {

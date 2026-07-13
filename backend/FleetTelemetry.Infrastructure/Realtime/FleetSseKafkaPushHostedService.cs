@@ -1,5 +1,6 @@
 using Confluent.Kafka;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,17 +14,20 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
     private readonly KafkaOptions _kafkaOptions;
     private readonly SseOptions _sseOptions;
     private readonly ILogger<FleetSseKafkaPushHostedService> _logger;
+    private readonly FleetTelemetryMetrics? _metrics;
 
     public FleetSseKafkaPushHostedService(
         FleetSseBroker broker,
         IOptions<KafkaOptions> kafkaOptions,
         IOptions<SseOptions> sseOptions,
-        ILogger<FleetSseKafkaPushHostedService> logger)
+        ILogger<FleetSseKafkaPushHostedService> logger,
+        FleetTelemetryMetrics? metrics = null)
     {
         _broker = broker;
         _kafkaOptions = kafkaOptions.Value;
         _sseOptions = sseOptions.Value;
         _logger = logger;
+        _metrics = metrics;
     }
 
     internal string ConsumerGroupId =>
@@ -49,7 +53,7 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         consumer.Subscribe(_kafkaOptions.RealtimeTopic);
 
         using var transport = new KafkaRealtimePushTransport(consumer, _kafkaOptions.RealtimeTopic);
-        var processor = new RealtimeKafkaPushProcessor(_broker);
+        var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
         var loop = new FleetRealtimeKafkaPushLoop(processor);
 
         _logger.LogInformation(

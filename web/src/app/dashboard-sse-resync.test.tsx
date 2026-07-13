@@ -112,7 +112,7 @@ describe("dashboard SSE resync integration", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 50 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -143,7 +143,7 @@ describe("dashboard SSE resync integration", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 50 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -176,7 +176,7 @@ describe("dashboard SSE resync integration", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 50 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -197,7 +197,7 @@ describe("dashboard SSE resync integration", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 70 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "70" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,

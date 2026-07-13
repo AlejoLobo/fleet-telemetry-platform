@@ -268,8 +268,9 @@ describe("useSseStream FT-005", () => {
     expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBeNull();
   });
 
-  it("Cambio_de_token_limpia_ultimo_id", async () => {
+  it("Cambio_de_token_limpia_cursor_y_marca_de_resync", async () => {
     sessionStorage.setItem("fleet-sse-last-event-id", "33");
+    sessionStorage.setItem("fleet-sse-resync-pending", "1");
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async () => undefined);
 
     const { rerender } = renderHook(
@@ -279,6 +280,7 @@ describe("useSseStream FT-005", () => {
 
     rerender({ token: "token-b" });
     await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBeNull());
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
   });
 
   it("Stream_reset_exitoso_guarda_latestEventId_como_cursor_base", async () => {
@@ -288,7 +290,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 100 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "100" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -320,7 +322,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 100 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "100" }),
       });
     });
 
@@ -334,7 +336,74 @@ describe("useSseStream FT-005", () => {
     expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("100");
   });
 
-  it("LatestEventId_null_obliga_nuevo_snapshot_en_reconexion", async () => {
+  it("Segunda_conexion_sin_stream_reset_ejecuta_snapshot_por_marca_persistida", async () => {
+    const onStreamReset = vi.fn(async () => undefined);
+    const onFleetUpdate = vi.fn();
+    let connection = 0;
+    const vehiclePayload = {
+      vehicleId: "VH-RECONNECT",
+      name: "VH-RECONNECT",
+      status: "online",
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 40,
+      lastLatitude: 4.6,
+      lastLongitude: -74.0,
+    };
+
+    vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(10);
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      connection += 1;
+      if (connection === 1) {
+        await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
+        await handlers.onEvent({
+          event: REALTIME_EVENTS.streamReset,
+          data: JSON.stringify({ reason: "instance-restarted", latestEventId: null }),
+        });
+        throw new Error("disconnect after first snapshot");
+      }
+
+      if (connection === 2) {
+        await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
+        await handlers.onEvent({
+          event: REALTIME_EVENTS.vehicleUpdate,
+          id: "55",
+          data: JSON.stringify(vehiclePayload),
+        });
+        return new Promise(() => {
+          /* mantener conexión abierta para evitar reconexiones en bucle */
+        });
+      }
+
+      return undefined;
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1));
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
+    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("55");
+  });
+
+  it("Resync_fallido_con_latestEventId_null_conserva_marca", async () => {
+    let attempts = 0;
+    const onStreamReset = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 2) throw new Error("snapshot failed");
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "instance-restarted", latestEventId: null }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(attempts).toBeGreaterThanOrEqual(2));
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBe("1");
+  });
+
+  it("LatestEventId_null_mantiene_marca_hasta_primer_evento_con_id", async () => {
     const onStreamReset = vi.fn(async () => undefined);
     const headers: Record<string, string>[] = [];
 
@@ -349,9 +418,24 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(10);
 
     renderHook(() => useSseStream({ enabled: true, onStreamReset }));
-    await waitFor(() => expect(headers.length).toBeGreaterThanOrEqual(2));
-    const reconnectHeaders = headers[headers.length - 1];
-    expect(reconnectHeaders["last-event-id"] ?? reconnectHeaders["Last-Event-ID"]).toBeUndefined();
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalled());
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBe("1");
+    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBeNull();
+  });
+
+  it("Cutover_64_bit_se_persiste_exactamente", async () => {
+    const largeId = "9007199254740993";
+    const onStreamReset = vi.fn(async () => undefined);
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: largeId }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe(largeId));
   });
 
   it("Caida_despues_del_resync_reconecta_desde_el_cutover", async () => {
@@ -367,7 +451,7 @@ describe("useSseStream FT-005", () => {
       if (connection === 1) {
         await handlers.onEvent({
           event: REALTIME_EVENTS.streamReset,
-          data: JSON.stringify({ reason: "replay-gap", latestEventId: 200 }),
+          data: JSON.stringify({ reason: "replay-gap", latestEventId: "200" }),
         });
         throw new Error("disconnect before live");
       }
@@ -390,7 +474,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 300 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "300" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -419,7 +503,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 100 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "100" }),
       });
     });
 
@@ -435,7 +519,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
     });
 
@@ -450,7 +534,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "instance-restarted", latestEventId: 200 }),
+        data: JSON.stringify({ reason: "instance-restarted", latestEventId: "200" }),
       });
     });
 
@@ -471,7 +555,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -503,7 +587,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -536,7 +620,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
@@ -571,7 +655,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
     });
 
@@ -589,7 +673,7 @@ describe("useSseStream FT-005", () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "10" }),
       });
       await handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,

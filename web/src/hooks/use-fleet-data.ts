@@ -16,7 +16,7 @@ import {
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
 import { getApiBaseUrl } from "@/lib/utils";
-import { ResyncFailedError } from "@/lib/sse-resync";
+import { ResyncFailedError, type ResyncSnapshotResult } from "@/lib/sse-resync";
 
 type FleetDataState = {
   vehicles: VehicleStatus[];
@@ -63,8 +63,10 @@ export function useFleetData(selectedVehicleId: string | null) {
   const dataSourceRef = useRef<FleetDataSource>("api");
   const telemetryAbortRef = useRef<AbortController | null>(null);
   const telemetryRequestIdRef = useRef(0);
+  const snapshotGenerationRef = useRef(0);
 
   const loadFleetAndAlerts = useCallback(async () => {
+    const generation = snapshotGenerationRef.current;
     setState((prev) => ({
       ...prev,
       fleetLoading: true,
@@ -108,6 +110,8 @@ export function useFleetData(selectedVehicleId: string | null) {
           ? fleetSnapshot.error ?? "Carga parcial de la flota."
           : null;
 
+      if (generation !== snapshotGenerationRef.current) return;
+
       setState((prev) => ({
         ...prev,
         vehicles: fleetSnapshot.vehicles,
@@ -125,6 +129,7 @@ export function useFleetData(selectedVehicleId: string | null) {
       }));
       dataSourceRef.current = "api";
     } catch {
+      if (generation !== snapshotGenerationRef.current) return;
       setState((prev) => ({
         ...prev,
         fleetLoading: false,
@@ -139,6 +144,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     const controller = new AbortController();
     telemetryAbortRef.current = controller;
     const requestId = ++telemetryRequestIdRef.current;
+    const generation = snapshotGenerationRef.current;
 
     setState((prev) => ({
       ...prev,
@@ -151,6 +157,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     try {
       const snapshot = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
       if (requestId !== telemetryRequestIdRef.current) return;
+      if (generation !== snapshotGenerationRef.current) return;
 
       const selectedAnalytics = computeSelectedAnalytics(vehicleId, snapshot.events);
       const telemetryWarning = snapshot.truncated
@@ -171,6 +178,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       if (requestId !== telemetryRequestIdRef.current) return;
+      if (generation !== snapshotGenerationRef.current) return;
 
       setState((prev) => ({
         ...prev,
@@ -235,18 +243,16 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
   }, [loadDemoData, loadFromApi]);
 
-  const refreshForResync = useCallback(async (vehicleId: string) => {
-    if (!vehicleId) {
-      throw new ResyncFailedError("Vehículo seleccionado requerido para resync.");
-    }
+  const refreshForResync = useCallback(async (vehicleId: string): Promise<ResyncSnapshotResult> => {
+    telemetryAbortRef.current?.abort();
+    const generation = ++snapshotGenerationRef.current;
 
     if (dataSourceRef.current === "demo") {
       await loadDemoData();
-      const dataset = getMockDataset();
-      if (dataset.vehicles.length === 0) {
-        throw new ResyncFailedError("Resync fallido: flota demo vacía.");
+      if (generation !== snapshotGenerationRef.current) {
+        return { resolvedVehicleId: vehicleId || null };
       }
-      return;
+      return { resolvedVehicleId: vehicleId || null };
     }
 
     const [fleetSnapshot, alerts] = await Promise.all([
@@ -254,36 +260,64 @@ export function useFleetData(selectedVehicleId: string | null) {
       apiClient.fetchAlertsLive(),
     ]);
 
+    if (generation !== snapshotGenerationRef.current) {
+      return { resolvedVehicleId: null };
+    }
+
     if (fleetSnapshot.partial && fleetSnapshot.error) {
       throw new ResyncFailedError(fleetSnapshot.error);
     }
 
-    if (fleetSnapshot.vehicles.length === 0) {
-      throw new ResyncFailedError("Resync fallido: flota vacía.");
-    }
+    const resolvedVehicleId = fleetSnapshot.vehicles.some((v) => v.vehicleId === vehicleId)
+      ? vehicleId
+      : fleetSnapshot.vehicles[0]?.vehicleId ?? null;
 
-    const telemetrySnapshot = await fetchTelemetrySnapshot(vehicleId);
-    if (telemetrySnapshot.partial && telemetrySnapshot.error) {
-      throw new ResyncFailedError(telemetrySnapshot.error);
+    let telemetrySnapshot: Awaited<ReturnType<typeof fetchTelemetrySnapshot>> = {
+      events: [],
+      partial: false,
+      truncated: false,
+    };
+
+    if (resolvedVehicleId) {
+      telemetrySnapshot = await fetchTelemetrySnapshot(resolvedVehicleId);
+      if (generation !== snapshotGenerationRef.current) {
+        return { resolvedVehicleId };
+      }
+      if (telemetrySnapshot.partial && telemetrySnapshot.error) {
+        throw new ResyncFailedError(telemetrySnapshot.error);
+      }
     }
 
     let globalAnalytics;
     if (fleetSnapshot.truncated) {
-      const summary = await apiClient.fetchOpsSummary();
-      globalAnalytics = computeGlobalAnalyticsFromOps(
-        {
-          totalVehicles: summary.totalVehicles,
-          activeVehicles: summary.activeVehicles,
-        },
-        alerts.length,
-        "api",
-        { partial: true },
-      );
+      try {
+        const summary = await apiClient.fetchOpsSummary();
+        globalAnalytics = computeGlobalAnalyticsFromOps(
+          {
+            totalVehicles: summary.totalVehicles,
+            activeVehicles: summary.activeVehicles,
+          },
+          alerts.length,
+          "api",
+          { partial: true },
+        );
+      } catch {
+        globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api", {
+          partial: true,
+          aggregationSource: "snapshot",
+        });
+      }
     } else {
       globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api");
     }
 
-    const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetrySnapshot.events);
+    if (generation !== snapshotGenerationRef.current) {
+      return { resolvedVehicleId };
+    }
+
+    const selectedAnalytics = resolvedVehicleId
+      ? computeSelectedAnalytics(resolvedVehicleId, telemetrySnapshot.events)
+      : null;
 
     setState((prev) => ({
       ...prev,
@@ -298,11 +332,15 @@ export function useFleetData(selectedVehicleId: string | null) {
       fleetTruncated: fleetSnapshot.truncated,
       telemetryPartial: telemetrySnapshot.partial,
       telemetryTruncated: telemetrySnapshot.truncated,
-      fleetError: null,
+      fleetError: fleetSnapshot.vehicles.length === 0
+        ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
+        : null,
       telemetryError: null,
       dataSource: "api",
     }));
     dataSourceRef.current = "api";
+
+    return { resolvedVehicleId };
   }, [loadDemoData]);
 
   useEffect(() => {

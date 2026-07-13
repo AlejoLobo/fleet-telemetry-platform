@@ -151,7 +151,10 @@ export default function DashboardPage() {
       setLiveVehiclePatches([]);
       setLiveAlerts([]);
       setAlertsAttention(false);
-      await refreshForResync(selectedVehicleId);
+      const result = await refreshForResync(selectedVehicleId);
+      if (result.resolvedVehicleId && result.resolvedVehicleId !== selectedVehicleId) {
+        setSelectedVehicleId(result.resolvedVehicleId);
+      }
     },
 
   });

@@ -15,6 +15,7 @@ public class FleetSseBroker
     private readonly ConcurrentDictionary<Guid, SubscriberState> _subscribers = new();
     private readonly List<FleetSseEvent> _replayBuffer = [];
     private readonly HashSet<long> _replayIds = [];
+    private readonly HashSet<long> _invalidCommittedOffsets = [];
     private long _latestStreamId;
     private long _lastAcceptedExternalOffset = -1;
     private long _firstAcceptedExternalOffset = -1;
@@ -58,7 +59,16 @@ public class FleetSseBroker
         }
     }
 
+    public long InvalidCommittedOffsets => Interlocked.Read(ref _invalidCommittedOffsetCount);
+    private long _invalidCommittedOffsetCount;
+
     public int SubscriberCount => _subscribers.Count;
+
+    public bool IsInvalidCommittedOffset(long streamId)
+    {
+        lock (_sync)
+            return _invalidCommittedOffsets.Contains(streamId);
+    }
 
     public SseSubscription SubscribeFrom(SseLastEventId lastEventId)
     {
@@ -180,6 +190,59 @@ public class FleetSseBroker
             FanOutLiveLocked(sseEvent);
     }
 
+    // Fuerza stream-reset en todos los suscriptores activos (payload inválido, etc.).
+    public void PublishStreamResetToAll(string reason)
+    {
+        long? latestEventId;
+        lock (_sync)
+            latestEventId = _latestStreamId >= 0 ? _latestStreamId : null;
+
+        PublishEphemeral(
+            FleetRealtimeEventTypes.StreamReset,
+            new SseStreamResetData(
+                reason,
+                latestEventId?.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            _timeProvider.GetUtcNow());
+    }
+
+    // Avanza el offset Kafka inválido sin publicar evento ni reintentar el mismo mensaje.
+    public ExternalPublishResult RecordInvalidExternalOffset(long streamId)
+    {
+        if (streamId < 0)
+        {
+            Interlocked.Increment(ref _outOfOrderEvents);
+            return ExternalPublishResult.OutOfOrder;
+        }
+
+        lock (_sync)
+        {
+            if (_invalidCommittedOffsets.Contains(streamId))
+            {
+                Interlocked.Increment(ref _duplicateEvents);
+                return ExternalPublishResult.Duplicate;
+            }
+
+            if (streamId <= _lastAcceptedExternalOffset)
+            {
+                if (_firstAcceptedExternalOffset >= 0 && streamId >= _firstAcceptedExternalOffset)
+                {
+                    Interlocked.Increment(ref _duplicateEvents);
+                    return ExternalPublishResult.Duplicate;
+                }
+
+                Interlocked.Increment(ref _outOfOrderEvents);
+                return ExternalPublishResult.OutOfOrder;
+            }
+
+            _invalidCommittedOffsets.Add(streamId);
+            Interlocked.Increment(ref _invalidCommittedOffsetCount);
+            if (_firstAcceptedExternalOffset < 0)
+                _firstAcceptedExternalOffset = streamId;
+            _lastAcceptedExternalOffset = streamId;
+            return ExternalPublishResult.Accepted;
+        }
+    }
+
     public void PruneStaleSubscribers(CancellationToken cancellationToken = default)
     {
         _ = cancellationToken;
@@ -226,7 +289,9 @@ public class FleetSseBroker
             ReplayEvents = replayEvents,
             LiveReader = channel.Reader,
             CutoverId = cutoverId,
-            LatestEventId = cutoverId >= 0 ? cutoverId : null,
+            LatestEventId = cutoverId >= 0
+                ? cutoverId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : null,
             ResetReason = resetReason
         };
     }
@@ -278,6 +343,15 @@ public class FleetSseBroker
 
         if (lastEventId + 1 < firstBufferedId.Value)
         {
+            for (var missing = lastEventId + 1; missing < firstBufferedId.Value; missing++)
+            {
+                if (_invalidCommittedOffsets.Contains(missing))
+                {
+                    resetReason = "invalid-payload-gap";
+                    return SseReplayStatus.ReplayGap;
+                }
+            }
+
             resetReason = "replay-gap";
             return SseReplayStatus.ReplayGap;
         }

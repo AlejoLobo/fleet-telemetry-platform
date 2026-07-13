@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFleetData } from "@/hooks/use-fleet-data";
 
@@ -183,5 +183,128 @@ describe("useFleetData refreshForResync", () => {
       truncated: false,
     });
     await expect(result.current.refreshForResync("VH-001")).rejects.toThrow("telemetry unavailable");
+  });
+
+  it("refreshForResync_acepta_flota_vacia_como_snapshot_valido", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await result.current.loadFromApi();
+
+    fetchTelemetrySnapshot.mockClear();
+    const snapshot = await result.current.refreshForResync("VH-001");
+    expect(snapshot.resolvedVehicleId).toBeNull();
+    expect(result.current.vehicles).toHaveLength(0);
+    expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("refreshForResync_elige_primer_vehiculo_si_el_seleccionado_no_existe", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle, { ...vehicle, vehicleId: "VH-002", name: "VH-002" }],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [],
+      partial: false,
+      truncated: false,
+    });
+
+    const { result } = renderHook(() => useFleetData("VH-DELETED"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await result.current.loadFromApi();
+
+    fetchTelemetrySnapshot.mockClear();
+    const snapshot = await result.current.refreshForResync("VH-DELETED");
+    expect(snapshot.resolvedVehicleId).toBe("VH-001");
+    expect(fetchTelemetrySnapshot).toHaveBeenLastCalledWith("VH-001");
+  });
+
+  it("carga_normal_antigua_no_sobrescribe_snapshot_de_resync", async () => {
+    let resolveFleet: ((value: unknown) => void) | undefined;
+    const deferredFleet = new Promise((resolve) => {
+      resolveFleet = resolve;
+    });
+
+    fetchFleetLive.mockImplementation(() => deferredFleet as Promise<never>);
+    fetchAlertsLive.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(true));
+
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const resyncPromise = result.current.refreshForResync("VH-001");
+    await waitFor(() => expect(result.current.vehicles).toHaveLength(1));
+    await resyncPromise;
+
+    resolveFleet?.({
+      vehicles: [{ ...vehicle, vehicleId: "VH-STALE", name: "VH-STALE" }],
+      partial: false,
+      truncated: false,
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(result.current.vehicles[0]?.vehicleId).toBe("VH-001");
+  });
+
+  it("telemetria_antigua_no_sobrescribe_resync", async () => {
+    let resolveStale: ((value: unknown) => void) | undefined;
+    const staleDeferred = new Promise((resolve) => {
+      resolveStale = resolve;
+    });
+    let telemetryCalls = 0;
+
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockImplementation(async () => {
+      telemetryCalls += 1;
+      if (telemetryCalls === 1) {
+        return staleDeferred;
+      }
+      return {
+        events: [{ eventId: "fresh", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 1 }],
+        partial: false,
+        truncated: false,
+      };
+    });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    const resyncPromise = result.current.refreshForResync("VH-001");
+    await waitFor(() => expect(result.current.telemetry).toHaveLength(1));
+    expect(result.current.telemetry[0]?.eventId).toBe("fresh");
+    await resyncPromise;
+
+    resolveStale?.({
+      events: [{ eventId: "stale", vehicleId: "VH-001", timestamp: "2026-07-09T10:00:00Z", latitude: 2, longitude: 2, speedKmh: 2 }],
+      partial: false,
+      truncated: false,
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(result.current.telemetry[0]?.eventId).toBe("fresh");
   });
 });
