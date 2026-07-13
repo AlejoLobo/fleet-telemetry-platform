@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { REALTIME_EVENTS } from "@/lib/realtime-events";
 import * as sseClient from "@/lib/sse-fetch-client";
+import type { SseParsedEvent } from "@/lib/sse-fetch-client";
 
 const fetchFleetLive = vi.fn();
 const fetchAlertsLive = vi.fn();
@@ -50,6 +51,10 @@ const vehiclePayload = {
   lastLongitude: -74.0,
 };
 
+type StreamHandlers = {
+  onEvent: (event: SseParsedEvent) => void | Promise<void>;
+};
+
 function renderDashboardResyncHook() {
   const onFleetUpdate = vi.fn();
   const hook = renderHook(() => {
@@ -69,6 +74,9 @@ function renderDashboardResyncHook() {
 
 describe("dashboard SSE resync integration", () => {
   afterEach(() => {
+    // Desmontar antes de restaurar mocks: evita que un resync en vuelo
+    // complete con el mock “sano” del siguiente test y escriba sessionStorage.
+    cleanup();
     vi.restoreAllMocks();
     sessionStorage.clear();
   });
@@ -96,6 +104,22 @@ describe("dashboard SSE resync integration", () => {
     await result.current.fleet.loadFromApi();
   }
 
+  async function openControlledStream(): Promise<StreamHandlers> {
+    let resolveHandlers: ((handlers: StreamHandlers) => void) | undefined;
+    const handlersReady = new Promise<StreamHandlers>((resolve) => {
+      resolveHandlers = resolve;
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      resolveHandlers?.(handlers);
+      return new Promise(() => {
+        /* stream controlado por el test */
+      });
+    });
+
+    return handlersReady;
+  }
+
   it("Fallo_real_de_fetchFleetLive_mantiene_resyncRequired", async () => {
     let fleetAttempts = 0;
     fetchFleetLive.mockImplementation(async () => {
@@ -106,27 +130,25 @@ describe("dashboard SSE resync integration", () => {
       throw new Error("fleet down");
     });
 
-    const { result } = renderDashboardResyncHook();
+    const handlersPromise = openControlledStream();
+    const { result, unmount } = renderDashboardResyncHook();
     await bootstrapApiMode(result);
+    const handlers = await handlersPromise;
 
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
-      });
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.vehicleUpdate,
-        id: "60",
-        data: JSON.stringify(vehiclePayload),
-      });
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.streamReset,
+      data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitFor(() => expect(fleetAttempts).toBeGreaterThanOrEqual(2));
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.vehicleUpdate,
+      id: "60",
+      data: JSON.stringify(vehiclePayload),
     });
-
-    expect(fleetAttempts).toBeGreaterThanOrEqual(2);
+    await waitFor(() => expect(fleetAttempts).toBeGreaterThanOrEqual(2));
     expect(result.current.onFleetUpdate).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("Fallo_real_de_fetchAlertsLive_mantiene_resyncRequired", async () => {
@@ -137,27 +159,25 @@ describe("dashboard SSE resync integration", () => {
       throw new Error("alerts down");
     });
 
-    const { result } = renderDashboardResyncHook();
+    const handlersPromise = openControlledStream();
+    const { result, unmount } = renderDashboardResyncHook();
     await bootstrapApiMode(result);
+    const handlers = await handlersPromise;
 
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
-      });
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.vehicleUpdate,
-        id: "61",
-        data: JSON.stringify(vehiclePayload),
-      });
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.streamReset,
+      data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitFor(() => expect(alertsAttempts).toBeGreaterThanOrEqual(2));
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.vehicleUpdate,
+      id: "61",
+      data: JSON.stringify(vehiclePayload),
     });
-
-    expect(alertsAttempts).toBeGreaterThanOrEqual(2);
+    await waitFor(() => expect(alertsAttempts).toBeGreaterThanOrEqual(2));
     expect(result.current.onFleetUpdate).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("Fallo_real_de_telemetria_mantiene_resyncRequired", async () => {
@@ -170,46 +190,45 @@ describe("dashboard SSE resync integration", () => {
       return { events: [], partial: true, error: "telemetry down", truncated: false };
     });
 
-    const { result } = renderDashboardResyncHook();
+    const handlersPromise = openControlledStream();
+    const { result, unmount } = renderDashboardResyncHook();
     await bootstrapApiMode(result);
+    const handlers = await handlersPromise;
 
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
-      });
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.vehicleUpdate,
-        id: "62",
-        data: JSON.stringify(vehiclePayload),
-      });
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.streamReset,
+      data: JSON.stringify({ reason: "replay-gap", latestEventId: "50" }),
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitFor(() => expect(telemetryAttempts).toBeGreaterThanOrEqual(2));
+    void handlers.onEvent({
+      event: REALTIME_EVENTS.vehicleUpdate,
+      id: "62",
+      data: JSON.stringify(vehiclePayload),
     });
-
-    expect(telemetryAttempts).toBeGreaterThanOrEqual(2);
+    await waitFor(() => expect(telemetryAttempts).toBeGreaterThanOrEqual(2));
     expect(result.current.onFleetUpdate).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("Resync_real_exitoso_habilita_nuevamente_eventos_live", async () => {
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.streamReset,
-        data: JSON.stringify({ reason: "replay-gap", latestEventId: "70" }),
-      });
-      await handlers.onEvent({
-        event: REALTIME_EVENTS.vehicleUpdate,
-        id: "80",
-        data: JSON.stringify(vehiclePayload),
-      });
+    const handlersPromise = openControlledStream();
+    const { result, unmount } = renderDashboardResyncHook();
+    await bootstrapApiMode(result);
+    const handlers = await handlersPromise;
+
+    await handlers.onEvent({
+      event: REALTIME_EVENTS.streamReset,
+      data: JSON.stringify({ reason: "replay-gap", latestEventId: "70" }),
+    });
+    await handlers.onEvent({
+      event: REALTIME_EVENTS.vehicleUpdate,
+      id: "80",
+      data: JSON.stringify(vehiclePayload),
     });
 
-    const { result } = renderDashboardResyncHook();
-    await bootstrapApiMode(result);
-
     await waitFor(() => expect(result.current.onFleetUpdate).toHaveBeenCalled());
-    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("80");
+    await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("80"));
+    unmount();
   });
 });
