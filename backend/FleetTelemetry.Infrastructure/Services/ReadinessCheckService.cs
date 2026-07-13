@@ -95,6 +95,7 @@ public class ReadinessCheckService : IReadinessCheckService
         {
             FleetKafkaPushReadinessState.Ready => "ok",
             FleetKafkaPushReadinessState.Faulted => "faulted",
+            FleetKafkaPushReadinessState.Rebalancing => "rebalancing",
             _ => "starting"
         };
     }

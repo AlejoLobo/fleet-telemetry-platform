@@ -107,6 +107,27 @@ public class EventsControllerStreamTests
         Assert.Contains("Starting", body);
     }
 
+    [Fact]
+    public async Task SSE_responde_503_durante_rebalance()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var readiness = new FleetKafkaPushReadiness();
+        readiness.EstablishFirstAssignmentPosition(100);
+        readiness.MarkReady();
+        readiness.MarkRebalancing();
+
+        var controller = CreateController(broker, readiness);
+        var (context, _) = CreateHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = context };
+
+        await controller.Stream(CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        var body = await ReadResponseBodyAsync(context);
+        Assert.Contains("kafka-push-not-ready", body);
+        Assert.Contains("Rebalancing", body);
+    }
+
     private static EventsController CreateController(
         FleetSseBroker broker,
         IFleetKafkaPushReadiness? readiness = null)
