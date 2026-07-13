@@ -122,6 +122,7 @@ Estados: `Starting` → `Assigned` → `Ready` ↔ `Rebalancing` → (`Faulted`)
 - Ejemplo: initial=100, procesados hasta 105, High llega a 110 durante el revoke → reasignación en **106**, no en 110.
 - Handlers: `SetPartitionsAssignedHandler`, `SetPartitionsRevokedHandler`, `SetPartitionsLostHandler`.
 - Revoke → `Rebalancing` (SSE 503). Pérdida definitiva o `ConsumeException` fatal → `Faulted` (deja de aceptar SSE como Ready).
+- En `Faulted` (particiones lost, consume fatal o fallo irreversible de arranque) el broker ejecuta `CompleteAllSubscribers`: completa canales, elimina suscriptores y fuerza reconexión; heartbeats no mantienen esas conexiones.
 
 ### Configuración (`Sse` / `Kafka`)
 

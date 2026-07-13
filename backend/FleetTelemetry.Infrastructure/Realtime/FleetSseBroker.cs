@@ -136,6 +136,24 @@ public class FleetSseBroker
         }
     }
 
+    // Cierra todas las conexiones SSE (Faulted / partición perdida): los clientes deben reconectar.
+    public int CompleteAllSubscribers(string reason)
+    {
+        _ = reason;
+        var closed = 0;
+        foreach (var pair in _subscribers)
+        {
+            if (_subscribers.TryRemove(pair.Key, out var state))
+            {
+                state.Writer.TryComplete();
+                Interlocked.Increment(ref _totalUnsubscribes);
+                closed++;
+            }
+        }
+
+        return closed;
+    }
+
     public virtual ExternalPublishResult PublishExternal(
         long streamId,
         string eventType,

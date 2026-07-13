@@ -94,22 +94,20 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
 
                     try
                     {
-                        await loop.RunOnceAsync(transport, TimeSpan.FromMilliseconds(500), stoppingToken);
-                        _assignment.NotifySuccessfulPollCycle();
-                    }
-                    catch (ConsumeException ex) when (ex.Error.IsFatal)
-                    {
-                        _readiness.MarkFaulted($"Fatal Kafka consume error: {ex.Error.Reason}");
-                        _logger.LogCritical(ex, "Fatal Kafka realtime consume error");
-                        break;
-                    }
-                    catch (ConsumeException ex)
-                    {
-                        _logger.LogError(ex, "Kafka realtime consume error. Reason={Reason}", ex.Error.Reason);
-                    }
-                    catch (KafkaException ex)
-                    {
-                        _logger.LogError(ex, "Kafka realtime transport error");
+                        var pollResult = await loop.RunOnceAsync(
+                            transport,
+                            TimeSpan.FromMilliseconds(500),
+                            stoppingToken);
+
+                        if (pollResult == KafkaPushPollResult.Successful)
+                        {
+                            _assignment.NotifySuccessfulPollCycle();
+                        }
+                        else if (pollResult == KafkaPushPollResult.FatalFailure)
+                        {
+                            _assignment.EnterFaulted("Fatal Kafka consume error");
+                            break;
+                        }
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
@@ -129,7 +127,7 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _readiness.MarkFaulted(ex.Message);
+            _assignment.EnterFaulted(ex.Message);
             _logger.LogError(ex, "SSE Kafka push consumer faulted during startup");
             throw;
         }

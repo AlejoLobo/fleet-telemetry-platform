@@ -128,6 +128,31 @@ public class EventsControllerStreamTests
         Assert.Contains("Rebalancing", body);
     }
 
+    [Fact]
+    public async Task Reconexion_durante_Faulted_recibe_503()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var readiness = new FleetKafkaPushReadiness();
+        var coordinator = new FleetKafkaPushAssignmentCoordinator(broker, readiness);
+        readiness.EstablishFirstAssignmentPosition(100);
+        readiness.MarkReady();
+
+        // Particiones perdidas → EnterFaulted (cierra SSE y deja readiness Faulted).
+        coordinator.HandlePartitionsLost([]);
+        Assert.Equal(FleetKafkaPushReadinessState.Faulted, readiness.State);
+
+        var controller = CreateController(broker, readiness);
+        var (context, _) = CreateHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = context };
+
+        await controller.Stream(CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        var body = await ReadResponseBodyAsync(context);
+        Assert.Contains("kafka-push-not-ready", body);
+        Assert.Contains("Faulted", body);
+    }
+
     private static EventsController CreateController(
         FleetSseBroker broker,
         IFleetKafkaPushReadiness? readiness = null)

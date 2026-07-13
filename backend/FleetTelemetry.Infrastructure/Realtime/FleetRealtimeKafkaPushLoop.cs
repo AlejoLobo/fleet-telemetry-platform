@@ -11,6 +11,14 @@ internal enum KafkaPushAction
     Retry
 }
 
+// Resultado de un ciclo RunOnce para el hosted service / readiness.
+internal enum KafkaPushPollResult
+{
+    Successful = 0,
+    TransientFailure = 1,
+    FatalFailure = 2
+}
+
 // Resultado de procesar un mensaje Kafka antes de confirmar offset.
 internal sealed record KafkaPushStepResult(KafkaPushAction Action, long Offset);
 
@@ -35,6 +43,10 @@ internal sealed class KafkaRealtimePushTransport : IRealtimeKafkaPushTransport, 
         _consumer = consumer;
         _topic = topic;
     }
+
+    public IConsumer<string, string> Consumer => _consumer;
+
+    public string Topic => _topic;
 
     public ConsumeResult<string, string>? Consume(TimeSpan timeout) =>
         _consumer.Consume(timeout);
@@ -161,10 +173,10 @@ internal sealed class FleetRealtimeKafkaPushLoop
 
     internal long? BlockedOffset => _blockedOffset;
 
-    public void RunOnce(IRealtimeKafkaPushTransport transport, TimeSpan timeout) =>
+    public KafkaPushPollResult RunOnce(IRealtimeKafkaPushTransport transport, TimeSpan timeout) =>
         RunOnceAsync(transport, timeout, CancellationToken.None).GetAwaiter().GetResult();
 
-    public async Task RunOnceAsync(
+    public async Task<KafkaPushPollResult> RunOnceAsync(
         IRealtimeKafkaPushTransport transport,
         TimeSpan timeout,
         CancellationToken cancellationToken)
@@ -176,20 +188,25 @@ internal sealed class FleetRealtimeKafkaPushLoop
                 if (!TrySeek(transport, _blockedOffset.Value))
                 {
                     await DelayBackoffAsync(cancellationToken);
-                    return;
+                    return KafkaPushPollResult.TransientFailure;
                 }
             }
 
+            // ConsumeException fatal debe propagarse / marcarse FatalFailure (no absorber).
             var result = transport.Consume(timeout);
             if (result is null)
-                return;
+                return KafkaPushPollResult.Successful;
 
             var offset = result.Offset.Value;
             if (_blockedOffset.HasValue && offset > _blockedOffset.Value)
             {
                 if (!TrySeek(transport, _blockedOffset.Value))
+                {
                     await DelayBackoffAsync(cancellationToken);
-                return;
+                    return KafkaPushPollResult.TransientFailure;
+                }
+
+                return KafkaPushPollResult.Successful;
             }
 
             var step = _processor.Process(result);
@@ -199,13 +216,13 @@ internal sealed class FleetRealtimeKafkaPushLoop
                 {
                     _blockedOffset = offset;
                     await DelayBackoffAsync(cancellationToken);
-                    return;
+                    return KafkaPushPollResult.TransientFailure;
                 }
 
                 if (_blockedOffset == offset)
                     _blockedOffset = null;
                 _transportFailureStreak = 0;
-                return;
+                return KafkaPushPollResult.Successful;
             }
 
             // Retry: mantener bloqueado, Seek y backoff aunque Seek sea exitoso.
@@ -219,15 +236,28 @@ internal sealed class FleetRealtimeKafkaPushLoop
                 offset);
             _ = TrySeek(transport, offset);
             await DelayBackoffAsync(cancellationToken);
+            return KafkaPushPollResult.Successful;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (ConsumeException ex) when (ex.Error.IsFatal)
+        {
+            _logger?.LogCritical(ex, "Fatal Kafka consume error in push loop");
+            return KafkaPushPollResult.FatalFailure;
+        }
+        catch (ConsumeException ex)
+        {
+            _logger?.LogError(ex, "Transient Kafka consume error. Reason={Reason}", ex.Error.Reason);
+            await DelayBackoffAsync(cancellationToken);
+            return KafkaPushPollResult.TransientFailure;
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Unexpected Kafka push loop failure");
             await DelayBackoffAsync(cancellationToken);
+            return KafkaPushPollResult.TransientFailure;
         }
     }
 

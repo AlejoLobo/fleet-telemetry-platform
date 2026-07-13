@@ -302,42 +302,42 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         Assert.Equal(105, brokerA.LastProcessedExternalOffset);
         Assert.Equal(105, brokerB.LastProcessedExternalOffset);
 
-        // Revocar → 503 / not Ready; conservar LastProcessed.
-        sessionA.Coordinator.HandlePartitionsRevoked([]);
-        sessionB.Coordinator.HandlePartitionsRevoked([]);
+        var subA = brokerA.SubscribeFrom(new SseLastEventId.ValidCursor(105));
+        var subB = brokerB.SubscribeFrom(new SseLastEventId.ValidCursor(105));
+        Assert.Empty(subA.ReplayEvents);
+        Assert.Empty(subB.ReplayEvents);
+
+        // Rebalance Kafka real: Unsubscribe → SetPartitionsRevokedHandler vía Consume.
+        sessionA.Transport.Unsubscribe();
+        sessionB.Transport.Unsubscribe();
+        await WaitUntilStateAsync(sessionA, FleetKafkaPushReadinessState.Rebalancing);
+        await WaitUntilStateAsync(sessionB, FleetKafkaPushReadinessState.Rebalancing);
         Assert.False(readinessA.IsReady);
-        Assert.Equal(FleetKafkaPushReadinessState.Rebalancing, readinessA.State);
         Assert.Equal(105, brokerA.LastProcessedExternalOffset);
 
-        // 106..109 durante el rebalance (High alcanzaría 110).
+        // 106..109 durante el rebalance (High alcanzaría 110); no Seek ni ResolveResumeOffset manual.
         await ProduceVehicleUpdatesAsync(_kafka.BootstrapServers, topic, 4);
 
-        // Segunda asignación vía estrategia real del hosted service (no High).
-        var resumeA = sessionA.Coordinator.ResolveResumeOffset(
-            kafkaHighWatermark: 110,
-            lastProcessedExternalOffset: brokerA.LastProcessedExternalOffset,
-            initialPositionOffset: readinessA.InitialPositionOffset,
-            hasCompletedFirstAssignment: true);
-        var resumeB = sessionB.Coordinator.ResolveResumeOffset(
-            kafkaHighWatermark: 110,
-            lastProcessedExternalOffset: brokerB.LastProcessedExternalOffset,
-            initialPositionOffset: readinessB.InitialPositionOffset,
-            hasCompletedFirstAssignment: true);
-        Assert.Equal(106, resumeA);
-        Assert.Equal(106, resumeB);
-
-        sessionA.Transport.Seek(resumeA);
-        sessionB.Transport.Seek(resumeB);
-        ForceAwaitingReady(sessionA.Coordinator);
-        ForceAwaitingReady(sessionB.Coordinator);
+        // Segunda asignación real: Subscribe → SetPartitionsAssignedHandler + posición del handler.
+        sessionA.Transport.Subscribe(topic);
+        sessionB.Transport.Subscribe(topic);
 
         await WaitUntilReadyAsync(sessionA);
         await WaitUntilReadyAsync(sessionB);
+        Assert.Equal(106, readinessA.CurrentResumeOffset);
+        Assert.Equal(106, readinessB.CurrentResumeOffset);
+
         await WaitUntilOffsetAsync(sessionA, minOffset: 109);
         await WaitUntilOffsetAsync(sessionB, minOffset: 109);
 
         Assert.Equal(109, brokerA.LastProcessedExternalOffset);
         Assert.Equal(brokerA.LastProcessedExternalOffset, brokerB.LastProcessedExternalOffset);
+
+        var idsA = DrainLiveIds(subA);
+        var idsB = DrainLiveIds(subB);
+        Assert.Equal(new[] { 106L, 107L, 108L, 109L }, idsA);
+        Assert.Equal(idsA, idsB);
+        Assert.Equal(idsA.Distinct().Count(), idsA.Count);
 
         for (var offset = 100L; offset <= 109; offset++)
         {
@@ -346,34 +346,59 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         }
     }
 
-    private static void ForceAwaitingReady(FleetKafkaPushAssignmentCoordinator coordinator)
-    {
-        typeof(FleetKafkaPushAssignmentCoordinator)
-            .GetField("_awaitingReadyAfterAssignment",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .SetValue(coordinator, true);
-    }
-
     private async Task WaitUntilReadyAsync(HostedStrategySession session)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var deadline = DateTime.UtcNow.AddSeconds(45);
         while (!session.Readiness.IsReady && DateTime.UtcNow < deadline)
         {
-            session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
-            session.Coordinator.NotifySuccessfulPollCycle();
+            var pollResult = session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
+            if (pollResult == KafkaPushPollResult.Successful)
+                session.Coordinator.NotifySuccessfulPollCycle();
+            else if (pollResult == KafkaPushPollResult.FatalFailure)
+            {
+                session.Coordinator.EnterFaulted("Fatal Kafka consume error");
+                break;
+            }
         }
 
         Assert.True(session.Readiness.IsReady, "Kafka push no alcanzó Ready a tiempo.");
         await Task.CompletedTask;
     }
 
+    private async Task WaitUntilStateAsync(
+        HostedStrategySession session,
+        FleetKafkaPushReadinessState expected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        while (session.Readiness.State != expected && DateTime.UtcNow < deadline)
+        {
+            var pollResult = session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
+            if (pollResult == KafkaPushPollResult.Successful)
+                session.Coordinator.NotifySuccessfulPollCycle();
+            else if (pollResult == KafkaPushPollResult.FatalFailure)
+            {
+                session.Coordinator.EnterFaulted("Fatal Kafka consume error");
+                break;
+            }
+        }
+
+        Assert.Equal(expected, session.Readiness.State);
+        await Task.CompletedTask;
+    }
+
     private async Task WaitUntilOffsetAsync(HostedStrategySession session, long minOffset)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var deadline = DateTime.UtcNow.AddSeconds(45);
         while (session.Broker.LastAcceptedExternalOffset < minOffset && DateTime.UtcNow < deadline)
         {
-            session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
-            session.Coordinator.NotifySuccessfulPollCycle();
+            var pollResult = session.Loop.RunOnce(session.Transport, TimeSpan.FromMilliseconds(500));
+            if (pollResult == KafkaPushPollResult.Successful)
+                session.Coordinator.NotifySuccessfulPollCycle();
+            else if (pollResult == KafkaPushPollResult.FatalFailure)
+            {
+                session.Coordinator.EnterFaulted("Fatal Kafka consume error");
+                break;
+            }
         }
 
         Assert.True(
@@ -460,6 +485,10 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
 
         public void Seek(long offset) =>
             _consumer.Seek(new TopicPartitionOffset(_topic, 0, offset));
+
+        public void Unsubscribe() => _consumer.Unsubscribe();
+
+        public void Subscribe(string topic) => _consumer.Subscribe(topic);
 
         public void Dispose() => _consumer.Dispose();
     }
