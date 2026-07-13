@@ -10,7 +10,7 @@ public class FleetSseBrokerTests
     public void PublishLocal_drops_events_for_slow_subscriber_without_blocking()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
-        var subscription = broker.SubscribeFrom(0);
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
         for (var i = 0; i < 20; i++)
             broker.PublishLocal("alert", new { index = i });
@@ -31,8 +31,8 @@ public class FleetSseBrokerTests
     public void TryPublishExternal_assigns_kafka_offset_as_stream_id()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        Assert.True(broker.TryPublishExternal(100, "heartbeat", new { ok = true }));
-        Assert.True(broker.TryPublishExternal(101, "heartbeat", new { ok = true }));
+        Assert.Equal(ExternalPublishResult.Accepted, broker.PublishExternal(100, "heartbeat", new { ok = true }));
+        Assert.Equal(ExternalPublishResult.Accepted, broker.PublishExternal(101, "heartbeat", new { ok = true }));
         Assert.Equal(101, broker.LatestStreamId);
     }
 
@@ -40,11 +40,11 @@ public class FleetSseBrokerTests
     public void SubscribeFrom_replays_events_after_cursor()
     {
         var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
-        broker.TryPublishExternal(10, "alert", new { n = 1 });
-        broker.TryPublishExternal(11, "alert", new { n = 2 });
-        broker.TryPublishExternal(12, "alert", new { n = 3 });
+        broker.PublishExternal(10, "alert", new { n = 1 });
+        broker.PublishExternal(11, "alert", new { n = 2 });
+        broker.PublishExternal(12, "alert", new { n = 3 });
 
-        var subscription = broker.SubscribeFrom(10);
+        var subscription = broker.SubscribeFrom(new SseLastEventId.ValidCursor(10));
 
         Assert.Equal(SseReplayStatus.ReplayAvailable, subscription.ReplayStatus);
         Assert.Equal(2, subscription.ReplayEvents.Count);
@@ -55,8 +55,8 @@ public class FleetSseBrokerTests
     public void Unsubscribe_removes_subscriber_without_affecting_others()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 10);
-        var first = broker.SubscribeFrom(0);
-        broker.SubscribeFrom(0);
+        var first = broker.SubscribeFrom(new SseLastEventId.Missing());
+        broker.SubscribeFrom(new SseLastEventId.Missing());
 
         Assert.Equal(2, broker.SubscriberCount);
 

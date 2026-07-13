@@ -319,7 +319,7 @@ describe("useSseStream FT-005", () => {
     });
 
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      handlers.onEvent({
+      await handlers.onEvent({
         event: REALTIME_EVENTS.streamReset,
         data: JSON.stringify({ reason: "instance-restarted", latestEventId: 200 }),
       });
@@ -328,5 +328,157 @@ describe("useSseStream FT-005", () => {
     renderHook(() => useSseStream({ enabled: true, onStreamReset }));
     await waitFor(() => expect(onStreamReset).toHaveBeenCalled());
     expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBeNull();
+  });
+
+  it("Stream_reset_espera_refresh_antes_de_procesar_live", async () => {
+    const steps: string[] = [];
+    const onStreamReset = vi.fn(async () => {
+      steps.push("refresh-start");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      steps.push("refresh-end");
+    });
+    const onFleetUpdate = vi.fn(() => steps.push("fleet"));
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+      });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "77",
+        data: JSON.stringify({
+          vehicleId: "VH-SEQ",
+          name: "VH-SEQ",
+          status: "online",
+          lastSeenAt: "2026-07-10T10:00:00Z",
+          lastSpeedKmh: 40,
+          lastLatitude: 4.6,
+          lastLongitude: -74.0,
+        }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
+    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalled());
+    expect(steps).toEqual(["refresh-start", "refresh-end", "fleet"]);
+  });
+
+  it("Fallo_del_refresh_no_avanza_Last_Event_ID", async () => {
+    let attempts = 0;
+    const onStreamReset = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 2) throw new Error("refresh failed");
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+      });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "91",
+        data: JSON.stringify({
+          vehicleId: "VH-FAIL",
+          name: "VH-FAIL",
+          status: "online",
+          lastSeenAt: "2026-07-10T10:00:00Z",
+          lastSpeedKmh: 40,
+          lastLatitude: 4.6,
+          lastLongitude: -74.0,
+        }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(attempts).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("91"));
+  });
+
+  it("Fallo_del_refresh_no_aplica_eventos_live", async () => {
+    let attempts = 0;
+    const onStreamReset = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 2) throw new Error("refresh failed");
+    });
+    const onFleetUpdate = vi.fn();
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+      });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "92",
+        data: JSON.stringify({
+          vehicleId: "VH-BLOCK",
+          name: "VH-BLOCK",
+          status: "online",
+          lastSeenAt: "2026-07-10T10:00:00Z",
+          lastSpeedKmh: 40,
+          lastLatitude: 4.6,
+          lastLongitude: -74.0,
+        }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(onFleetUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("Resync_fallido_se_reintenta_hasta_completar", async () => {
+    let attempts = 0;
+    const onStreamReset = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 3) throw new Error("still failing");
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(attempts).toBe(3));
+  });
+
+  it("Solo_despues_del_snapshot_se_reanuda_el_cursor", async () => {
+    let refreshCompleted = false;
+    const onStreamReset = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      refreshCompleted = true;
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: 10 }),
+      });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "93",
+        data: JSON.stringify({
+          vehicleId: "VH-CURSOR",
+          name: "VH-CURSOR",
+          status: "online",
+          lastSeenAt: "2026-07-10T10:00:00Z",
+          lastSpeedKmh: 40,
+          lastLatitude: 4.6,
+          lastLongitude: -74.0,
+        }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("93"));
+    expect(refreshCompleted).toBe(true);
   });
 });
