@@ -54,7 +54,7 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
 
         using var transport = new KafkaRealtimePushTransport(consumer, _kafkaOptions.RealtimeTopic);
         var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
-        var loop = new FleetRealtimeKafkaPushLoop(processor);
+        var loop = new FleetRealtimeKafkaPushLoop(processor, _logger, _metrics);
 
         _logger.LogInformation(
             "SSE Kafka push consumer started. Topic={Topic} Group={Group} InstanceId={InstanceId}",
@@ -68,15 +68,23 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
             {
                 try
                 {
-                    loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
+                    await loop.RunOnceAsync(transport, TimeSpan.FromMilliseconds(500), stoppingToken);
                 }
                 catch (ConsumeException ex)
                 {
                     _logger.LogError(ex, "Kafka realtime consume error. Reason={Reason}", ex.Error.Reason);
                 }
+                catch (KafkaException ex)
+                {
+                    _logger.LogError(ex, "Kafka realtime transport error");
+                }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unhandled Kafka realtime push loop error");
                 }
             }
         }

@@ -52,12 +52,12 @@ internal sealed class KafkaRealtimePushTransport : IRealtimeKafkaPushTransport, 
 internal sealed class RealtimeKafkaPushProcessor
 {
     private readonly FleetSseBroker _broker;
-    private readonly ILogger<FleetSseKafkaPushHostedService>? _logger;
+    private readonly ILogger? _logger;
     private readonly FleetTelemetryMetrics? _metrics;
 
     public RealtimeKafkaPushProcessor(
         FleetSseBroker broker,
-        ILogger<FleetSseKafkaPushHostedService>? logger = null,
+        ILogger? logger = null,
         FleetTelemetryMetrics? metrics = null)
     {
         _broker = broker;
@@ -69,6 +69,11 @@ internal sealed class RealtimeKafkaPushProcessor
     {
         try
         {
+            if (result.Message is null || result.Message.Value is null)
+            {
+                return HandleInvalidPayload(result, "tombstone-or-null-value");
+            }
+
             var message = FleetRealtimeKafkaMessage.Deserialize(result.Message.Value);
             FleetRealtimeKafkaMessageValidator.Validate(message);
 
@@ -129,43 +134,136 @@ internal sealed class RealtimeKafkaPushProcessor
     }
 }
 
-// Loop secuencial: no confirma offsets posteriores si el actual falló.
+// Loop secuencial con recuperación de Commit/Seek y backoff cancelable.
 internal sealed class FleetRealtimeKafkaPushLoop
 {
     private readonly RealtimeKafkaPushProcessor _processor;
+    private readonly ILogger? _logger;
+    private readonly FleetTelemetryMetrics? _metrics;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
+    private readonly TimeSpan _backoff;
     private long? _blockedOffset;
+    private int _transportFailureStreak;
 
-    public FleetRealtimeKafkaPushLoop(RealtimeKafkaPushProcessor processor) =>
+    public FleetRealtimeKafkaPushLoop(
+        RealtimeKafkaPushProcessor processor,
+        ILogger? logger = null,
+        FleetTelemetryMetrics? metrics = null,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
+        TimeSpan? backoff = null)
+    {
         _processor = processor;
+        _logger = logger;
+        _metrics = metrics;
+        _delayAsync = delayAsync ?? ((delay, ct) => Task.Delay(delay, ct));
+        _backoff = backoff ?? TimeSpan.FromMilliseconds(200);
+    }
 
     internal long? BlockedOffset => _blockedOffset;
 
-    public void RunOnce(IRealtimeKafkaPushTransport transport, TimeSpan timeout)
+    public void RunOnce(IRealtimeKafkaPushTransport transport, TimeSpan timeout) =>
+        RunOnceAsync(transport, timeout, CancellationToken.None).GetAwaiter().GetResult();
+
+    public async Task RunOnceAsync(
+        IRealtimeKafkaPushTransport transport,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
-        if (_blockedOffset.HasValue)
-            transport.Seek(_blockedOffset.Value);
-
-        var result = transport.Consume(timeout);
-        if (result?.Message?.Value is null)
-            return;
-
-        var offset = result.Offset.Value;
-        if (_blockedOffset.HasValue && offset > _blockedOffset.Value)
+        try
         {
-            transport.Seek(_blockedOffset.Value);
-            return;
-        }
+            if (_blockedOffset.HasValue)
+            {
+                if (!TrySeek(transport, _blockedOffset.Value))
+                {
+                    await DelayBackoffAsync(cancellationToken);
+                    return;
+                }
+            }
 
-        var step = _processor.Process(result);
-        if (step.Action == KafkaPushAction.Commit)
+            var result = transport.Consume(timeout);
+            if (result is null)
+                return;
+
+            var offset = result.Offset.Value;
+            if (_blockedOffset.HasValue && offset > _blockedOffset.Value)
+            {
+                if (!TrySeek(transport, _blockedOffset.Value))
+                    await DelayBackoffAsync(cancellationToken);
+                return;
+            }
+
+            var step = _processor.Process(result);
+            if (step.Action == KafkaPushAction.Commit)
+            {
+                if (!TryCommit(transport, result))
+                {
+                    _blockedOffset = offset;
+                    await DelayBackoffAsync(cancellationToken);
+                    return;
+                }
+
+                if (_blockedOffset == offset)
+                    _blockedOffset = null;
+                _transportFailureStreak = 0;
+                return;
+            }
+
+            _blockedOffset = offset;
+            if (!TrySeek(transport, offset))
+                await DelayBackoffAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Unexpected Kafka push loop failure");
+            await DelayBackoffAsync(cancellationToken);
+        }
+    }
+
+    private bool TryCommit(IRealtimeKafkaPushTransport transport, ConsumeResult<string, string> result)
+    {
+        try
         {
             transport.Commit(result);
-            if (_blockedOffset == offset)
-                _blockedOffset = null;
-            return;
+            return true;
         }
+        catch (Exception ex)
+        {
+            _transportFailureStreak++;
+            _metrics?.RealtimeCommitFailuresTotal.Add(1);
+            _logger?.LogError(
+                ex,
+                "Kafka commit failed at {Topic}/{Partition}@{Offset}",
+                result.Topic,
+                result.Partition.Value,
+                result.Offset.Value);
+            return false;
+        }
+    }
 
-        _blockedOffset = offset;
-        transport.Seek(offset);
+    private bool TrySeek(IRealtimeKafkaPushTransport transport, long offset)
+    {
+        try
+        {
+            transport.Seek(offset);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _transportFailureStreak++;
+            _metrics?.RealtimeSeekFailuresTotal.Add(1);
+            _logger?.LogError(ex, "Kafka seek failed at offset {Offset}", offset);
+            return false;
+        }
+    }
+
+    private Task DelayBackoffAsync(CancellationToken cancellationToken)
+    {
+        var factor = Math.Min(8, Math.Max(1, _transportFailureStreak));
+        var delay = TimeSpan.FromMilliseconds(_backoff.TotalMilliseconds * factor);
+        return _delayAsync(delay, cancellationToken);
     }
 }

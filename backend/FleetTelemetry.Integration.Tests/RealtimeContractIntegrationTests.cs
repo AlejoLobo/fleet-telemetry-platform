@@ -29,6 +29,7 @@ public class RealtimeContractIntegrationTests
 
         var kafkaMessage = new FleetRealtimeKafkaMessage
         {
+            SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
             EventType = FleetRealtimeEventTypes.VehicleUpdate,
             Payload = JsonDocument.Parse(payloadJson).RootElement,
             OccurredAt = DateTimeOffset.UtcNow,

@@ -154,9 +154,10 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
         {
             var message = FleetRealtimeKafkaMessage.Serialize(new FleetRealtimeKafkaMessage
             {
+                SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
                 EventType = FleetRealtimeEventTypes.VehicleUpdate,
                 Payload = System.Text.Json.JsonDocument.Parse(
-                    $$"""{"vehicleId":"VH-{{index:D3}}","status":"online"}""").RootElement,
+                    $$"""{"vehicleId":"VH-{{index:D3}}","name":"VH-{{index:D3}}","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"}""").RootElement,
                 OccurredAt = DateTimeOffset.UtcNow,
                 VehicleId = $"VH-{index:D3}"
             });
