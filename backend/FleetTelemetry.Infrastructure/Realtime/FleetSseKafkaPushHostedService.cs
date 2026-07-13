@@ -48,6 +48,10 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
         consumer.Subscribe(_kafkaOptions.RealtimeTopic);
 
+        using var transport = new KafkaRealtimePushTransport(consumer, _kafkaOptions.RealtimeTopic);
+        var processor = new RealtimeKafkaPushProcessor(_broker);
+        var loop = new FleetRealtimeKafkaPushLoop(processor);
+
         _logger.LogInformation(
             "SSE Kafka push consumer started. Topic={Topic} Group={Group} InstanceId={InstanceId}",
             _kafkaOptions.RealtimeTopic,
@@ -60,28 +64,7 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
             {
                 try
                 {
-                    var result = consumer.Consume(TimeSpan.FromMilliseconds(500));
-                    if (result?.Message?.Value is null)
-                        continue;
-
-                    var message = FleetRealtimeKafkaMessage.Deserialize(result.Message.Value);
-                    var streamId = result.Offset.Value;
-
-                    if (_broker.TryPublishExternal(
-                            streamId,
-                            message.EventType,
-                            message.Payload,
-                            message.OccurredAt))
-                    {
-                        consumer.Commit(result);
-                    }
-                    else
-                    {
-                        _logger.LogDebug(
-                            "Skipped duplicate realtime event at offset {Offset}",
-                            streamId);
-                        consumer.Commit(result);
-                    }
+                    loop.RunOnce(transport, TimeSpan.FromMilliseconds(500));
                 }
                 catch (ConsumeException ex)
                 {
@@ -90,10 +73,6 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Invalid fleet realtime payload skipped");
                 }
             }
         }
