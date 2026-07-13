@@ -91,6 +91,34 @@ public class FleetRealtimeKafkaPushLoopTests
         Assert.Equal("invalid-payload-gap", reconnect.ResetReason);
     }
 
+    [Theory]
+    [InlineData("future-schema", """{"schemaVersion":99,"eventType":"vehicle-update","payload":{"vehicleId":"VH-001"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
+    [InlineData("unknown-event", """{"schemaVersion":1,"eventType":"unknown-event","payload":{"vehicleId":"VH-001"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
+    [InlineData("null-payload", """{"schemaVersion":1,"eventType":"vehicle-update","payload":null,"occurredAt":"2026-07-13T10:00:00Z"}""")]
+    [InlineData("missing-vehicleId", """{"schemaVersion":1,"eventType":"vehicle-update","payload":{"status":"online"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
+    public void Contrato_invalido_avanza_offset_y_fuerza_reset(string _case, string invalidJson)
+    {
+        var transport = new FakeKafkaPushTransport();
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var loop = new FleetRealtimeKafkaPushLoop(new RealtimeKafkaPushProcessor(broker));
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
+
+        transport.Enqueue(ConsumeResult(70, invalidJson));
+        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        transport.Enqueue(ConsumeResult(71, ValidPayload()));
+        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+
+        Assert.Equal([70, 71], transport.CommittedOffsets);
+        Assert.True(broker.IsInvalidCommittedOffset(70));
+        Assert.Equal(71, broker.LastProcessedExternalOffset);
+
+        Assert.True(subscription.LiveReader.TryRead(out var resetEvent));
+        Assert.Equal(FleetRealtimeEventTypes.StreamReset, resetEvent.EventType);
+        Assert.True(subscription.LiveReader.TryRead(out var liveEvent));
+        Assert.Equal(71, liveEvent.StreamId);
+        _ = _case;
+    }
+
     private static ConsumeResult<string, string> ConsumeResult(long offset, string payload) =>
         new()
         {

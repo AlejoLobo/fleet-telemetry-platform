@@ -70,10 +70,7 @@ internal sealed class RealtimeKafkaPushProcessor
         try
         {
             var message = FleetRealtimeKafkaMessage.Deserialize(result.Message.Value);
-            if (string.IsNullOrWhiteSpace(message.EventType))
-            {
-                return HandleInvalidPayload(result, "missing-event-type");
-            }
+            FleetRealtimeKafkaMessageValidator.Validate(message);
 
             var streamId = result.Offset.Value;
             Application.Realtime.ExternalPublishResult publishResult;

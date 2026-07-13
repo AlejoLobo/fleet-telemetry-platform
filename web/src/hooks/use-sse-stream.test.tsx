@@ -336,6 +336,90 @@ describe("useSseStream FT-005", () => {
     expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("100");
   });
 
+  it("Desmonte_con_cutover_valido_pendiente_conserva_marca_para_segunda_conexion", async () => {
+    let resolveSnapshot: (() => void) | undefined;
+    const onStreamReset = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveSnapshot = resolve;
+      });
+    });
+    const onFleetUpdate = vi.fn();
+    let connection = 0;
+    const vehiclePayload = {
+      vehicleId: "VH-UNMOUNT",
+      name: "VH-UNMOUNT",
+      status: "online",
+      lastSeenAt: "2026-07-10T10:00:00Z",
+      lastSpeedKmh: 40,
+      lastLatitude: 4.6,
+      lastLongitude: -74.0,
+    };
+
+    vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(10);
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      connection += 1;
+      if (connection === 1) {
+        await handlers.onEvent({
+          event: REALTIME_EVENTS.streamReset,
+          data: JSON.stringify({ reason: "replay-gap", latestEventId: "88" }),
+        });
+        return new Promise(() => {
+          /* abierta hasta desmontar */
+        });
+      }
+
+      await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "89",
+        data: JSON.stringify(vehiclePayload),
+      });
+      return new Promise(() => {
+        /* mantener abierta */
+      });
+    });
+
+    const first = renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalledTimes(1));
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBe("1");
+    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBeNull();
+
+    first.unmount();
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBe("1");
+
+    const secondResets: Array<() => void> = [];
+    const onStreamReset2 = vi.fn(async () => {
+      secondResets.push(() => undefined);
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset: onStreamReset2, onFleetUpdate }));
+    await waitFor(() => expect(onStreamReset2).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalled());
+    expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("89");
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
+    resolveSnapshot?.();
+  });
+
+  it("Stream_reset_con_cutover_valido_activa_marca_antes_del_snapshot", async () => {
+    let sawMarkerDuringSnapshot = false;
+    const onStreamReset = vi.fn(async () => {
+      sawMarkerDuringSnapshot = sessionStorage.getItem("fleet-sse-resync-pending") === "1";
+    });
+
+    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "replay-gap", latestEventId: "42" }),
+      });
+    });
+
+    renderHook(() => useSseStream({ enabled: true, onStreamReset }));
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalled());
+    expect(sawMarkerDuringSnapshot).toBe(true);
+    await waitFor(() => expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("42"));
+    expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
+  });
+
   it("Segunda_conexion_sin_stream_reset_ejecuta_snapshot_por_marca_persistida", async () => {
     const onStreamReset = vi.fn(async () => undefined);
     const onFleetUpdate = vi.fn();

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /** Muestra historial de velocidad, combustible y ubicación. */
-export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]; vehicleId: string }) {
+export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]; vehicleId: string | null }) {
   return (
     <Card className="h-full">
       <CardHeader className="border-b border-border">
@@ -17,7 +17,8 @@ export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]
               Telemetría detallada
             </CardTitle>
             <CardDescription className="mt-1">
-              Historial de eventos · vehículo <span className="font-medium text-slate-700">{vehicleId}</span>
+              Historial de eventos · vehículo{" "}
+              <span className="font-medium text-slate-700">{vehicleId ?? "sin selección"}</span>
             </CardDescription>
           </div>
           <Badge variant="outline">{events.length} eventos</Badge>

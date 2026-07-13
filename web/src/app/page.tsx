@@ -42,7 +42,7 @@ import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 export default function DashboardPage() {
 
   // Estado de selección y datos en vivo
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("VH-001");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("VH-001");
 
   const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
 
@@ -152,9 +152,7 @@ export default function DashboardPage() {
       setLiveAlerts([]);
       setAlertsAttention(false);
       const result = await refreshForResync(selectedVehicleId);
-      if (result.resolvedVehicleId && result.resolvedVehicleId !== selectedVehicleId) {
-        setSelectedVehicleId(result.resolvedVehicleId);
-      }
+      setSelectedVehicleId(result.resolvedVehicleId);
     },
 
   });
@@ -162,13 +160,14 @@ export default function DashboardPage() {
 
 
   useEffect(() => {
-
-    if (vehicles.length > 0 && !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
-
-      setSelectedVehicleId(vehicles[0].vehicleId);
-
+    if (vehicles.length === 0) {
+      if (selectedVehicleId !== null) setSelectedVehicleId(null);
+      return;
     }
 
+    if (!selectedVehicleId || !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
+      setSelectedVehicleId(vehicles[0].vehicleId);
+    }
   }, [vehicles, selectedVehicleId]);
 
 

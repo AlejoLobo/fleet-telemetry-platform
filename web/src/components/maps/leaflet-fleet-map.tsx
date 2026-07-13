@@ -18,7 +18,7 @@ export type MapFocusTarget = {
 
 type LeafletFleetMapProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string;
+  selectedVehicleId?: string | null;
   focusTarget?: MapFocusTarget | null;
   autoFit?: boolean;
 };

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Threading.Channels;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Realtime;
@@ -15,10 +16,10 @@ public class FleetSseBroker
     private readonly ConcurrentDictionary<Guid, SubscriberState> _subscribers = new();
     private readonly List<FleetSseEvent> _replayBuffer = [];
     private readonly HashSet<long> _replayIds = [];
-    private readonly HashSet<long> _invalidCommittedOffsets = [];
+    private readonly InvalidOffsetIntervalSet _invalidOffsets;
     private long _latestStreamId;
-    private long _lastAcceptedExternalOffset = -1;
-    private long _firstAcceptedExternalOffset = -1;
+    private long _lastProcessedExternalOffset = -1;
+    private long _firstProcessedExternalOffset = -1;
     private long _nextLocalStreamId = 1;
 
     private long _publishedEvents;
@@ -27,12 +28,18 @@ public class FleetSseBroker
     private long _totalUnsubscribes;
     private long _duplicateEvents;
     private long _outOfOrderEvents;
+    private long _invalidCommittedOffsetCount;
 
-    public FleetSseBroker(TimeProvider timeProvider, int channelCapacity = 100, int replayBufferSize = 200)
+    public FleetSseBroker(
+        TimeProvider timeProvider,
+        int channelCapacity = 100,
+        int replayBufferSize = 200,
+        int maxInvalidOffsetsCovered = 10_000)
     {
         _timeProvider = timeProvider;
         _channelCapacity = Math.Max(1, channelCapacity);
         _replayBufferSize = Math.Max(10, replayBufferSize);
+        _invalidOffsets = new InvalidOffsetIntervalSet(maxInvalidOffsetsCovered);
     }
 
     public long PublishedEvents => Interlocked.Read(ref _publishedEvents);
@@ -41,12 +48,16 @@ public class FleetSseBroker
     public long OutOfOrderEvents => Interlocked.Read(ref _outOfOrderEvents);
     public long TotalSubscriptions => Interlocked.Read(ref _totalSubscriptions);
     public long TotalUnsubscribes => Interlocked.Read(ref _totalUnsubscribes);
-    public long LastAcceptedExternalOffset
+    public long InvalidCommittedOffsets => Interlocked.Read(ref _invalidCommittedOffsetCount);
+
+    public long LastAcceptedExternalOffset => LastProcessedExternalOffset;
+
+    public long LastProcessedExternalOffset
     {
         get
         {
             lock (_sync)
-                return _lastAcceptedExternalOffset;
+                return _lastProcessedExternalOffset;
         }
     }
 
@@ -59,15 +70,30 @@ public class FleetSseBroker
         }
     }
 
-    public long InvalidCommittedOffsets => Interlocked.Read(ref _invalidCommittedOffsetCount);
-    private long _invalidCommittedOffsetCount;
+    public int InvalidOffsetIntervalCount
+    {
+        get
+        {
+            lock (_sync)
+                return _invalidOffsets.IntervalCount;
+        }
+    }
+
+    public long InvalidOffsetCoveredCount
+    {
+        get
+        {
+            lock (_sync)
+                return _invalidOffsets.CoveredOffsetCount;
+        }
+    }
 
     public int SubscriberCount => _subscribers.Count;
 
     public bool IsInvalidCommittedOffset(long streamId)
     {
         lock (_sync)
-            return _invalidCommittedOffsets.Contains(streamId);
+            return _invalidOffsets.Contains(streamId);
     }
 
     public SseSubscription SubscribeFrom(SseLastEventId lastEventId)
@@ -75,7 +101,7 @@ public class FleetSseBroker
         lock (_sync)
         {
             var subscriptionId = Guid.NewGuid();
-            var cutoverId = _replayBuffer.Count == 0 ? -1L : _latestStreamId;
+            var cutoverId = ResolveCutoverIdLocked();
 
             return lastEventId switch
             {
@@ -123,17 +149,9 @@ public class FleetSseBroker
 
         lock (_sync)
         {
-            if (streamId <= _lastAcceptedExternalOffset)
-            {
-                if (_firstAcceptedExternalOffset >= 0 && streamId >= _firstAcceptedExternalOffset)
-                {
-                    Interlocked.Increment(ref _duplicateEvents);
-                    return ExternalPublishResult.Duplicate;
-                }
-
-                Interlocked.Increment(ref _outOfOrderEvents);
-                return ExternalPublishResult.OutOfOrder;
-            }
+            var dedup = EvaluateExternalDedupLocked(streamId);
+            if (dedup is not null)
+                return dedup.Value;
 
             if (_replayIds.Contains(streamId))
             {
@@ -148,9 +166,7 @@ public class FleetSseBroker
                 timestamp ?? _timeProvider.GetUtcNow());
 
             EnqueueReplayLocked(sseEvent);
-            if (_firstAcceptedExternalOffset < 0)
-                _firstAcceptedExternalOffset = streamId;
-            _lastAcceptedExternalOffset = streamId;
+            AdvanceWatermarkLocked(streamId);
             _latestStreamId = Math.Max(_latestStreamId, streamId);
 
             FanOutLiveLocked(sseEvent);
@@ -195,17 +211,20 @@ public class FleetSseBroker
     {
         long? latestEventId;
         lock (_sync)
-            latestEventId = _latestStreamId >= 0 ? _latestStreamId : null;
+        {
+            var cutoverId = ResolveCutoverIdLocked();
+            latestEventId = cutoverId >= 0 ? cutoverId : null;
+        }
 
         PublishEphemeral(
             FleetRealtimeEventTypes.StreamReset,
             new SseStreamResetData(
                 reason,
-                latestEventId?.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                latestEventId?.ToString(CultureInfo.InvariantCulture)),
             _timeProvider.GetUtcNow());
     }
 
-    // Avanza el offset Kafka inválido sin publicar evento ni reintentar el mismo mensaje.
+    // Avanza el watermark Kafka inválido sin publicar evento ni reintentar el mismo mensaje.
     public ExternalPublishResult RecordInvalidExternalOffset(long streamId)
     {
         if (streamId < 0)
@@ -216,29 +235,19 @@ public class FleetSseBroker
 
         lock (_sync)
         {
-            if (_invalidCommittedOffsets.Contains(streamId))
+            if (_invalidOffsets.Contains(streamId))
             {
                 Interlocked.Increment(ref _duplicateEvents);
                 return ExternalPublishResult.Duplicate;
             }
 
-            if (streamId <= _lastAcceptedExternalOffset)
-            {
-                if (_firstAcceptedExternalOffset >= 0 && streamId >= _firstAcceptedExternalOffset)
-                {
-                    Interlocked.Increment(ref _duplicateEvents);
-                    return ExternalPublishResult.Duplicate;
-                }
+            var dedup = EvaluateExternalDedupLocked(streamId);
+            if (dedup is not null)
+                return dedup.Value;
 
-                Interlocked.Increment(ref _outOfOrderEvents);
-                return ExternalPublishResult.OutOfOrder;
-            }
-
-            _invalidCommittedOffsets.Add(streamId);
+            _invalidOffsets.Add(streamId);
             Interlocked.Increment(ref _invalidCommittedOffsetCount);
-            if (_firstAcceptedExternalOffset < 0)
-                _firstAcceptedExternalOffset = streamId;
-            _lastAcceptedExternalOffset = streamId;
+            AdvanceWatermarkLocked(streamId);
             return ExternalPublishResult.Accepted;
         }
     }
@@ -252,6 +261,43 @@ public class FleetSseBroker
             if (pair.Value.LastActivity < staleBefore)
                 Unsubscribe(pair.Key);
         }
+    }
+
+    private long ResolveCutoverIdLocked()
+    {
+        if (_lastProcessedExternalOffset >= 0)
+            return _lastProcessedExternalOffset;
+
+        return _replayBuffer.Count == 0 ? -1L : _latestStreamId;
+    }
+
+    private ExternalPublishResult? EvaluateExternalDedupLocked(long streamId)
+    {
+        if (streamId <= _lastProcessedExternalOffset)
+        {
+            if (_firstProcessedExternalOffset >= 0 && streamId >= _firstProcessedExternalOffset)
+            {
+                Interlocked.Increment(ref _duplicateEvents);
+                return ExternalPublishResult.Duplicate;
+            }
+
+            Interlocked.Increment(ref _outOfOrderEvents);
+            return ExternalPublishResult.OutOfOrder;
+        }
+
+        return null;
+    }
+
+    private void AdvanceWatermarkLocked(long streamId)
+    {
+        if (_firstProcessedExternalOffset < 0)
+            _firstProcessedExternalOffset = streamId;
+        _lastProcessedExternalOffset = streamId;
+
+        // Retención acotada: descarta gaps antiguos fuera de la ventana del replay.
+        var retentionFloor = _lastProcessedExternalOffset - Math.Max(_replayBufferSize * 4L, 1_000L);
+        if (retentionFloor >= 0)
+            _invalidOffsets.PruneBeforeOrEqual(retentionFloor);
     }
 
     private SseSubscription CreateValidCursorSubscription(
@@ -290,7 +336,7 @@ public class FleetSseBroker
             LiveReader = channel.Reader,
             CutoverId = cutoverId,
             LatestEventId = cutoverId >= 0
-                ? cutoverId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ? cutoverId.ToString(CultureInfo.InvariantCulture)
                 : null,
             ResetReason = resetReason
         };
@@ -328,8 +374,7 @@ public class FleetSseBroker
     {
         resetReason = null;
 
-        var firstBufferedId = _replayBuffer.Count == 0 ? (long?)null : _replayBuffer[0].StreamId;
-        if (firstBufferedId is null)
+        if (cutoverId < 0)
         {
             resetReason = "instance-restarted";
             return SseReplayStatus.ReplayGap;
@@ -341,17 +386,26 @@ public class FleetSseBroker
             return SseReplayStatus.LastEventIdAhead;
         }
 
-        if (lastEventId + 1 < firstBufferedId.Value)
+        // Cualquier offset inválido en (lastEventId, cutoverId], incluso con buffer parcial.
+        if (_invalidOffsets.HasAnyInOpenClosedRange(lastEventId, cutoverId))
         {
-            for (var missing = lastEventId + 1; missing < firstBufferedId.Value; missing++)
-            {
-                if (_invalidCommittedOffsets.Contains(missing))
-                {
-                    resetReason = "invalid-payload-gap";
-                    return SseReplayStatus.ReplayGap;
-                }
-            }
+            resetReason = "invalid-payload-gap";
+            return SseReplayStatus.ReplayGap;
+        }
 
+        var firstBufferedId = _replayBuffer.Count == 0 ? (long?)null : _replayBuffer[0].StreamId;
+        if (firstBufferedId is null)
+        {
+            // Watermark sin eventos reproducibles (p. ej. solo inválidos): al día si cursor == watermark.
+            if (lastEventId == cutoverId)
+                return SseReplayStatus.ReplayAvailable;
+
+            resetReason = "instance-restarted";
+            return SseReplayStatus.ReplayGap;
+        }
+
+        if (lastEventId + 1 < firstBufferedId.Value && lastEventId < cutoverId)
+        {
             resetReason = "replay-gap";
             return SseReplayStatus.ReplayGap;
         }
