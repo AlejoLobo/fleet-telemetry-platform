@@ -6,19 +6,47 @@ export class ResyncFailedError extends Error {
   }
 }
 
+/** Regex para IDs decimales de offset Kafka (64-bit seguro como string). */
+export const DECIMAL_EVENT_ID_PATTERN = /^(0|[1-9]\d*)$/;
+
+export type StreamResetPayload = {
+  reason: string;
+  latestEventId: string | null;
+};
+
+/** Valida y normaliza un ID de evento decimal sin conversión numérica. */
+export function parseDecimalEventId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!DECIMAL_EVENT_ID_PATTERN.test(trimmed)) return null;
+  return trimmed;
+}
+
 /** Parsea el payload de stream-reset emitido por la API. */
-export function parseStreamResetPayload(data: string): { reason: string; latestEventId: number | null } | null {
+export function parseStreamResetPayload(data: string): StreamResetPayload | null {
   try {
-    const parsed = JSON.parse(data) as { reason?: string; latestEventId?: number | null };
+    const parsed = JSON.parse(data) as { reason?: unknown; latestEventId?: unknown };
     if (!parsed || typeof parsed.reason !== "string") return null;
-    const latestEventId = parsed.latestEventId === null || parsed.latestEventId === undefined
-      ? null
-      : Number(parsed.latestEventId);
-    if (latestEventId !== null && (!Number.isFinite(latestEventId) || latestEventId < 0)) {
-      return null;
+
+    if (parsed.latestEventId === null || parsed.latestEventId === undefined) {
+      return { reason: parsed.reason, latestEventId: null };
     }
+
+    const latestEventId = parseDecimalEventId(
+      typeof parsed.latestEventId === "number"
+        ? null
+        : String(parsed.latestEventId),
+    );
+    if (latestEventId === null) return null;
+
     return { reason: parsed.reason, latestEventId };
   } catch {
     return null;
   }
 }
+
+export type ResyncSnapshotResult = {
+  resolvedVehicleId: string | null;
+};

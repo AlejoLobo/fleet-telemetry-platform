@@ -16,7 +16,7 @@ public sealed class SseSubscription
 
     public required long CutoverId { get; init; }
 
-    public long? LatestEventId { get; init; }
+    public string? LatestEventId { get; init; }
 
     public string? ResetReason { get; init; }
 }

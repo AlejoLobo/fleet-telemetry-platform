@@ -119,6 +119,7 @@ export type SseFetchHandlers = {
 };
 
 const LAST_EVENT_ID_STORAGE_KEY = "fleet-sse-last-event-id";
+const RESYNC_MARKER_STORAGE_KEY = "fleet-sse-resync-pending";
 
 export function readStoredLastEventId(): string | null {
   if (typeof window === "undefined") return null;
@@ -137,6 +138,30 @@ export function writeStoredLastEventId(value: string | null) {
   } catch {
     /* storage no disponible */
   }
+}
+
+export function readStoredResyncMarker(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(RESYNC_MARKER_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeStoredResyncMarker(required: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (required) window.sessionStorage.setItem(RESYNC_MARKER_STORAGE_KEY, "1");
+    else window.sessionStorage.removeItem(RESYNC_MARKER_STORAGE_KEY);
+  } catch {
+    /* storage no disponible */
+  }
+}
+
+export function clearSseCursorState() {
+  writeStoredLastEventId(null);
+  writeStoredResyncMarker(false);
 }
 
 /** Conecta al stream SSE vía fetch con soporte de Authorization y AbortSignal. */

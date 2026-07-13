@@ -1,4 +1,6 @@
 using Confluent.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
+using Microsoft.Extensions.Logging;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
@@ -50,20 +52,45 @@ internal sealed class KafkaRealtimePushTransport : IRealtimeKafkaPushTransport, 
 internal sealed class RealtimeKafkaPushProcessor
 {
     private readonly FleetSseBroker _broker;
+    private readonly ILogger<FleetSseKafkaPushHostedService>? _logger;
+    private readonly FleetTelemetryMetrics? _metrics;
 
-    public RealtimeKafkaPushProcessor(FleetSseBroker broker) => _broker = broker;
+    public RealtimeKafkaPushProcessor(
+        FleetSseBroker broker,
+        ILogger<FleetSseKafkaPushHostedService>? logger = null,
+        FleetTelemetryMetrics? metrics = null)
+    {
+        _broker = broker;
+        _logger = logger;
+        _metrics = metrics;
+    }
 
     public KafkaPushStepResult Process(ConsumeResult<string, string> result)
     {
         try
         {
             var message = FleetRealtimeKafkaMessage.Deserialize(result.Message.Value);
+            if (string.IsNullOrWhiteSpace(message.EventType))
+            {
+                return HandleInvalidPayload(result, "missing-event-type");
+            }
+
             var streamId = result.Offset.Value;
-            var publishResult = _broker.PublishExternal(
-                streamId,
-                message.EventType,
-                message.Payload,
-                message.OccurredAt);
+            Application.Realtime.ExternalPublishResult publishResult;
+            try
+            {
+                publishResult = _broker.PublishExternal(
+                    streamId,
+                    message.EventType,
+                    message.Payload,
+                    message.OccurredAt);
+            }
+            catch (Exception ex)
+            {
+                throw new RealtimeKafkaTransientPublishException(
+                    $"Transient SSE publish failure at offset {streamId}.",
+                    ex);
+            }
 
             return publishResult switch
             {
@@ -76,10 +103,32 @@ internal sealed class RealtimeKafkaPushProcessor
                 _ => new KafkaPushStepResult(KafkaPushAction.Retry, streamId)
             };
         }
-        catch
+        catch (RealtimeKafkaInvalidPayloadException ex)
+        {
+            return HandleInvalidPayload(result, ex.Message);
+        }
+        catch (RealtimeKafkaTransientPublishException)
         {
             return new KafkaPushStepResult(KafkaPushAction.Retry, result.Offset.Value);
         }
+    }
+
+    private KafkaPushStepResult HandleInvalidPayload(ConsumeResult<string, string> result, string reason)
+    {
+        var offset = result.Offset.Value;
+        _logger?.LogError(
+            "Invalid fleet.realtime payload at {Topic}/{Partition}@{Offset}: {Reason}",
+            result.Topic,
+            result.Partition.Value,
+            offset,
+            reason);
+
+        _metrics?.RealtimeInvalidPayloadTotal.Add(1);
+
+        _broker.RecordInvalidExternalOffset(offset);
+        _broker.PublishStreamResetToAll("invalid-payload");
+
+        return new KafkaPushStepResult(KafkaPushAction.Commit, offset);
     }
 }
 
