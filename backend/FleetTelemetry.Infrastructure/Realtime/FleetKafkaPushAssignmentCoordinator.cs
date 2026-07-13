@@ -49,12 +49,7 @@ internal sealed class FleetKafkaPushAssignmentCoordinator
         lock (_sync)
             _awaitingReadyAfterAssignment = false;
 
-        const string reason = "Kafka partitions lost.";
-        _readiness.MarkFaulted(reason);
-        _logger?.LogError(
-            "SSE Kafka push faulted: {Reason} LastProcessed={LastProcessed}",
-            reason,
-            _broker.LastProcessedExternalOffset);
+        EnterFaulted("Kafka partitions lost.");
     }
 
     public IEnumerable<TopicPartitionOffset> HandlePartitionsAssigned(
@@ -65,9 +60,8 @@ internal sealed class FleetKafkaPushAssignmentCoordinator
 
         if (partitions.Count != 1)
         {
-            var reason = $"Expected exactly one partition assignment, got {partitions.Count}.";
-            _readiness.MarkFaulted(reason);
-            throw new InvalidOperationException(reason);
+            EnterFaulted($"Expected exactly one partition assignment, got {partitions.Count}.");
+            throw new InvalidOperationException(_readiness.FaultReason);
         }
 
         var partition = partitions[0];
@@ -85,7 +79,7 @@ internal sealed class FleetKafkaPushAssignmentCoordinator
         return [new TopicPartitionOffset(partition, new Offset(resumeOffset))];
     }
 
-    // Tras un ciclo de poll sin excepción: Ready solo si hay asignación pendiente.
+    // Tras un ciclo de poll Successful: Ready solo si hay asignación pendiente.
     public void NotifySuccessfulPollCycle()
     {
         bool shouldMarkReady;
@@ -107,6 +101,20 @@ internal sealed class FleetKafkaPushAssignmentCoordinator
             _readiness.CurrentResumeOffset);
     }
 
+    public void EnterFaulted(string reason)
+    {
+        lock (_sync)
+            _awaitingReadyAfterAssignment = false;
+
+        _readiness.MarkFaulted(reason);
+        var closed = _broker.CompleteAllSubscribers(reason);
+        _logger?.LogError(
+            "SSE Kafka push Faulted. Reason={Reason} ClosedSubscribers={Closed} LastProcessed={LastProcessed}",
+            reason,
+            closed,
+            _broker.LastProcessedExternalOffset);
+    }
+
     // Resolución de offset reutilizable en pruebas unitarias.
     internal long ResolveResumeOffset(
         long? kafkaHighWatermark,
@@ -123,7 +131,6 @@ internal sealed class FleetKafkaPushAssignmentCoordinator
             return kafkaHighWatermark.Value;
         }
 
-        // Reasignación: no consultar High; continuar desde watermark del broker.
         var resume = lastProcessedExternalOffset >= 0
             ? lastProcessedExternalOffset + 1
             : initialPositionOffset
