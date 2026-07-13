@@ -107,7 +107,7 @@ describe("sse-fetch-client FT-001", () => {
         signal: controller.signal,
       },
       {
-        onEvent: ({ event }) => events.push(event),
+        onEvent: ({ event }) => { events.push(event); },
       },
     );
 
