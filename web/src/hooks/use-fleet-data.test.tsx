@@ -6,6 +6,7 @@ import { useFleetData } from "@/hooks/use-fleet-data";
 const fetchFleetLive = vi.fn();
 const fetchAlertsLive = vi.fn();
 const fetchOpsSummary = vi.fn();
+const fetchTelemetrySnapshot = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   apiClient: {
@@ -16,11 +17,7 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 vi.mock("@/lib/fleet-pagination", () => ({
-  fetchTelemetrySnapshot: vi.fn(async () => ({
-    events: [],
-    partial: false,
-    truncated: false,
-  })),
+  fetchTelemetrySnapshot: (...args: unknown[]) => fetchTelemetrySnapshot(...args),
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -42,6 +39,12 @@ describe("useFleetData truncated snapshot", () => {
     fetchFleetLive.mockReset();
     fetchAlertsLive.mockReset();
     fetchOpsSummary.mockReset();
+    fetchTelemetrySnapshot.mockReset();
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [{ eventId: "e1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+      partial: false,
+      truncated: false,
+    });
   });
 
   it("useFleetData_muestra_snapshot_truncado", async () => {
@@ -90,5 +93,95 @@ describe("useFleetData truncated snapshot", () => {
     expect(result.current.globalAnalytics.openAlerts).toBe(1);
     expect(result.current.globalAnalytics.aggregationSource).toBe("snapshot");
     expect(result.current.globalAnalytics.partial).toBe(true);
+  });
+});
+
+describe("useFleetData refreshForResync", () => {
+  beforeEach(() => {
+    fetchFleetLive.mockReset();
+    fetchAlertsLive.mockReset();
+    fetchOpsSummary.mockReset();
+    fetchTelemetrySnapshot.mockReset();
+  });
+
+  it("refreshForResync_exitoso_carga_flota_alertas_y_telemetria", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [{ eventId: "e1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+      partial: false,
+      truncated: false,
+    });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    await result.current.loadFromApi();
+    await result.current.refreshForResync("VH-001");
+
+    expect(fetchFleetLive).toHaveBeenCalled();
+    expect(fetchAlertsLive).toHaveBeenCalled();
+    expect(fetchTelemetrySnapshot).toHaveBeenCalledWith("VH-001", expect.anything());
+    expect(result.current.vehicles).toHaveLength(1);
+  });
+
+  it("Fallo_real_de_fetchFleetLive_propaga_error_de_resync", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await result.current.loadFromApi();
+
+    fetchFleetLive.mockRejectedValue(new Error("fleet down"));
+    await expect(result.current.refreshForResync("VH-001")).rejects.toThrow("fleet down");
+  });
+
+  it("Fallo_real_de_fetchAlertsLive_propaga_error_de_resync", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await result.current.loadFromApi();
+
+    fetchAlertsLive.mockRejectedValue(new Error("alerts down"));
+    await expect(result.current.refreshForResync("VH-001")).rejects.toThrow("alerts down");
+  });
+
+  it("Fallo_real_de_telemetria_propaga_error_de_resync", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await result.current.loadFromApi();
+
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [],
+      partial: true,
+      error: "telemetry unavailable",
+      truncated: false,
+    });
+    await expect(result.current.refreshForResync("VH-001")).rejects.toThrow("telemetry unavailable");
   });
 });

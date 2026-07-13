@@ -7,7 +7,7 @@ namespace FleetTelemetry.Application.Tests;
 public class FleetSseBrokerTests
 {
     [Fact]
-    public void PublishLocal_drops_events_for_slow_subscriber_without_blocking()
+    public void PublishLocal_overflow_cierra_suscripcion_sin_bloquear_publisher()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
         var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
@@ -15,16 +15,10 @@ public class FleetSseBrokerTests
         for (var i = 0; i < 20; i++)
             broker.PublishLocal("alert", new { index = i });
 
-        var drained = 0;
-        while (subscription.LiveReader.TryRead(out _))
-            drained++;
-
-        Assert.Equal(5, drained);
-        Assert.True(broker.PublishedEvents >= 5);
-
-        broker.Unsubscribe(subscription.SubscriptionId);
         Assert.Equal(0, broker.SubscriberCount);
+        Assert.True(broker.OverflowEvents > 0);
         Assert.Equal(1, broker.TotalUnsubscribes);
+        broker.Unsubscribe(subscription.SubscriptionId);
     }
 
     [Fact]

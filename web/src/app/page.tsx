@@ -119,6 +119,7 @@ export default function DashboardPage() {
     fleetTruncated,
 
     refresh,
+    refreshForResync,
 
     loadFromApi,
 
@@ -150,7 +151,7 @@ export default function DashboardPage() {
       setLiveVehiclePatches([]);
       setLiveAlerts([]);
       setAlertsAttention(false);
-      await refresh();
+      await refreshForResync(selectedVehicleId);
     },
 
   });

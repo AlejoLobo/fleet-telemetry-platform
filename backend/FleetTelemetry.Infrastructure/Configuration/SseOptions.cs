@@ -13,8 +13,8 @@ public class SseOptions
 
     public SseDeliveryMode Mode { get; set; } = SseDeliveryMode.Polling;
 
-    // Identidad estable de la réplica API (p. ej. HOSTNAME).
-    public string InstanceId { get; set; } = Environment.MachineName;
+    // Identidad de réplica; vacío = HOSTNAME o MachineName del proceso.
+    public string InstanceId { get; set; } = string.Empty;
 
     // Exige una sola partición en fleet.realtime para orden global de offsets.
     public bool RequireSingleRealtimePartition { get; set; } = true;
@@ -22,7 +22,7 @@ public class SseOptions
     // Eventos SSE retenidos para replay con Last-Event-ID.
     public int ReplayBufferSize { get; set; } = 200;
 
-    // Capacidad por suscriptor antes de descartar (backpressure).
+    // Capacidad por suscriptor; al llenarse se cierra la suscripción (backpressure).
     public int SubscriberChannelCapacity { get; set; } = 100;
 
     // Intervalo cuando hay cambios recientes o primera consulta.

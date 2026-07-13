@@ -40,6 +40,8 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
+        services.AddSingleton<IPostConfigureOptions<SseOptions>, SseOptionsPostConfigure>();
+        services.AddSingleton<IValidateOptions<SseOptions>, SseOptionsValidator>();
         services.Configure<QueryLimitsOptions>(configuration.GetSection(QueryLimitsOptions.SectionName));
         services.AddOptions<QueryLimitsOptions>()
             .Bind(configuration.GetSection(QueryLimitsOptions.SectionName))
@@ -159,6 +161,8 @@ public static class DependencyInjection
 
     public static IServiceCollection AddFleetSseDelivery(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddHostedService<FleetSseMaintenanceHostedService>();
+
         var mode = configuration.GetSection(SseOptions.SectionName).Get<SseOptions>()?.Mode
             ?? SseDeliveryMode.Polling;
 

@@ -90,7 +90,6 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Kafka__BootstrapServers: redpanda:9092
-      Sse__InstanceId: api-docker
       TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
     depends_on:

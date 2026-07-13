@@ -283,17 +283,23 @@ public class FleetSseBrokerFt005Tests
     }
 
     [Fact]
-    public void Publicaciones_concurrentes_no_rompen_orden_monotonico()
+    public void Publicaciones_concurrentes_mantienen_offsets_monotonicos_en_entrega()
     {
-        var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 100);
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 200, replayBufferSize: 200);
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
+
         broker.PublishExternal(5, "alert", new { n = 5 });
 
-        Parallel.For(0, 20, _ =>
-            broker.PublishExternal(5, "alert", new { n = 5 }));
+        Parallel.For(6, 26, offset =>
+            broker.PublishExternal(offset, "alert", new { n = offset }));
 
-        Assert.Equal(5, broker.LastAcceptedExternalOffset);
-        Assert.Equal(ExternalPublishResult.Duplicate, broker.PublishExternal(5, "alert", new { n = 5 }));
-        Assert.True(broker.DuplicateEvents >= 20);
+        var delivered = new List<long>();
+        while (subscription.LiveReader.TryRead(out var evt))
+            delivered.Add(evt.StreamId);
+
+        Assert.NotEmpty(delivered);
+        for (var i = 1; i < delivered.Count; i++)
+            Assert.True(delivered[i] > delivered[i - 1]);
     }
 
     [Fact]
