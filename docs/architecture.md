@@ -62,6 +62,28 @@ sequenceDiagram
 | `low_fuel` | `fuelLevelPercent` < 15 | warning |
 | `low_battery` | `batteryPercent` < 20 | warning |
 
+### Estado activo y cooldown (FT-006)
+
+La tabla `fleet_alert_states` mantiene una fila por `(VehicleId, AlertType)`:
+
+| Campo | Rol |
+|-------|-----|
+| `IsActive` | Condición técnica incumplida (independiente de `IsAcknowledged`) |
+| `LastConditionAt` | Última telemetría que observó el incumplimiento |
+| `LastAlertAt` | Última `FleetAlert` emitida (nullable) |
+
+Política (`Alerting:CooldownSeconds`, default 300):
+
+1. Inactiva + valor normal → sin cambios.
+2. Inactiva + primer incumplimiento (sin `LastAlertAt` o cooldown vencido) → `IsActive=true` + una `FleetAlert`.
+3. Activa + incumplimiento dentro del cooldown → solo `LastConditionAt`.
+4. Activa + incumplimiento con cooldown vencido → una alerta recordatoria + `LastAlertAt`.
+5. Activa + valor recuperado → `IsActive=false` (no toca acknowledgement).
+6. Tras recuperación, una nueva incidencia dentro del cooldown → reactiva sin emitir (anti-oscilación).
+7. Reconocer una alerta no cierra la condición activa.
+
+La decisión y el UPSERT de estado ocurre en la misma transacción que `processed_events` / `telemetry_events` / `fleet_alerts`, con `pg_advisory_xact_lock(hashtext(VehicleId))` + `SELECT … FOR UPDATE`. Solo las alertas **emitidas** se publican a Kafka/SSE.
+
 ## Tópicos Kafka
 
 | Tópico | Uso |
