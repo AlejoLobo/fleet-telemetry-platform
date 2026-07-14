@@ -30,6 +30,8 @@ Versión `3` — verificación y reparación del read model para instalaciones q
 
 Versión `4` — tabla `fleet_alert_states` (estado activo / cooldown por `VehicleId` + `AlertType`). No borra `fleet_alerts` históricas; no requiere backfill.
 
+Versión `5` — mantenimiento TimescaleDB sobre `telemetry_events` / `processed_events`: chunk interval 6 h, compresión (>7 días), retención cruda 90 días, agregado continuo `telemetry_hourly` (refresh 15 min), índice `ix_processed_events_processed_at` y job `cleanup_processed_events` (120 días, lotes de 100.000 cada 5 min). Ver [timescaledb-operations.md](timescaledb-operations.md).
+
 ### Política v2 + v3 (sin doble backfill)
 
 ```
@@ -37,6 +39,7 @@ InitializeAsync:
   v2AppliedNow = ApplyReadModelMigrationV2Async()
   ApplyReadModelVerificationV3Async(v2AppliedNow)
   ApplyAlertStateMigrationV4Async()
+  ApplyTimescaleMaintenanceMigrationV5Async()
 ```
 
 | Escenario | Backfills ejecutados |
