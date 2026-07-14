@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates } from "@/lib/fleet-merge";
@@ -17,8 +17,10 @@ vi.mock("@/lib/api-client", () => ({
 
 describe("useSseStream FT-001", () => {
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
+    sessionStorage.clear();
   });
 
   it("cancela la conexión al desmontarse mediante AbortController", async () => {
@@ -214,6 +216,8 @@ describe("useSseStream FT-001", () => {
 
 describe("useSseStream FT-005", () => {
   afterEach(() => {
+    // Desmontar hooks previos: si quedan vivos, sus reconnect roban el mock compartido.
+    cleanup();
     vi.restoreAllMocks();
     sessionStorage.clear();
   });
@@ -490,7 +494,6 @@ describe("useSseStream FT-005", () => {
   it("Segunda_conexion_sin_stream_reset_ejecuta_snapshot_por_marca_persistida", async () => {
     const onStreamReset = vi.fn(async () => undefined);
     const onFleetUpdate = vi.fn();
-    let connection = 0;
     const vehiclePayload = {
       vehicleId: "VH-RECONNECT",
       name: "VH-RECONNECT",
@@ -502,37 +505,36 @@ describe("useSseStream FT-005", () => {
     };
 
     vi.spyOn(sseClient, "computeReconnectDelayMs").mockReturnValue(10);
-    vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
-      connection += 1;
-      if (connection === 1) {
-        await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
-        await handlers.onEvent({
-          event: REALTIME_EVENTS.streamReset,
-          data: JSON.stringify({ reason: "instance-restarted", latestEventId: null }),
-        });
-        throw new Error("disconnect after first snapshot");
-      }
-
-      if (connection === 2) {
-        await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
-        await handlers.onEvent({
-          event: REALTIME_EVENTS.vehicleUpdate,
-          id: "55",
-          data: JSON.stringify(vehiclePayload),
-        });
-        return new Promise(() => {
-          /* mantener conexión abierta para evitar reconexiones en bucle */
-        });
-      }
-
-      return undefined;
+    const consumeSpy = vi.spyOn(sseClient, "consumeSseFetchStream");
+    // Once/Implementation: evita que un contador compartido se desfase con reconnects residuales.
+    consumeSpy.mockImplementationOnce(async (_url, _init, handlers) => {
+      await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.streamReset,
+        data: JSON.stringify({ reason: "instance-restarted", latestEventId: null }),
+      });
+      throw new Error("disconnect after first snapshot");
+    });
+    consumeSpy.mockImplementation(async (_url, _init, handlers) => {
+      await handlers.onEvent({ event: REALTIME_EVENTS.connected, data: "{}" });
+      await handlers.onEvent({
+        event: REALTIME_EVENTS.vehicleUpdate,
+        id: "55",
+        data: JSON.stringify(vehiclePayload),
+      });
+      return new Promise(() => {
+        /* mantener conexión abierta para evitar reconexiones en bucle */
+      });
     });
 
-    renderHook(() => useSseStream({ enabled: true, onStreamReset, onFleetUpdate }));
-    await waitFor(() => expect(onStreamReset).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1));
+    const { unmount } = renderHook(() =>
+      useSseStream({ enabled: true, onStreamReset, onFleetUpdate }),
+    );
+    await waitFor(() => expect(onStreamReset).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1), { timeout: 3000 });
     expect(sessionStorage.getItem("fleet-sse-resync-pending")).toBeNull();
     expect(sessionStorage.getItem("fleet-sse-last-event-id")).toBe("55");
+    unmount();
   });
 
   it("Resync_fallido_con_latestEventId_null_conserva_marca", async () => {
