@@ -48,7 +48,7 @@ sequenceDiagram
 - **Validación en dos capas:**
   - API: `TelemetryEventValidator` (DTO `TelemetryEventRequest`).
   - Worker: `TelemetryDomainEventValidator` (entidad tras deserializar JSON de Kafka).
-- **SSE:** modo **KafkaPush** por defecto (`fleet.realtime` → API → SSE). Fan-out multi-réplica con consumer group por instancia; offset Kafka como `id` SSE; replay local acotado y `stream-reset` ante gaps. Modo alternativo: polling a TimescaleDB. Ver [realtime-sse.md](realtime-sse.md).
+- **SSE:** modo **KafkaPush** por defecto (`fleet.realtime` → API → SSE). Fan-out multi-réplica con **Assign manual** por réplica (sin rebalance de grupo); offset Kafka como `id` SSE; replay local acotado y `stream-reset` ante gaps. Modo alternativo: polling a TimescaleDB. Ver [realtime-sse.md](realtime-sse.md).
 - **Expiración de conectividad:** `FleetConnectivityExpiryHostedService` en el Worker publica `offline` sin telemetría nueva.
 - **Resiliencia:** circuit breaker + retry en Kafka produce, DB (solo transitorios vía `DatabaseTransientFailureClassifier`) y OpenAI. Estado en `GET /health`.
 - **Read model de flota:** `fleet_vehicle_state` (1 fila/vehículo), actualizado en la misma transacción del Worker con UPSERT protegido ante eventos fuera de orden. Consultas `GET /api/fleet` paginadas por cursor sobre esta tabla (no `DISTINCT ON` global).

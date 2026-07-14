@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Application.Tests;
 
-// FT-005: connected efímero solo en la conexión HTTP que lo solicita.
+// FT-005: admisión SSE solo vía RealtimeStreamCoordinator.TryOpenStream.
 public class EventsControllerStreamTests
 {
     [Fact]
@@ -92,10 +92,10 @@ public class EventsControllerStreamTests
     public async Task Stream_responde_503_si_kafka_push_no_esta_Ready()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        var readiness = new FleetKafkaPushReadiness();
-        Assert.Equal(FleetKafkaPushReadinessState.Starting, readiness.State);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        Assert.Equal(RealtimeStreamState.Starting, coordinator.State);
 
-        var controller = CreateController(broker, readiness);
+        var controller = CreateController(broker, coordinator);
         var (context, _) = CreateHttpContext();
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
@@ -105,18 +105,18 @@ public class EventsControllerStreamTests
         var body = await ReadResponseBodyAsync(context);
         Assert.Contains("kafka-push-not-ready", body);
         Assert.Contains("Starting", body);
+        Assert.Equal(0, broker.SubscriberCount);
     }
 
     [Fact]
-    public async Task SSE_responde_503_durante_rebalance()
+    public async Task SSE_responde_503_durante_Recovering()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        var readiness = new FleetKafkaPushReadiness();
-        readiness.EstablishFirstAssignmentPosition(100);
-        readiness.MarkReady();
-        readiness.MarkRebalancing();
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        coordinator.EnterReady(100);
+        coordinator.EnterRecovering("transient");
 
-        var controller = CreateController(broker, readiness);
+        var controller = CreateController(broker, coordinator);
         var (context, _) = CreateHttpContext();
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
@@ -125,23 +125,19 @@ public class EventsControllerStreamTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         var body = await ReadResponseBodyAsync(context);
         Assert.Contains("kafka-push-not-ready", body);
-        Assert.Contains("Rebalancing", body);
+        Assert.Contains("Recovering", body);
     }
 
     [Fact]
     public async Task Reconexion_durante_Faulted_recibe_503()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        var readiness = new FleetKafkaPushReadiness();
-        var coordinator = new FleetKafkaPushAssignmentCoordinator(broker, readiness);
-        readiness.EstablishFirstAssignmentPosition(100);
-        readiness.MarkReady();
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        coordinator.EnterReady(100);
+        coordinator.EnterFaulted("fatal consume");
+        Assert.Equal(RealtimeStreamState.Faulted, coordinator.State);
 
-        // Particiones perdidas → EnterFaulted (cierra SSE y deja readiness Faulted).
-        coordinator.HandlePartitionsLost([]);
-        Assert.Equal(FleetKafkaPushReadinessState.Faulted, readiness.State);
-
-        var controller = CreateController(broker, readiness);
+        var controller = CreateController(broker, coordinator);
         var (context, _) = CreateHttpContext();
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
@@ -155,9 +151,9 @@ public class EventsControllerStreamTests
 
     private static EventsController CreateController(
         FleetSseBroker broker,
-        IFleetKafkaPushReadiness? readiness = null)
+        IRealtimeStreamCoordinator? coordinator = null)
     {
-        readiness ??= CreateReadyReadiness();
+        coordinator ??= CreateReadyCoordinator(broker);
         return new(
             broker,
             Options.Create(new SseOptions
@@ -165,15 +161,14 @@ public class EventsControllerStreamTests
                 Mode = SseDeliveryMode.KafkaPush,
                 InstanceId = "api-test"
             }),
-            readiness);
+            coordinator);
     }
 
-    private static IFleetKafkaPushReadiness CreateReadyReadiness()
+    private static IRealtimeStreamCoordinator CreateReadyCoordinator(FleetSseBroker broker)
     {
-        var readiness = new FleetKafkaPushReadiness();
-        readiness.EstablishInitialPosition(0);
-        readiness.MarkReady();
-        return readiness;
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        coordinator.EnterReady(0);
+        return coordinator;
     }
 
     private static (DefaultHttpContext Context, CancellationTokenSource Cts) CreateHttpContext()

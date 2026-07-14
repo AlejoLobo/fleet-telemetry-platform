@@ -21,34 +21,47 @@ public class EventsController : ControllerBase
 
     private readonly FleetSseBroker _broker;
     private readonly SseOptions _sseOptions;
-    private readonly IFleetKafkaPushReadiness _kafkaPushReadiness;
+    private readonly IRealtimeStreamCoordinator _streamCoordinator;
 
     public EventsController(
         FleetSseBroker broker,
         IOptions<SseOptions> sseOptions,
-        IFleetKafkaPushReadiness kafkaPushReadiness)
+        IRealtimeStreamCoordinator streamCoordinator)
     {
         _broker = broker;
         _sseOptions = sseOptions.Value;
-        _kafkaPushReadiness = kafkaPushReadiness;
+        _streamCoordinator = streamCoordinator;
     }
 
     [HttpGet("stream")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task Stream(CancellationToken cancellationToken)
     {
-        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush && !_kafkaPushReadiness.IsReady)
+        SseSubscription subscription;
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush)
         {
-            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await Response.WriteAsJsonAsync(
-                new
-                {
-                    status = "not_ready",
-                    reason = "kafka-push-not-ready",
-                    state = _kafkaPushReadiness.State.ToString()
-                },
-                cancellationToken);
-            return;
+            var lastEventId = SseLastEventId.Parse(Request.Headers["Last-Event-ID"].FirstOrDefault());
+            var admission = _streamCoordinator.TryOpenStream(lastEventId);
+            if (!admission.Admitted || admission.Subscription is null)
+            {
+                Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await Response.WriteAsJsonAsync(
+                    new
+                    {
+                        status = "not_ready",
+                        reason = admission.Reason ?? "kafka-push-not-ready",
+                        state = admission.State.ToString()
+                    },
+                    cancellationToken);
+                return;
+            }
+
+            subscription = admission.Subscription;
+        }
+        else
+        {
+            var lastEventId = SseLastEventId.Parse(Request.Headers["Last-Event-ID"].FirstOrDefault());
+            subscription = _broker.SubscribeFrom(lastEventId);
         }
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
@@ -59,9 +72,6 @@ public class EventsController : ControllerBase
         Response.Headers.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
-
-        var lastEventId = SseLastEventId.Parse(Request.Headers["Last-Event-ID"].FirstOrDefault());
-        var subscription = _broker.SubscribeFrom(lastEventId);
 
         try
         {

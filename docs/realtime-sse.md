@@ -68,8 +68,10 @@ Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador 
 ### Fan-out entre réplicas API
 
 - El tópico `fleet.realtime` debe tener **exactamente 1 partición** (orden global de offsets).
-- Cada réplica API usa un consumer group distinto: `{RealtimeConsumerGroupBase}-{InstanceId}`.
-- Todas las réplicas reciben **todos** los mensajes futuros (no compiten por partición dentro del mismo grupo).
+- Cada réplica hace **Assign manual** de la partición 0 (sin `Subscribe` ni rebalance de consumer group).
+- El `GroupId` sigue siendo único por réplica (`{RealtimeConsumerGroupBase}-{InstanceId}`) solo como identidad; **no** coordina offsets entre réplicas.
+- Todas las réplicas reciben **todos** los mensajes futuros desde su Assign.
+- El snapshot REST cubre el estado anterior al arranque de la réplica.
 
 ### ID SSE canónico
 
@@ -78,17 +80,17 @@ Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador 
 
 ### Snapshot inicial sin `Last-Event-ID`
 
-Una suscripción `Missing` (sin `Last-Event-ID`) **no** continúa en live directamente:
+Al arrancar, la réplica consulta watermarks, fija `baseline = High - 1`, inicializa el broker y hace Assign en High.
 
-- el broker captura el `cutoverId` actual;
-- emite `stream-reset` con `reason=initial-snapshot` y `latestEventId` nullable;
+Una suscripción `Missing` (sin `Last-Event-ID`):
+
+- emite `stream-reset` con `reason=initial-snapshot` y `latestEventId = baseline`;
 - el cliente bloquea live hasta completar `refreshForResync`;
-- el cutover se persiste solo tras el snapshot exitoso;
-- los live con `id > cutoverId` se aplican después, una vez y en orden.
+- los live con `id > baseline` se aplican después, una vez y en orden.
 
 ### Replay local acotado
 
-- `FleetSseBroker.SubscribeFrom(lastEventId)` entrega replay + live de forma atómica (`cutoverId`).
+- La admisión SSE en KafkaPush pasa por `RealtimeStreamCoordinator.TryOpenStream` (Ready + `SubscribeFrom` atómicos bajo el mismo lock).
 - Si `Last-Event-ID` queda fuera del buffer → `event: stream-reset` con `reason`:
   - `initial-snapshot` — primera conexión / sin cursor
   - `replay-gap`
@@ -97,38 +99,38 @@ Una suscripción `Missing` (sin `Last-Event-ID`) **no** continúa en live direct
   - `invalid-payload-gap` — offsets Kafka inválidos (tombstone/contrato) en el rango
 - El cliente web limpia el cursor, recarga snapshot completo y continúa con eventos live.
 
-### Readiness del consumidor KafkaPush
+### Estado del stream (`RealtimeStreamCoordinator`)
 
-Estados: `Starting` → `Assigned` → `Ready` ↔ `Rebalancing` → (`Faulted`).
+Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
 
 | Estado | SSE `/api/events/stream` | `/health/ready` (`kafka_push`) |
 |--------|--------------------------|--------------------------------|
-| Starting / Assigned | **503** | `starting` |
-| Rebalancing | **503** | `rebalancing` |
+| Starting | **503** | `starting` |
+| Recovering | **503** | `recovering` |
 | Ready | admite stream | `ok` |
 | Faulted | **503** | `faulted` |
 | Polling (sin KafkaPush) | admite | `bypassed` |
 
-`Ready` solo se marca después de:
+`EnterRecovering` / `EnterFaulted` incrementan epoch, cierran todas las suscripciones (`CompleteAllSubscribers`) e impiden nuevas admisiones.
 
-1. asignación aplicada;
-2. posición de reanudación establecida;
-3. un ciclo de poll válido tras la asignación.
+### Loop con pendingRecord
 
-### Primera asignación vs reasignación
+- Un solo registro pendiente: no se Consume N+1 hasta completar el pendiente.
+- Accepted / Duplicate / InvalidPermanent → avanzan watermark del broker y liberan el pending.
+- TransientPublishFailure → conserva el mismo `ConsumeResult`, `EnterRecovering` si estaba Ready, backoff, reintenta **sin Seek**.
+- FatalTransportFailure → recuperación (`Assign` en `LastProcessed+1`) o `Faulted`.
+- No hay commits Kafka para coordinar la réplica.
 
-- **Primera asignación del proceso:** comienza en el High watermark Kafka, guarda `InitialPositionOffset` y deja que `initial-snapshot` cubra todo lo anterior.
-- **Reasignaciones posteriores:** **no** vuelven a High. Continúan desde `broker.LastProcessedExternalOffset + 1`. Si aún no hubo eventos procesados, continúan desde `InitialPositionOffset`.
-- Ejemplo: initial=100, procesados hasta 105, High llega a 110 durante el revoke → reasignación en **106**, no en 110.
-- Handlers: `SetPartitionsAssignedHandler`, `SetPartitionsRevokedHandler`, `SetPartitionsLostHandler`.
-- Revoke → `Rebalancing` (SSE 503). Pérdida definitiva o `ConsumeException` fatal → `Faulted` (deja de aceptar SSE como Ready).
-- En `Faulted` (particiones lost, consume fatal o fallo irreversible de arranque) el broker ejecuta `CompleteAllSubscribers`: completa canales, elimina suscriptores y fuerza reconexión; heartbeats no mantienen esas conexiones.
+### Recuperación
+
+- Dentro del proceso: `resumeOffset = LastProcessedExternalOffset + 1` y Assign ahí.
+- Si `resumeOffset < Low` (retención): nueva línea base `High-1`, limpia replay, Assign en High, obliga `initial-snapshot`.
 
 ### Configuración (`Sse` / `Kafka`)
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
-| `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo del consumer group |
+| `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo de identidad del GroupId |
 | `Sse:InstanceId` | `HOSTNAME` o `MachineName` | Sufijo estable por proceso (post-configure) |
 | `Sse:RequireSingleRealtimePartition` | `true` | Falla al iniciar si el tópico tiene >1 partición |
 | `Sse:ReplayBufferSize` | `200` | Eventos retenidos para replay local |

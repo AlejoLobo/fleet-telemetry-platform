@@ -18,20 +18,20 @@ public class ReadinessCheckService : IReadinessCheckService
     private readonly FleetDbContext _dbContext;
     private readonly KafkaOptions _kafkaOptions;
     private readonly SseOptions _sseOptions;
-    private readonly IFleetKafkaPushReadiness _kafkaPushReadiness;
+    private readonly IRealtimeStreamCoordinator _streamCoordinator;
     private readonly ILogger<ReadinessCheckService> _logger;
 
     public ReadinessCheckService(
         FleetDbContext dbContext,
         IOptions<KafkaOptions> kafkaOptions,
         IOptions<SseOptions> sseOptions,
-        IFleetKafkaPushReadiness kafkaPushReadiness,
+        IRealtimeStreamCoordinator streamCoordinator,
         ILogger<ReadinessCheckService> logger)
     {
         _dbContext = dbContext;
         _kafkaOptions = kafkaOptions.Value;
         _sseOptions = sseOptions.Value;
-        _kafkaPushReadiness = kafkaPushReadiness;
+        _streamCoordinator = streamCoordinator;
         _logger = logger;
     }
 
@@ -91,11 +91,11 @@ public class ReadinessCheckService : IReadinessCheckService
         if (_sseOptions.Mode != SseDeliveryMode.KafkaPush)
             return "bypassed";
 
-        return _kafkaPushReadiness.State switch
+        return _streamCoordinator.State switch
         {
-            FleetKafkaPushReadinessState.Ready => "ok",
-            FleetKafkaPushReadinessState.Faulted => "faulted",
-            FleetKafkaPushReadinessState.Rebalancing => "rebalancing",
+            RealtimeStreamState.Ready => "ok",
+            RealtimeStreamState.Faulted => "faulted",
+            RealtimeStreamState.Recovering => "recovering",
             _ => "starting"
         };
     }
