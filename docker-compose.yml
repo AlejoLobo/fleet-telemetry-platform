@@ -136,7 +136,8 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:5000
+        # En AWS ALB (FT-009) se inyecta vía .env; localmente localhost.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
     container_name: fleet-web
     restart: unless-stopped
     ports:
