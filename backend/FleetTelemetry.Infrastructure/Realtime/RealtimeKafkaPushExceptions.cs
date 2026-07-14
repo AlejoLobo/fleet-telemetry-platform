@@ -19,3 +19,29 @@ public sealed class RealtimeKafkaTransientPublishException : Exception
     {
     }
 }
+
+// Assign no confirmó la posición objetivo a tiempo; recrear sesión (no Faulted).
+public sealed class RealtimeKafkaAssignmentMaterializationException : Exception
+{
+    public RealtimeKafkaAssignmentMaterializationException(
+        string topic,
+        int partition,
+        long targetOffset,
+        string? message = null,
+        Exception? inner = null)
+        : base(
+            message
+            ?? $"Kafka Assign materialization timed out. Topic={topic} Partition={partition} TargetOffset={targetOffset}",
+            inner)
+    {
+        Topic = topic;
+        Partition = partition;
+        TargetOffset = targetOffset;
+    }
+
+    public string Topic { get; }
+
+    public int Partition { get; }
+
+    public long TargetOffset { get; }
+}

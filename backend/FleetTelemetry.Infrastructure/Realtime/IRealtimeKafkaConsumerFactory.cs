@@ -51,14 +51,19 @@ internal sealed class ConfluentRealtimeKafkaConsumerSession : IRealtimeKafkaCons
 {
     private readonly IConsumer<string, string> _consumer;
     private readonly string _topic;
+    private readonly TimeSpan _materializeTimeout;
     private readonly Dictionary<TopicPartition, long> _assignedOffsets = new();
     private ConsumeResult<string, string>? _prefetched;
     private bool _disposed;
 
-    public ConfluentRealtimeKafkaConsumerSession(IConsumer<string, string> consumer, string topic)
+    public ConfluentRealtimeKafkaConsumerSession(
+        IConsumer<string, string> consumer,
+        string topic,
+        TimeSpan? materializeTimeout = null)
     {
         _consumer = consumer;
         _topic = topic;
+        _materializeTimeout = materializeTimeout ?? TimeSpan.FromSeconds(10);
     }
 
     public string Topic => _topic;
@@ -84,51 +89,23 @@ internal sealed class ConfluentRealtimeKafkaConsumerSession : IRealtimeKafkaCons
     {
         var targets = offsets.ToList();
         _assignedOffsets.Clear();
+        _prefetched = null;
         foreach (var tpo in targets)
             _assignedOffsets[tpo.TopicPartition] = tpo.Offset.Value;
 
         _consumer.Assign(targets);
-        MaterializeAssignment(TimeSpan.FromSeconds(10));
+        MaterializeAssignment(_materializeTimeout);
     }
 
-    // Assign es local; el cliente a veces no lo aplica hasta un poll. Descendemos offsets
-    // inferiores al Assign (sin Seek) y prefabricamos el primer registro válido.
     private void MaterializeAssignment(TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            var remaining = deadline - DateTime.UtcNow;
-            if (remaining <= TimeSpan.Zero)
-                break;
-
-            var poll = remaining < TimeSpan.FromMilliseconds(100)
-                ? remaining
-                : TimeSpan.FromMilliseconds(100);
-            var result = _consumer.Consume(poll);
-            if (result is null)
-            {
-                // Idle tras Assign en High (o tip): la posición quedó materializada.
-                return;
-            }
-
-            if (IsAtOrAfterAssigned(result))
-            {
-                _prefetched = result;
-                return;
-            }
-
-            // Offset anterior al Assign: descartar hasta materializar la posición.
-        }
-    }
-
-    private bool IsAtOrAfterAssigned(ConsumeResult<string, string> result)
-    {
-        var partition = result.TopicPartition;
-        if (!_assignedOffsets.TryGetValue(partition, out var assigned))
-            return true;
-
-        return result.Offset.Value >= assigned;
+        _prefetched = KafkaAssignmentMaterializer.Materialize(
+            consume: _consumer.Consume,
+            getAssignment: () => _consumer.Assignment,
+            getPosition: _consumer.Position,
+            assignedOffsets: _assignedOffsets,
+            timeout: timeout,
+            topic: _topic);
     }
 
     public void Close()

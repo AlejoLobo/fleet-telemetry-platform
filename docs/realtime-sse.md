@@ -128,6 +128,8 @@ Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
 - Si `Low <= resumeOffset <= High` → Assign en `resumeOffset`.
 - Si `resumeOffset < Low` o `resumeOffset > High` → `ResetToBaseline(High - 1)`, Assign en High, `initial-snapshot`.
 - Ready solo tras Idle/Completed saludable con el consumidor nuevo.
+- Fallos transitorios en creación del consumidor, watermarks, Assign o materialización de Assign se recuperan disponiendo la sesión, backoff cancelable (200 ms → 5 s) y recreando la sesión; no pasan a `Faulted` ni habilitan Ready sin poll saludable.
+- Si la materialización de Assign expira sin confirmar la posición objetivo, se lanza un error transitorio específico y se recrea el consumidor.
 
 ### Configuración (`Sse` / `Kafka`)
 
