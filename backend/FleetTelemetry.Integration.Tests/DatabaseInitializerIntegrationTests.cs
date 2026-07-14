@@ -38,11 +38,35 @@ public class DatabaseInitializerIntegrationTests : IAsyncLifetime
         await connection.OpenAsync();
 
         Assert.True(await TimescaleExtensionExistsAsync(connection));
-        Assert.Equal(5, await CountUserTablesAsync(connection, "processed_events", "fleet_alerts", "telemetry_events", "schema_versions", "fleet_vehicle_state"));
+        Assert.Equal(
+            6,
+            await CountUserTablesAsync(
+                connection,
+                "processed_events",
+                "fleet_alerts",
+                "telemetry_events",
+                "schema_versions",
+                "fleet_vehicle_state",
+                "fleet_alert_states"));
         Assert.True(await HypertableExistsAsync(connection));
         Assert.True(await IndexExistsAsync(connection, "ix_fleet_alerts_vehicle_created"));
         Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_vehicle_timestamp"));
+        Assert.True(await IndexExistsAsync(connection, "ix_fleet_alert_states_active_condition"));
+        Assert.True(await SchemaVersionExistsAsync(connection, 4));
         Assert.Equal(0, await CountActiveAdvisoryLocksAsync(connection));
+    }
+
+    private static async Task<bool> SchemaVersionExistsAsync(NpgsqlConnection connection, int version)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM schema_versions WHERE "Version" = @version
+            );
+            """,
+            connection);
+        command.Parameters.AddWithValue("version", version);
+        return (bool)(await command.ExecuteScalarAsync() ?? false);
     }
 
     private static async Task<Exception?> CaptureExceptionAsync(Task task)
