@@ -100,13 +100,51 @@ jobs:
       - name: Terraform fmt
         run: terraform fmt -check -recursive infra/terraform
 
-      - name: Terraform init
+      - name: Terraform init (blueprint)
         working-directory: infra/terraform
         run: terraform init -backend=false
 
-      - name: Terraform validate
+      - name: Terraform validate (blueprint)
         working-directory: infra/terraform
         run: terraform validate
+
+      - name: Terraform init (dev)
+        working-directory: infra/terraform/dev
+        run: terraform init -backend=false
+
+      - name: Terraform validate (dev)
+        working-directory: infra/terraform/dev
+        run: terraform validate
+
+      - name: Reject placeholders and secrets in Terraform tree
+        run: |
+          set -euo pipefail
+          failed=0
+          if git grep -n "REPLACE_WITH_" -- infra/terraform; then
+            echo "::error::Se encontraron placeholders REPLACE_WITH_ en infra/terraform"
+            failed=1
+          fi
+          if find infra/terraform -type f -name 'terraform.tfvars' ! -path '*/.terraform/*' | grep -q .; then
+            echo "::error::No versionar terraform.tfvars reales bajo infra/terraform"
+            failed=1
+          fi
+          if find infra/terraform -type f \( -name '*.tfstate' -o -name '*.tfstate.*' \) ! -path '*/.terraform/*' | grep -q .; then
+            echo "::error::No versionar archivos .tfstate bajo infra/terraform"
+            failed=1
+          fi
+          if grep -R --line-number --exclude-dir=.terraform \
+            --include='*.tf' --include='*.tftpl' --include='*.hcl' --include='*.example' \
+            -E 'BEGIN (OPENSSH |RSA )?PRIVATE KEY' infra/terraform; then
+            echo "::error::Se detectaron claves privadas en infra/terraform"
+            failed=1
+          fi
+          if grep -R --line-number --exclude-dir=.terraform \
+            --include='*.tf' --include='*.tftpl' --include='*.hcl' \
+            -Ei 'password\s*=\s*"[^$\{][^"]{7,}"' infra/terraform; then
+            echo "::error::Posibles contraseñas literales en archivos Terraform"
+            failed=1
+          fi
+          exit "$failed"
 
       - name: Docker Compose config
         run: docker compose config --quiet
