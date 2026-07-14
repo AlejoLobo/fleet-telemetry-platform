@@ -31,6 +31,39 @@ jobs:
           grep -Fq '**Pruebas:**' README.md
           grep -Fq '**Commit:**' README.md
 
+      - name: Verify test and documentation consistency
+        run: |
+          set -euo pipefail
+          node -e '
+          const fs = require("fs");
+          const assert = (cond, msg) => { if (!cond) { console.error(msg); process.exit(1); } };
+          const read = (p) => fs.readFileSync(p, "utf8");
+
+          const webPkg = JSON.parse(read("web/package.json"));
+          const mobilePkg = JSON.parse(read("mobile/package.json"));
+          assert(typeof webPkg.scripts?.["test:ci"] === "string", "web/package.json debe definir scripts.test:ci");
+          assert(typeof mobilePkg.scripts?.["test:ci"] === "string", "mobile/package.json debe definir scripts.test:ci");
+
+          const testing = read("docs/testing.md");
+          assert(testing.includes("test:ci") && /web/i.test(testing), "docs/testing.md debe documentar test:ci para Web");
+          assert(testing.includes("npm run test:ci --prefix web") || /Web[\s\S]*test:ci/.test(testing), "docs/testing.md debe documentar test:ci de Web");
+          assert(testing.includes("npm run test:ci --prefix mobile") || /Mobile[\s\S]*test:ci/.test(testing), "docs/testing.md debe documentar test:ci de Mobile");
+          assert(/test:ci/.test(testing) && testing.includes("web"), "docs/testing.md debe mencionar test:ci (Web)");
+          assert(/test:ci/.test(testing) && testing.includes("mobile"), "docs/testing.md debe mencionar test:ci (Mobile)");
+
+          const demo = read("docs/demo-sustentacion.md");
+          assert(/KafkaPush/.test(demo), "docs/demo-sustentacion.md debe identificar KafkaPush como modo SSE");
+          assert(/OpenTelemetry/.test(demo) && /opt-in/i.test(demo), "docs/demo-sustentacion.md debe identificar OpenTelemetry como implementado y opt-in");
+          assert(/infra\/terraform\/dev/.test(demo) || /entorno dev ejecutable/i.test(demo), "docs/demo-sustentacion.md debe identificar entorno AWS dev ejecutable");
+          assert(!demo.includes("| OpenTelemetry | No implementado | No implementado |"), "No debe reaparecer la fila OpenTelemetry no implementado");
+
+          const webReadme = read("web/README.md");
+          assert(!/decisión actual es polling/i.test(webReadme), "web/README.md no debe decir que la decisión actual es polling");
+          assert(!/SSE: decisión de polling/i.test(webReadme), "web/README.md no debe afirmar polling como decisión actual");
+
+          console.log("documentation_consistency=OK");
+          '
+
   backend:
     name: Backend (.NET 10)
     runs-on: ubuntu-latest
@@ -195,7 +228,7 @@ jobs:
         run: npm run typecheck --prefix web
 
       - name: Tests
-        run: npm run test --prefix web
+        run: npm run test:ci --prefix web
 
       - name: Build
         run: npm run build --prefix web
