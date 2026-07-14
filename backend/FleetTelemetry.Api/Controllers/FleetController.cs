@@ -7,7 +7,6 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-// Controlador de consulta de estado de flota.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]

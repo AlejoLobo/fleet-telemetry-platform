@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Configuration;
 
-// Umbrales y cooldown de alertas operativas.
 public sealed class AlertingOptions
 {
     public const string SectionName = "Alerting";

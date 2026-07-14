@@ -2,7 +2,6 @@ using Confluent.Kafka;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Lectura de metadata vía AdminClient de Confluent.
 public sealed class ConfluentRealtimeTopicMetadataSource : IRealtimeTopicMetadataSource
 {
     private readonly string _bootstrapServers;

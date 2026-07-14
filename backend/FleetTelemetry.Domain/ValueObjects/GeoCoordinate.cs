@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Par latitud/longitud validado.
 public sealed class GeoCoordinate : ValueObject
 {
     public double Latitude { get; }

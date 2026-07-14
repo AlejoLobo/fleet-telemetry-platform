@@ -5,7 +5,6 @@ using FleetTelemetry.Application.DTOs;
 
 namespace FleetTelemetry.Application.Services;
 
-// Codifica y decodifica cursores opacos con validación estricta.
 public static class CursorCodec
 {
     public const int MaxCursorLength = 4096;

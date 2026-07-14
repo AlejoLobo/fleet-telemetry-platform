@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Tipo de alerta operativa normalizado.
 public sealed class AlertType : ValueObject
 {
     public string Value { get; }

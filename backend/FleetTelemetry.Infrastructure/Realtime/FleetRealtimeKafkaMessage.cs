@@ -8,7 +8,6 @@ public sealed class FleetRealtimeKafkaMessage
 {
     public const int CurrentSchemaVersion = 1;
 
-    // Nullable: ausencia de schemaVersion es inválida (no default implícito a 1).
     [JsonPropertyName("schemaVersion")]
     public int? SchemaVersion { get; init; }
 

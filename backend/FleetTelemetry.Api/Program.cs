@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
-// Punto de entrada de la API REST de telemetría de flota.
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.AddFleetOpenTelemetryLogging(builder.Configuration, InfrastructureProfile.Api);
@@ -21,7 +20,6 @@ ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
-// Controladores y documentación OpenAPI.
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 

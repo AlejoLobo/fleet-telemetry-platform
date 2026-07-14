@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Realtime;
 
-// Contrato canónico de eventos realtime de flota.
 public static class FleetRealtimeEventTypes
 {
     public const string VehicleUpdate = "vehicle-update";

@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Services;
 
-// Resultado de la máquina de estados: alertas emitidas + estados a persistir.
 public sealed class AlertEvaluationResult
 {
     public AlertEvaluationResult(
@@ -18,7 +17,6 @@ public sealed class AlertEvaluationResult
     public IReadOnlyList<FleetAlertConditionState> StatesToUpsert { get; }
 }
 
-// Observación tri-estado: ausente ≠ recuperado.
 public enum AlertConditionObservationStatus
 {
     NotObserved = 0,
@@ -26,7 +24,6 @@ public enum AlertConditionObservationStatus
     Breached = 2
 }
 
-// Observación de umbral para un tipo de alerta.
 public readonly record struct AlertConditionObservation(
     string AlertType,
     string Severity,

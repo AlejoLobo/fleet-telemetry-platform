@@ -3,7 +3,6 @@ using System.Text.Json;
 // Catálogo explícito de herramientas operativas del agente IA.
 namespace FleetTelemetry.Application.Services;
 
-// Esquema JSON de un parámetro de herramienta.
 public sealed record AiToolParameterSchema(
     string Name,
     string Type,
@@ -13,7 +12,6 @@ public sealed record AiToolParameterSchema(
     double? Minimum = null,
     double? Maximum = null);
 
-// Definición de herramienta con metadatos y límites operativos.
 public sealed record AiToolDefinition(
     string Name,
     string Description,
@@ -130,7 +128,6 @@ public static class AiToolCatalog
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    // Esquema de herramientas compatible con OpenAI function calling.
     public static IReadOnlyList<object> ToOpenAiToolDefinitions() =>
         All.Select(tool => new
         {

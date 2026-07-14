@@ -3,7 +3,6 @@ using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Contracts;
 
-// Mapea DTOs Kafka V1 al dominio mediante factories oficiales.
 public static class TelemetryKafkaContractMapper
 {
     public static TelemetryEvent MapPayloadV1ToDomain(TelemetryEventPayloadV1 payload)

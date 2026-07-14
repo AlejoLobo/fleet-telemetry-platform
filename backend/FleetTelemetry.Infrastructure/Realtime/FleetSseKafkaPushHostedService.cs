@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Hosted service: valida partición y delega en KafkaManualAssignmentPump.
 public sealed class FleetSseKafkaPushHostedService : BackgroundService
 {
     private readonly FleetSseBroker _broker;
@@ -28,7 +27,6 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
     {
     }
 
-    // Tests: inyectar fábrica falsa sin cambiar el camino productivo.
     internal FleetSseKafkaPushHostedService(
         FleetSseBroker broker,
         IOptions<KafkaOptions> kafkaOptions,

@@ -1,13 +1,10 @@
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 
-// Cálculo de rumbo geográfico entre puntos.
 namespace FleetTelemetry.Infrastructure.Geo;
 
-// Utilidad de orientación en grados desde telemetría consecutiva.
 public static class GeoBearing
 {
     /// <summary>
-    /// Rumbo en grados (0=norte, 90=este) desde el punto anterior al actual.
     /// </summary>
     public static double? ComputeHeadingDegrees(TelemetryEventRecord? from, TelemetryEventRecord? to)
     {

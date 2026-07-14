@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Resuelve la identidad única de la réplica API para consumer groups SSE.
 public static class SseInstanceIdResolver
 {
     public static string Resolve(string? configuredInstanceId)
