@@ -158,16 +158,16 @@ tipo(alcance): descripción breve en imperativo
 
 Ejemplos: `feat(worker): ...`, `fix(ci): ...`, `docs(readme): ...`, `test(e2e): ...`.
 
-## Auditoría de IA y criterio arquitectónico
+## Decisiones arquitectónicas críticas
 
-Esta sección documenta **propuestas históricas deficientes** surgidas durante el desarrollo
-(asistencia automatizada o diseño preliminar) y el **criterio técnico** con el que se
-corregieron. **No** describe defectos actuales del código en `develop`: cada caso ya tiene
-corrección fusionada, archivos concretos, pruebas y SHA verificable.
+Esta sección documenta **anti-patrones descartados** durante el diseño del pipeline y el
+**criterio técnico** con el que se corrigieron. **No** describe defectos actuales del código
+en `develop`: cada caso ya tiene corrección fusionada, archivos concretos, pruebas y SHA
+verificable.
 
 ### Caso 1: reintento Kafka sin reutilizar el mismo offset
 
-- **Propuesta deficiente:** Tras un `RetryWithoutCommit`, no confirmar el offset, hacer
+- **Enfoque incorrecto:** Tras un `RetryWithoutCommit`, no confirmar el offset, hacer
   `Task.Delay` y volver a llamar a `Consume()` para obtener un mensaje nuevo, en lugar de
   seguir trabajando el mismo `ConsumeResult`.
 - **Riesgo:** No hacer commit **no** reposiciona automáticamente el cursor local del
@@ -197,7 +197,7 @@ corrección fusionada, archivos concretos, pruebas y SHA verificable.
 
 ### Caso 2: excepciones desconocidas enviadas a DLQ
 
-- **Propuesta deficiente:** Capturar cualquier `Exception` restante, publicarla en DLQ como
+- **Enfoque incorrecto:** Capturar cualquier `Exception` restante, publicarla en DLQ como
   `processing_failure` y confirmar el offset, tratando `NullReferenceException`, errores de
   mapping o defectos de programación como problemas permanentes del mensaje.
 - **Riesgo:** Ocultar errores sistémicos, confirmar el offset y perder la oportunidad de
@@ -223,7 +223,7 @@ corrección fusionada, archivos concretos, pruebas y SHA verificable.
 
 ### Caso 3: Terraform aparentaba ser desplegable
 
-- **Propuesta deficiente:** Presentar RDS PostgreSQL estándar, task definitions incompletas y
+- **Enfoque incorrecto:** Presentar RDS PostgreSQL estándar, task definitions incompletas y
   placeholders `REPLACE_WITH_` como ruta desplegable de TimescaleDB/Kafka, describiendo
   definiciones sin services ni ALB como si fueran un despliegue funcional.
 - **Riesgo:** Infraestructura engañosa: un `terraform apply` del blueprint no entrega un
