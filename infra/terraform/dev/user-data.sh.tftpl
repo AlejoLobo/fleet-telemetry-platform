@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee -a /var/log/fleet-telemetry-user-data.log) 2>&1
+
+echo "[fleet-dev] Inicio user-data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+AWS_REGION="${aws_region}"
+APP_GIT_REPOSITORY="${app_git_repository}"
+APP_GIT_REF="${app_git_ref}"
+DOCKER_COMPOSE_VERSION="${docker_compose_version}"
+SECRET_ARN="${secret_arn}"
+ALB_DNS_NAME="${alb_dns_name}"
+APP_DIR="/opt/fleet-telemetry-platform"
+
+dnf update -y
+dnf install -y git jq docker awscli
+
+systemctl enable docker
+systemctl start docker
+usermod -aG docker ec2-user || true
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL \
+  "https://github.com/docker/compose/releases/download/v$${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+docker compose version
+
+if [ -d "$${APP_DIR}/.git" ]; then
+  rm -rf "$${APP_DIR}"
+fi
+
+git clone "$${APP_GIT_REPOSITORY}" "$${APP_DIR}"
+cd "$${APP_DIR}"
+git checkout "$${APP_GIT_REF}"
+
+echo "[fleet-dev] Recuperando secreto desde Secrets Manager"
+SECRET_JSON="$(aws secretsmanager get-secret-value \
+  --region "$${AWS_REGION}" \
+  --secret-id "$${SECRET_ARN}" \
+  --query SecretString \
+  --output text)"
+
+POSTGRES_USER="$(echo "$${SECRET_JSON}" | jq -r .POSTGRES_USER)"
+POSTGRES_PASSWORD="$(echo "$${SECRET_JSON}" | jq -r .POSTGRES_PASSWORD)"
+POSTGRES_DB="$(echo "$${SECRET_JSON}" | jq -r .POSTGRES_DB)"
+
+umask 077
+cat > "$${APP_DIR}/.env" <<EOF
+POSTGRES_USER=$${POSTGRES_USER}
+POSTGRES_PASSWORD=$${POSTGRES_PASSWORD}
+POSTGRES_DB=$${POSTGRES_DB}
+API_PORT=5000
+Kafka__BootstrapServers=redpanda:9092
+TimescaleDb__ConnectionString=Host=timescaledb;Port=5432;Database=$${POSTGRES_DB};Username=$${POSTGRES_USER};Password=$${POSTGRES_PASSWORD}
+Auth__Enabled=false
+NEXT_PUBLIC_API_URL=http://$${ALB_DNS_NAME}
+EOF
+chmod 600 "$${APP_DIR}/.env"
+chown root:root "$${APP_DIR}/.env"
+
+echo "[fleet-dev] Levantando docker compose --profile app"
+cd "$${APP_DIR}"
+docker compose --profile app up -d --build
+
+echo "[fleet-dev] user-data completado $(date -u +%Y-%m-%dT%H:%M:%SZ)"

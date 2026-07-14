@@ -1,0 +1,28 @@
+# Copiar a terraform.tfvars (nunca versionar terraform.tfvars con secretos).
+# Las credenciales de PostgreSQL se generan en Secrets Manager; no van aquí.
+
+aws_region   = "us-east-1"
+project_name = "fleet-telemetry"
+
+# AMI Amazon Linux 2023 x86_64 de la región (ejemplo; reemplazar por la vigente):
+# aws ec2 describe-images --owners amazon \
+#   --filters "Name=name,Values=al2023-ami-2023*-x86_64" "Name=state,Values=available" \
+#   --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text
+ami_id = "ami-0c7217cdde317cfec"
+
+instance_type       = "t3.large"
+root_volume_size_gb = 40
+
+# Restringir al CIDR de la oficina / VPN / IP pública de quien opera el entorno.
+allowed_cidr_blocks = ["203.0.113.10/32"]
+
+app_git_repository = "https://github.com/AlejoLobo/fleet-telemetry-platform.git"
+
+# SHA completo de 40 caracteres hexadecimales (obligatorio).
+# Debe apuntar a un commit que YA contenga FT-009 (normalmente el merge commit
+# de FT-009 en develop). El valor de ejemplo es deliberadamente inválido:
+# reemplazarlo antes de terraform plan. Terraform lo rechaza hasta que sea
+# un SHA real que cumpla ^[0-9a-f]{40}$.
+app_git_ref = "PEGAR_SHA_MERGE_FT009_DE_40_CARACTERES"
+
+docker_compose_version = "2.29.7"

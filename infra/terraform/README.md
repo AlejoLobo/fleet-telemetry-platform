@@ -1,27 +1,25 @@
 # Terraform — detalle operativo
 
-Ver el overview ejecutivo y limitaciones en [`../README.md`](../README.md).
+Ver el overview en [`../README.md`](../README.md).
 
-## Comandos
+## Blueprint conceptual (`infra/terraform/`)
 
 ```bash
 cd infra/terraform
-export TF_VAR_db_password="cambiar-en-produccion"
+export TF_VAR_db_password="cambiar-en-local"
 
 terraform init
 terraform plan
 terraform validate
-terraform apply
 ```
 
-## Variables
+Variables sensibles: `TF_VAR_db_password` (RDS del blueprint; **no** es TimescaleDB).
 
-| Variable | Descripción |
-|----------|-------------|
-| `TF_VAR_db_password` | Contraseña RDS (`sensitive = true`, obligatoria) |
-| `container_image_api` | URI ECR de la API (opcional; ver `ecs_tasks.tf`) |
-| `container_image_worker` | URI ECR del Worker (opcional) |
+Outputs: `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, `ecs_cluster_name`, `db_endpoint`, ECR URLs.
 
-## Outputs principales
+No incluye task definitions de ECS ni un despliegue aparente del pipeline completo;
+el entorno ejecutable está en `dev/`.
 
-`vpc_id`, `public_subnet_ids`, `private_subnet_ids`, `ecs_cluster_name`, `db_endpoint`
+## Entorno ejecutable (`infra/terraform/dev/`)
+
+Ver [`dev/README.md`](dev/README.md).
