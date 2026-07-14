@@ -28,6 +28,7 @@ internal interface IRealtimeKafkaPushTransport
 }
 
 // Transporte Confluent.Kafka con posición fija vía Assign.
+// Preferir IRealtimeKafkaConsumerSession; se mantiene por compatibilidad de tests unitarios del loop.
 internal sealed class KafkaRealtimePushTransport : IRealtimeKafkaPushTransport, IDisposable
 {
     private readonly IConsumer<string, string> _consumer;
@@ -36,8 +37,6 @@ internal sealed class KafkaRealtimePushTransport : IRealtimeKafkaPushTransport, 
     {
         _consumer = consumer;
     }
-
-    public IConsumer<string, string> Consumer => _consumer;
 
     public ConsumeResult<string, string>? Consume(TimeSpan timeout) =>
         _consumer.Consume(timeout);
