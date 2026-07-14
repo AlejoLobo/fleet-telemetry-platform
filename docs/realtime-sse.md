@@ -118,13 +118,16 @@ Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
 - Un solo registro pendiente: no se Consume N+1 hasta completar el pendiente.
 - Accepted / Duplicate / InvalidPermanent → avanzan watermark del broker y liberan el pending.
 - TransientPublishFailure → conserva el mismo `ConsumeResult`, `EnterRecovering` si estaba Ready, backoff, reintenta **sin Seek**.
-- FatalTransportFailure → recuperación (`Assign` en `LastProcessed+1`) o `Faulted`.
+- Idle o Completed en `Recovering`/`Starting` → `EnterReady` (tópico quieto recupera admisión SSE).
+- FatalTransportFailure → `EnterRecovering`, disponer consumidor, crear uno nuevo vía `IRealtimeKafkaConsumerFactory`, resolver Assign (Low/High), poll saludable, `EnterReady`.
 - No hay commits Kafka para coordinar la réplica.
 
 ### Recuperación
 
-- Dentro del proceso: `resumeOffset = LastProcessedExternalOffset + 1` y Assign ahí.
-- Si `resumeOffset < Low` (retención): nueva línea base `High-1`, limpia replay, Assign en High, obliga `initial-snapshot`.
+- `resumeOffset = LastProcessedExternalOffset + 1`
+- Si `Low <= resumeOffset <= High` → Assign en `resumeOffset`.
+- Si `resumeOffset < Low` o `resumeOffset > High` → `ResetToBaseline(High - 1)`, Assign en High, `initial-snapshot`.
+- Ready solo tras Idle/Completed saludable con el consumidor nuevo.
 
 ### Configuración (`Sse` / `Kafka`)
 
