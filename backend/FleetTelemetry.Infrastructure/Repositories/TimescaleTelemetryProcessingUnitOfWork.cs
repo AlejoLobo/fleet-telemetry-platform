@@ -1,3 +1,4 @@
+using FleetTelemetry.Application.Configuration;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Application.Services;
@@ -13,7 +14,7 @@ using System.Text.Json;
 // Unidad de trabajo transaccional para procesar telemetría.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Persiste evento, alertas e idempotencia en una transacción.
+// Persiste evento, estados de alerta, alertas emitidas e idempotencia en una transacción.
 public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOfWork
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -26,6 +27,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     private readonly IFleetOfflinePublishMarkerRepository _markerRepository;
     private readonly TimeProvider _timeProvider;
     private readonly QueryLimitsOptions _queryLimits;
+    private readonly AlertingOptions _alerting;
     private readonly ILogger<TimescaleTelemetryProcessingUnitOfWork> _logger;
 
     public TimescaleTelemetryProcessingUnitOfWork(
@@ -34,6 +36,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         IFleetOfflinePublishMarkerRepository markerRepository,
         TimeProvider timeProvider,
         IOptions<QueryLimitsOptions> queryLimits,
+        IOptions<AlertingOptions> alerting,
         ILogger<TimescaleTelemetryProcessingUnitOfWork> logger)
     {
         _dbContext = dbContext;
@@ -41,17 +44,18 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         _markerRepository = markerRepository;
         _timeProvider = timeProvider;
         _queryLimits = queryLimits.Value;
+        _alerting = alerting.Value;
         _logger = logger;
     }
 
-    // Procesa evento en transacción con idempotencia y alertas.
+    // Procesa evento en transacción con idempotencia, estados de alerta y alertas emitidas.
     public async Task<ProcessTelemetryOutcome> ProcessAsync(
         TelemetryEvent telemetryEvent,
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var processedAt = DateTimeOffset.UtcNow;
+        var processedAt = _timeProvider.GetUtcNow();
         var rowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO processed_events ("EventId", "ProcessedAt")
@@ -82,8 +86,21 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             CapturedAt = processedAt
         });
 
-        var alerts = TelemetryAlertEvaluator.Evaluate(telemetryEvent);
-        foreach (var alert in alerts)
+        // Serializa evaluaciones concurrentes del mismo VehicleId (redelivery/concurrencia).
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtext({telemetryEvent.VehicleId}));",
+            cancellationToken);
+
+        var locked = await LockAlertStatesAsync(telemetryEvent.VehicleId, cancellationToken);
+        var evaluation = TelemetryAlertEvaluator.Evaluate(
+            telemetryEvent,
+            locked.StatesByType,
+            processedAt,
+            _alerting);
+
+        ApplyAlertStateUpserts(evaluation.StatesToUpsert, locked.TrackedByType);
+
+        foreach (var alert in evaluation.EmittedAlerts)
         {
             _dbContext.FleetAlerts.Add(new FleetAlertRecord
             {
@@ -147,11 +164,70 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
         await PublishRealtimeUpdatesAsync(
             telemetryEvent,
-            alerts,
+            evaluation.EmittedAlerts,
             stateRowsAffected > 0,
             cancellationToken);
 
         return ProcessTelemetryOutcome.Processed;
+    }
+
+    // Bloqueo de filas existentes para serializar evaluaciones concurrentes del mismo vehículo.
+    private async Task<(
+        Dictionary<string, FleetAlertConditionState> StatesByType,
+        Dictionary<string, FleetAlertConditionStateRecord> TrackedByType)> LockAlertStatesAsync(
+        string vehicleId,
+        CancellationToken cancellationToken)
+    {
+        var records = await _dbContext.FleetAlertStates
+            .FromSqlInterpolated(
+                $"""
+                SELECT "VehicleId", "AlertType", "IsActive", "LastConditionAt", "LastAlertAt", "UpdatedAt"
+                FROM fleet_alert_states
+                WHERE "VehicleId" = {vehicleId}
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
+
+        var tracked = records.ToDictionary(r => r.AlertType, StringComparer.Ordinal);
+        var states = records.ToDictionary(
+            r => r.AlertType,
+            r => FleetAlertConditionState.FromPersistence(
+                r.VehicleId,
+                r.AlertType,
+                r.IsActive,
+                r.LastConditionAt,
+                r.LastAlertAt,
+                r.UpdatedAt),
+            StringComparer.Ordinal);
+
+        return (states, tracked);
+    }
+
+    private void ApplyAlertStateUpserts(
+        IReadOnlyList<FleetAlertConditionState> statesToUpsert,
+        Dictionary<string, FleetAlertConditionStateRecord> trackedByType)
+    {
+        foreach (var state in statesToUpsert)
+        {
+            if (trackedByType.TryGetValue(state.AlertType, out var existing))
+            {
+                existing.IsActive = state.IsActive;
+                existing.LastConditionAt = state.LastConditionAt;
+                existing.LastAlertAt = state.LastAlertAt;
+                existing.UpdatedAt = state.UpdatedAt;
+                continue;
+            }
+
+            _dbContext.FleetAlertStates.Add(new FleetAlertConditionStateRecord
+            {
+                VehicleId = state.VehicleId,
+                AlertType = state.AlertType,
+                IsActive = state.IsActive,
+                LastConditionAt = state.LastConditionAt,
+                LastAlertAt = state.LastAlertAt,
+                UpdatedAt = state.UpdatedAt
+            });
+        }
     }
 
     private async Task PublishRealtimeUpdatesAsync(

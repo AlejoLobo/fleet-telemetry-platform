@@ -14,6 +14,7 @@ public class FleetDbContext : DbContext
     public DbSet<TelemetryEventRecord> TelemetryEvents => Set<TelemetryEventRecord>();
     public DbSet<ProcessedEventRecord> ProcessedEvents => Set<ProcessedEventRecord>();
     public DbSet<FleetAlertRecord> FleetAlerts => Set<FleetAlertRecord>();
+    public DbSet<FleetAlertConditionStateRecord> FleetAlertStates => Set<FleetAlertConditionStateRecord>();
     public DbSet<FleetVehicleStateRecord> FleetVehicleStates => Set<FleetVehicleStateRecord>();
     public DbSet<FleetConnectivityWatermarkRecord> FleetConnectivityWatermarks => Set<FleetConnectivityWatermarkRecord>();
     public DbSet<FleetOfflinePublishMarkerRecord> FleetOfflinePublishMarkers => Set<FleetOfflinePublishMarkerRecord>();
@@ -35,6 +36,12 @@ public class FleetDbContext : DbContext
         {
             entity.HasIndex(e => new { e.VehicleId, e.CreatedAt });
             entity.HasIndex(e => e.IsAcknowledged);
+        });
+
+        modelBuilder.Entity<FleetAlertConditionStateRecord>(entity =>
+        {
+            entity.HasKey(e => new { e.VehicleId, e.AlertType });
+            entity.HasIndex(e => new { e.IsActive, e.LastConditionAt });
         });
 
         modelBuilder.Entity<FleetVehicleStateRecord>(entity =>

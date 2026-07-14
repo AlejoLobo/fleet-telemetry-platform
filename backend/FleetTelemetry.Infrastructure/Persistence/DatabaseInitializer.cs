@@ -13,6 +13,7 @@ public static class DatabaseInitializer
     private const long SchemaAdvisoryLockKey = 742001;
     private const int ReadModelSchemaVersion = 2;
     private const int ReadModelVerificationSchemaVersion = 3;
+    private const int AlertStateSchemaVersion = 4;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -50,8 +51,14 @@ public static class DatabaseInitializer
                     migrationHooks,
                     v2AppliedNow,
                     cancellationToken);
+                await ApplyAlertStateMigrationV4Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
                 await using var ensureTransaction = await connection.BeginTransactionAsync(cancellationToken);
                 await EnsureFleetVehicleStateSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await EnsureFleetAlertStatesSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await ensureTransaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
@@ -392,6 +399,77 @@ public static class DatabaseInitializer
             """
             CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
             ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
+            """,
+            cancellationToken);
+    }
+
+    private static async Task ApplyAlertStateMigrationV4Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, AlertStateSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Alert state migration v{Version} already applied; preserving historical alerts.",
+                AlertStateSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetAlertStatesSchemaAsync(connection, transaction, cancellationToken);
+            await migrationHooks.OnBeforeRegisterVersionAsync(AlertStateSchemaVersion, cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (4, NOW(), 'fleet_alert_states active condition and cooldown');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation("Alert state migration v{Version} applied successfully.", AlertStateSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task EnsureFleetAlertStatesSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_alert_states (
+                "VehicleId" character varying(64) NOT NULL,
+                "AlertType" character varying(64) NOT NULL,
+                "IsActive" boolean NOT NULL,
+                "LastConditionAt" timestamp with time zone NOT NULL,
+                "LastAlertAt" timestamp with time zone,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_fleet_alert_states" PRIMARY KEY ("VehicleId", "AlertType")
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_alert_states_active_condition
+            ON fleet_alert_states ("IsActive", "LastConditionAt" DESC);
             """,
             cancellationToken);
     }
