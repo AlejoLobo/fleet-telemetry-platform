@@ -14,6 +14,7 @@ public static class DatabaseInitializer
     private const int ReadModelSchemaVersion = 2;
     private const int ReadModelVerificationSchemaVersion = 3;
     private const int AlertStateSchemaVersion = 4;
+    private const int TimescaleMaintenanceSchemaVersion = 5;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -52,6 +53,11 @@ public static class DatabaseInitializer
                     v2AppliedNow,
                     cancellationToken);
                 await ApplyAlertStateMigrationV4Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
+                await ApplyTimescaleMaintenanceMigrationV5Async(
                     connection,
                     logger,
                     migrationHooks,
@@ -472,6 +478,209 @@ public static class DatabaseInitializer
             ON fleet_alert_states ("IsActive", "LastConditionAt" DESC);
             """,
             cancellationToken);
+    }
+
+    // Políticas TimescaleDB: chunks, compresión, retención, agregado horario y limpieza de processed_events.
+    private static async Task ApplyTimescaleMaintenanceMigrationV5Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, TimescaleMaintenanceSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Timescale maintenance migration v{Version} already applied; preserving policies.",
+                TimescaleMaintenanceSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            // Chunk interval de 6 horas (válido sobre hypertable existente).
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                SELECT set_chunk_time_interval('telemetry_events', INTERVAL '6 hours');
+                """,
+                cancellationToken);
+
+            // Compresión por vehículo, orden temporal descendente.
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                ALTER TABLE telemetry_events SET (
+                    timescaledb.compress,
+                    timescaledb.compress_segmentby = '"VehicleId"',
+                    timescaledb.compress_orderby = '"Timestamp" DESC'
+                );
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                SELECT add_compression_policy(
+                    'telemetry_events',
+                    compress_after => INTERVAL '7 days',
+                    if_not_exists => TRUE);
+                """,
+                cancellationToken);
+
+            // Retención solo sobre telemetría cruda (90 días).
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                SELECT add_retention_policy(
+                    'telemetry_events',
+                    drop_after => INTERVAL '90 days',
+                    if_not_exists => TRUE);
+                """,
+                cancellationToken);
+
+            if (!await ContinuousAggregateExistsAsync(connection, transaction, "telemetry_hourly", cancellationToken))
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    """
+                    CREATE MATERIALIZED VIEW telemetry_hourly
+                    WITH (timescaledb.continuous) AS
+                    SELECT
+                        time_bucket(INTERVAL '1 hour', "Timestamp") AS "Bucket",
+                        "VehicleId",
+                        COUNT(*)::bigint AS "SampleCount",
+                        AVG("SpeedKmh") AS "AverageSpeedKmh",
+                        MAX("SpeedKmh") AS "MaxSpeedKmh",
+                        MIN("FuelLevelPercent") AS "MinFuelLevelPercent",
+                        MIN("BatteryPercent") AS "MinBatteryPercent"
+                    FROM telemetry_events
+                    GROUP BY 1, 2
+                    WITH NO DATA;
+                    """,
+                    cancellationToken);
+            }
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                SELECT add_continuous_aggregate_policy(
+                    'telemetry_hourly',
+                    start_offset => INTERVAL '30 days',
+                    end_offset => INTERVAL '10 minutes',
+                    schedule_interval => INTERVAL '15 minutes',
+                    if_not_exists => TRUE);
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                CREATE INDEX IF NOT EXISTS ix_processed_events_processed_at
+                ON processed_events ("ProcessedAt");
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                CREATE OR REPLACE FUNCTION cleanup_processed_events(job_id integer, config jsonb)
+                RETURNS void
+                LANGUAGE plpgsql
+                AS $$
+                BEGIN
+                    DELETE FROM processed_events pe
+                    WHERE pe.ctid = ANY (
+                        ARRAY(
+                            SELECT p.ctid
+                            FROM processed_events p
+                            WHERE p."ProcessedAt" < NOW() - INTERVAL '120 days'
+                            ORDER BY p."ProcessedAt"
+                            LIMIT 100000
+                            FOR UPDATE SKIP LOCKED
+                        )
+                    );
+                END;
+                $$;
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM timescaledb_information.jobs
+                        WHERE proc_name = 'cleanup_processed_events'
+                    ) THEN
+                        PERFORM add_job('cleanup_processed_events', INTERVAL '5 minutes');
+                    END IF;
+                END $$;
+                """,
+                cancellationToken);
+
+            await migrationHooks.OnBeforeRegisterVersionAsync(
+                TimescaleMaintenanceSchemaVersion,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (
+                    5,
+                    NOW(),
+                    'Timescale maintenance: 6h chunks, 7d compression, 90d retention, telemetry_hourly, processed_events cleanup');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation(
+                "Timescale maintenance migration v{Version} applied successfully.",
+                TimescaleMaintenanceSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task<bool> ContinuousAggregateExistsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string viewName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM timescaledb_information.continuous_aggregates
+                WHERE view_schema = 'public'
+                  AND view_name = @viewName
+            );
+            """;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "viewName";
+        parameter.Value = viewName;
+        command.Parameters.Add(parameter);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static async Task ExecuteDeterministicBackfillAsync(
