@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Ciclo productivo Assign → poll → recrear consumidor ante FatalFailure / fallos transitorios.
+// Ciclo productivo ValidateTopic → Assign → poll → recrear consumidor ante FatalFailure / fallos transitorios.
 internal sealed class KafkaManualAssignmentPump
 {
     private static readonly TimeSpan MaxSessionBackoff = TimeSpan.FromSeconds(5);
@@ -20,6 +20,9 @@ internal sealed class KafkaManualAssignmentPump
     private readonly TimeSpan _pollTimeout;
     private readonly TimeSpan _watermarkTimeout;
     private readonly bool _startInRecovery;
+    private readonly IRealtimeTopicMetadataSource? _metadataSource;
+    private readonly bool _requireSinglePartition;
+    private readonly TimeSpan _metadataTimeout;
 
     public KafkaManualAssignmentPump(
         FleetSseBroker broker,
@@ -32,7 +35,10 @@ internal sealed class KafkaManualAssignmentPump
         Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
         TimeSpan? pollTimeout = null,
         TimeSpan? watermarkTimeout = null,
-        bool startInRecovery = false)
+        bool startInRecovery = false,
+        IRealtimeTopicMetadataSource? metadataSource = null,
+        bool requireSinglePartition = false,
+        TimeSpan? metadataTimeout = null)
     {
         _broker = broker;
         _coordinator = coordinator;
@@ -45,6 +51,9 @@ internal sealed class KafkaManualAssignmentPump
         _pollTimeout = pollTimeout ?? TimeSpan.FromMilliseconds(500);
         _watermarkTimeout = watermarkTimeout ?? TimeSpan.FromSeconds(10);
         _startInRecovery = startInRecovery;
+        _metadataSource = metadataSource;
+        _requireSinglePartition = requireSinglePartition;
+        _metadataTimeout = metadataTimeout ?? TimeSpan.FromSeconds(10);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -55,15 +64,27 @@ internal sealed class KafkaManualAssignmentPump
         var topicPartition = new TopicPartition(_topic, 0);
         var isFirstSession = !_startInRecovery;
         var consecutiveFailures = 0;
+        var topicValidated = false;
 
         while (!cancellationToken.IsCancellationRequested
                && _coordinator.State != RealtimeStreamState.Faulted)
         {
             IRealtimeKafkaConsumerSession? session = null;
-            var phase = "CreateConsumer";
+            var phase = "ValidateTopic";
             var recreateWithBackoff = false;
             try
             {
+                if (_metadataSource is not null && _requireSinglePartition && !topicValidated)
+                {
+                    phase = "ValidateTopic";
+                    RealtimeTopicValidator.EnsureSinglePartition(
+                        _metadataSource,
+                        _topic,
+                        required: true,
+                        timeout: _metadataTimeout);
+                    topicValidated = true;
+                }
+
                 phase = "CreateConsumer";
                 session = _consumerFactory.Create(_groupId);
 
@@ -71,8 +92,7 @@ internal sealed class KafkaManualAssignmentPump
                 long? baselineForReady = PrepareAssignment(session, topicPartition, isFirstSession, ref phase);
                 isFirstSession = false;
 
-                // Sesión lista para poll: reinicia backoff de recreación.
-                consecutiveFailures = 0;
+                // No reinicia consecutiveFailures aquí: solo Idle/Completed cuentan como saludables.
 
                 phase = "Poll";
                 var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
@@ -81,11 +101,17 @@ internal sealed class KafkaManualAssignmentPump
                     _logger,
                     delayAsync: _delayAsync);
 
-                var fatal = await RunSessionAsync(session, loop, baselineForReady, cancellationToken);
-                if (!fatal)
+                var sessionResult = await RunSessionAsync(
+                    session,
+                    loop,
+                    baselineForReady,
+                    consecutiveFailures,
+                    cancellationToken);
+                consecutiveFailures = sessionResult.ConsecutiveFailures;
+                if (!sessionResult.RecreateConsumer)
                     break;
 
-                // FatalFailure en poll: EnterRecovering ya aplicado; backoff tras disponer.
+                // FatalFailure antes o después de poll saludable: racha previa + 1; backoff tras disponer.
                 consecutiveFailures++;
                 recreateWithBackoff = true;
             }
@@ -196,11 +222,14 @@ internal sealed class KafkaManualAssignmentPump
         return plan.NewBaseline;
     }
 
-    // true = FatalFailure (recrear consumidor); false = fin normal / cancel / Faulted.
-    private async Task<bool> RunSessionAsync(
+    private readonly record struct SessionRunResult(bool RecreateConsumer, int ConsecutiveFailures);
+
+    // RecreateConsumer = FatalFailure (recrear consumidor); false = fin normal / cancel / Faulted.
+    private async Task<SessionRunResult> RunSessionAsync(
         IRealtimeKafkaPushTransport transport,
         FleetRealtimeKafkaPushLoop loop,
         long? baselineForReady,
+        int consecutiveFailures,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested
@@ -211,6 +240,14 @@ internal sealed class KafkaManualAssignmentPump
             {
                 case KafkaPushPollResult.Idle:
                 case KafkaPushPollResult.Completed:
+                    consecutiveFailures = 0;
+                    var healthyTransition = KafkaPushPollStateMachine.Apply(
+                        _coordinator,
+                        pollResult,
+                        baselineForReady);
+                    baselineForReady = healthyTransition.BaselineForReady;
+                    break;
+
                 case KafkaPushPollResult.TransientFailure:
                 case KafkaPushPollResult.FatalFailure:
                     var transition = KafkaPushPollStateMachine.Apply(
@@ -221,14 +258,14 @@ internal sealed class KafkaManualAssignmentPump
                     if (transition.RecreateConsumer)
                     {
                         loop.AbandonPending();
-                        return true;
+                        return new SessionRunResult(RecreateConsumer: true, consecutiveFailures);
                     }
 
                     break;
             }
         }
 
-        return false;
+        return new SessionRunResult(RecreateConsumer: false, consecutiveFailures);
     }
 
     private Task DelaySessionBackoffAsync(

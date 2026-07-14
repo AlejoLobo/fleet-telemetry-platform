@@ -54,16 +54,15 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
     {
         try
         {
-            RealtimeTopicValidator.EnsureSinglePartition(
-                _kafkaOptions.BootstrapServers,
-                _kafkaOptions.RealtimeTopic,
-                _sseOptions.RequireSingleRealtimePartition);
             stoppingToken.ThrowIfCancellationRequested();
 
             var factory = _consumerFactoryOverride
                 ?? new ConfluentRealtimeKafkaConsumerFactory(
                     _kafkaOptions.BootstrapServers,
                     _kafkaOptions.RealtimeTopic);
+
+            // Metadata recuperable vive en el mismo ciclo de backoff del pump (Starting sin SSE).
+            var metadataSource = new ConfluentRealtimeTopicMetadataSource(_kafkaOptions.BootstrapServers);
 
             var pump = new KafkaManualAssignmentPump(
                 _broker,
@@ -72,7 +71,9 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
                 _kafkaOptions.RealtimeTopic,
                 ConsumerGroupId,
                 _logger,
-                _metrics);
+                _metrics,
+                metadataSource: metadataSource,
+                requireSinglePartition: _sseOptions.RequireSingleRealtimePartition);
 
             _logger.LogInformation(
                 "SSE Kafka push pump starting. Topic={Topic} Group={Group} InstanceId={InstanceId}",

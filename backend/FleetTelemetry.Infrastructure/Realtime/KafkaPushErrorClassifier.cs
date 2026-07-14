@@ -10,6 +10,7 @@ internal static class KafkaPushErrorClassifier
         // ConsumeException deriva de KafkaException: un solo arm IsFatal basta.
         return exception switch
         {
+            RealtimeTopicPartitionCountException => true,
             ArgumentException => true,
             InvalidCastException => true,
             NotSupportedException => true,
@@ -22,7 +23,11 @@ internal static class KafkaPushErrorClassifier
     public static bool IsTransient(Exception exception) => !IsPermanent(exception);
 
     public static string ResolveFailedPhase(string currentPhase, Exception exception) =>
-        exception is RealtimeKafkaAssignmentMaterializationException
-            ? "MaterializeAssignment"
-            : currentPhase;
+        exception switch
+        {
+            RealtimeKafkaAssignmentMaterializationException => "MaterializeAssignment",
+            RealtimeTopicMetadataUnavailableException => "ValidateTopic",
+            RealtimeTopicPartitionCountException => "ValidateTopic",
+            _ => currentPhase
+        };
 }
