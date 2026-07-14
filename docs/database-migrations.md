@@ -28,12 +28,15 @@ Versión `2` — tabla de lectura `fleet_vehicle_state` (un registro por vehícu
 
 Versión `3` — verificación y reparación del read model para instalaciones que ya tenían v2 registrada. En una **instalación nueva** (v2 aplicada en el mismo `InitializeAsync`), v3 **no repite** el backfill completo; solo registra la versión. En una **instalación heredada** (v2 previa, v3 ausente), v3 ejecuta el backfill reparador.
 
+Versión `4` — tabla `fleet_alert_states` (estado activo / cooldown por `VehicleId` + `AlertType`). No borra `fleet_alerts` históricas; no requiere backfill.
+
 ### Política v2 + v3 (sin doble backfill)
 
 ```
 InitializeAsync:
   v2AppliedNow = ApplyReadModelMigrationV2Async()
   ApplyReadModelVerificationV3Async(v2AppliedNow)
+  ApplyAlertStateMigrationV4Async()
 ```
 
 | Escenario | Backfills ejecutados |

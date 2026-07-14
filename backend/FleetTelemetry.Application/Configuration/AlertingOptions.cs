@@ -1,0 +1,16 @@
+namespace FleetTelemetry.Application.Configuration;
+
+// Umbrales y cooldown de alertas operativas.
+public sealed class AlertingOptions
+{
+    public const string SectionName = "Alerting";
+
+    // Ventana mínima entre alertas emitidas del mismo VehicleId + AlertType.
+    public int CooldownSeconds { get; set; } = 300;
+
+    public double OverspeedThresholdKmh { get; set; } = 120;
+
+    public double LowFuelPercent { get; set; } = 15;
+
+    public double LowBatteryPercent { get; set; } = 20;
+}

@@ -67,6 +67,10 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(TelemetryIngestOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<TelemetryIngestOptions>, TelemetryIngestOptionsValidator>();
+        services.AddOptions<AlertingOptions>()
+            .Bind(configuration.GetSection(AlertingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AlertingOptions>, AlertingOptionsValidator>();
         services.AddSingleton<TelemetryEventValidator>();
 
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
