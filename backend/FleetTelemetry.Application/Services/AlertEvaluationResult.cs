@@ -18,9 +18,17 @@ public sealed class AlertEvaluationResult
     public IReadOnlyList<FleetAlertConditionState> StatesToUpsert { get; }
 }
 
+// Observación tri-estado: ausente ≠ recuperado.
+public enum AlertConditionObservationStatus
+{
+    NotObserved = 0,
+    Recovered = 1,
+    Breached = 2
+}
+
 // Observación de umbral para un tipo de alerta.
 public readonly record struct AlertConditionObservation(
     string AlertType,
     string Severity,
     string Message,
-    bool IsBreached);
+    AlertConditionObservationStatus Status);

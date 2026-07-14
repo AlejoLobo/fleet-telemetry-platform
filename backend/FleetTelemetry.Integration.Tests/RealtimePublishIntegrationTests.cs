@@ -191,8 +191,9 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         _publisher.Reset();
         await ProcessAsync(olderWithAlert);
 
+        // Fuera de orden: no actualiza fleet_vehicle_state ni emite alertas (FT-006).
         Assert.Empty(_publisher.VehicleUpdates);
-        Assert.NotEmpty(_publisher.AlertPayloads);
+        Assert.Empty(_publisher.AlertPayloads);
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -200,6 +201,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         Assert.Equal(newer.EventId, state.LastEventId);
         Assert.Equal(newer.Timestamp, state.LastTimestamp);
         Assert.Equal(newer.SpeedKmh, state.SpeedKmh);
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
     }
 
     private async Task ResetAsync()

@@ -10,7 +10,7 @@ public static class TelemetryAlertEvaluator
     public const string LowFuelAlertType = "low_fuel";
     public const string LowBatteryAlertType = "low_battery";
 
-    // Detecta incumplimientos actuales (sin crear alertas).
+    // Detecta observaciones tri-estado (sin crear alertas).
     public static IReadOnlyList<AlertConditionObservation> Observe(
         TelemetryEvent telemetryEvent,
         AlertingOptions options)
@@ -21,30 +21,30 @@ public static class TelemetryAlertEvaluator
             OverspeedAlertType,
             "critical",
             $"El vehículo {telemetryEvent.VehicleId} superó el límite de velocidad: {telemetryEvent.SpeedKmh:F1} km/h",
-            telemetryEvent.SpeedKmh > options.OverspeedThresholdKmh));
+            telemetryEvent.SpeedKmh > options.OverspeedThresholdKmh
+                ? AlertConditionObservationStatus.Breached
+                : AlertConditionObservationStatus.Recovered));
 
         observations.Add(new AlertConditionObservation(
             LowFuelAlertType,
             "warning",
             $"El vehículo {telemetryEvent.VehicleId} tiene combustible bajo: {telemetryEvent.FuelLevelPercent:F1}%",
-            telemetryEvent.FuelLevelPercent is { } fuel && fuel < options.LowFuelPercent));
+            ResolveNullableThreshold(
+                telemetryEvent.FuelLevelPercent,
+                options.LowFuelPercent,
+                breachedWhenBelow: true)));
 
         observations.Add(new AlertConditionObservation(
             LowBatteryAlertType,
             "warning",
             $"El vehículo {telemetryEvent.VehicleId} tiene batería baja: {telemetryEvent.BatteryPercent:F1}%",
-            telemetryEvent.BatteryPercent is { } battery && battery < options.LowBatteryPercent));
+            ResolveNullableThreshold(
+                telemetryEvent.BatteryPercent,
+                options.LowBatteryPercent,
+                breachedWhenBelow: true)));
 
         return observations;
     }
-
-    // Compatibilidad: evalúa sin estado previo (primera incidencia → emite).
-    public static IReadOnlyList<FleetAlert> Evaluate(TelemetryEvent telemetryEvent) =>
-        Evaluate(
-            telemetryEvent,
-            statesByType: null,
-            now: DateTimeOffset.UnixEpoch.AddYears(50),
-            options: new AlertingOptions()).EmittedAlerts;
 
     public static AlertEvaluationResult Evaluate(
         TelemetryEvent telemetryEvent,
@@ -78,13 +78,42 @@ public static class TelemetryAlertEvaluator
     }
 
     // Política de cooldown documentada (reloj de LastAlertAt, no de LastConditionAt):
-    // - Inactive + breach + (sin LastAlertAt | cooldown vencido) → emitir + activar.
-    // - Inactive + breach + cooldown vigente → activar sin emitir (anti-oscilación).
-    // - Active + breach + cooldown vigente → solo LastConditionAt.
-    // - Active + breach + cooldown vencido → recordatorio + LastAlertAt.
-    // - Active + recovered → IsActive=false (IsAcknowledged no participa).
-    // - Inactive + normal → sin cambios.
+    // - NotObserved → NoChange (null no recupera ni recuerda).
+    // - Recovered → desactiva solo si estaba activa.
+    // - Breached → política activa/cooldown existente.
     public static AlertConditionTransition Transition(
+        string vehicleId,
+        AlertConditionObservation observation,
+        FleetAlertConditionState? current,
+        DateTimeOffset now,
+        TimeSpan cooldown)
+    {
+        return observation.Status switch
+        {
+            AlertConditionObservationStatus.NotObserved => AlertConditionTransition.NoChange,
+            AlertConditionObservationStatus.Recovered => TransitionRecovered(current, now),
+            AlertConditionObservationStatus.Breached => TransitionBreached(
+                vehicleId,
+                observation,
+                current,
+                now,
+                cooldown),
+            _ => AlertConditionTransition.NoChange
+        };
+    }
+
+    private static AlertConditionTransition TransitionRecovered(
+        FleetAlertConditionState? current,
+        DateTimeOffset now)
+    {
+        if (current is null || !current.IsActive)
+            return AlertConditionTransition.NoChange;
+
+        current.MarkInactive(now);
+        return AlertConditionTransition.StateOnly(current);
+    }
+
+    private static AlertConditionTransition TransitionBreached(
         string vehicleId,
         AlertConditionObservation observation,
         FleetAlertConditionState? current,
@@ -95,16 +124,6 @@ public static class TelemetryAlertEvaluator
         var cooldownElapsed = current?.LastAlertAt is null
             || now - current.LastAlertAt.Value >= cooldown;
 
-        if (!observation.IsBreached)
-        {
-            if (current is null || !isActive)
-                return AlertConditionTransition.NoChange;
-
-            current.MarkInactive(now);
-            return AlertConditionTransition.StateOnly(current);
-        }
-
-        // Condición incumplida.
         if (!isActive)
         {
             if (current is null)
@@ -135,7 +154,6 @@ public static class TelemetryAlertEvaluator
         }
 
         // Activa + incumplimiento.
-        // isActive implica current != null.
         current!.RefreshCondition(now, now);
         if (!cooldownElapsed)
             return AlertConditionTransition.StateOnly(current);
@@ -146,25 +164,31 @@ public static class TelemetryAlertEvaluator
             current);
     }
 
+    private static AlertConditionObservationStatus ResolveNullableThreshold(
+        double? value,
+        double threshold,
+        bool breachedWhenBelow)
+    {
+        if (value is null)
+            return AlertConditionObservationStatus.NotObserved;
+
+        var breached = breachedWhenBelow ? value.Value < threshold : value.Value > threshold;
+        return breached
+            ? AlertConditionObservationStatus.Breached
+            : AlertConditionObservationStatus.Recovered;
+    }
+
     private static FleetAlert CreateAlert(
         string vehicleId,
         AlertConditionObservation observation,
         DateTimeOffset now) =>
-        CreateAlert(vehicleId, observation.AlertType, observation.Severity, observation.Message, now);
-
-    private static FleetAlert CreateAlert(
-        string vehicleId,
-        string alertType,
-        string severity,
-        string message,
-        DateTimeOffset createdAt) =>
         FleetAlert.Create(
             Guid.NewGuid(),
             vehicleId,
-            alertType,
-            severity,
-            message,
-            createdAt);
+            observation.AlertType,
+            observation.Severity,
+            observation.Message,
+            now);
 }
 
 public sealed class AlertConditionTransition

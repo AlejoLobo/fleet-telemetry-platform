@@ -64,7 +64,7 @@ sequenceDiagram
 
 ### Estado activo y cooldown (FT-006)
 
-La tabla `fleet_alert_states` mantiene una fila por `(VehicleId, AlertType)`:
+La tabla `fleet_alert_states` mantiene una fila por `(VehicleId, AlertType)` y representa las condiciones del **último evento aceptado** por `fleet_vehicle_state` (mismo criterio de orden: `Timestamp` más reciente; empate → `EventId` mayor).
 
 | Campo | Rol |
 |-------|-----|
@@ -72,17 +72,24 @@ La tabla `fleet_alert_states` mantiene una fila por `(VehicleId, AlertType)`:
 | `LastConditionAt` | Última telemetría que observó el incumplimiento |
 | `LastAlertAt` | Última `FleetAlert` emitida (nullable) |
 
+Observaciones tri-estado (`NotObserved` / `Recovered` / `Breached`):
+
+- `overspeed`: siempre observado (`SpeedKmh` obligatorio).
+- `low_fuel` / `low_battery`: `null` → `NotObserved` (no recupera, no recuerda, no crea estado).
+- valor bajo umbral → `Breached`; valor en rango → `Recovered`.
+
 Política (`Alerting:CooldownSeconds`, default 300):
 
-1. Inactiva + valor normal → sin cambios.
-2. Inactiva + primer incumplimiento (sin `LastAlertAt` o cooldown vencido) → `IsActive=true` + una `FleetAlert`.
-3. Activa + incumplimiento dentro del cooldown → solo `LastConditionAt`.
-4. Activa + incumplimiento con cooldown vencido → una alerta recordatoria + `LastAlertAt`.
-5. Activa + valor recuperado → `IsActive=false` (no toca acknowledgement).
-6. Tras recuperación, una nueva incidencia dentro del cooldown → reactiva sin emitir (anti-oscilación).
-7. Reconocer una alerta no cierra la condición activa.
+1. `NotObserved` → sin cambios de estado.
+2. Inactiva + `Recovered` → sin cambios.
+3. Inactiva + `Breached` (sin `LastAlertAt` o cooldown vencido) → `IsActive=true` + una `FleetAlert`.
+4. Activa + `Breached` dentro del cooldown → solo `LastConditionAt`.
+5. Activa + `Breached` con cooldown vencido → una alerta recordatoria + `LastAlertAt`.
+6. Activa + `Recovered` → `IsActive=false` (no toca acknowledgement).
+7. Tras recuperación, nueva `Breached` dentro del cooldown → reactiva sin emitir (anti-oscilación).
+8. Reconocer una alerta no cierra la condición activa.
 
-La decisión y el UPSERT de estado ocurre en la misma transacción que `processed_events` / `telemetry_events` / `fleet_alerts`, con `pg_advisory_xact_lock(hashtext(VehicleId))` + `SELECT … FOR UPDATE`. Solo las alertas **emitidas** se publican a Kafka/SSE.
+Orden en la misma transacción: `processed_events` → `telemetry_events` → UPSERT `fleet_vehicle_state` → solo si hubo filas afectadas: `SELECT … FOR UPDATE` de estados, evaluación, UPSERT `fleet_alert_states` e insert de alertas emitidas. Si el evento queda fuera de orden, se conservan historial/idempotencia y no se publican vehicle-update ni alertas. Concurrencia: `pg_advisory_xact_lock(hashtext(VehicleId))`.
 
 ## Tópicos Kafka
 
