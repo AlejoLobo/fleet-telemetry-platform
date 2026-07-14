@@ -101,7 +101,7 @@ k6 run load-tests/telemetry-ingest.js
 
 | Job | Pasos |
 |-----|-------|
-| Documentation | Auditoría de IA en README + consistencia test/docs (Web/Mobile `test:ci`, KafkaPush, OpenTelemetry opt-in, entorno AWS `dev`) |
+| Documentation | Decisiones arquitectónicas en README + consistencia test/docs (Web/Mobile `test:ci`, KafkaPush, OpenTelemetry opt-in, entorno AWS `dev`) |
 | Backend | restore → build → Application / Worker / Integration tests → audit High/Critical en Api+Worker+Infrastructure+Application |
 | Infra | `terraform fmt/validate` (blueprint + `dev`) → rechazo de placeholders/secretos → `docker compose config` |
 | Web | `npm ci` → lint → typecheck → `npm run test:ci` (Vitest + cobertura V8) → build |
