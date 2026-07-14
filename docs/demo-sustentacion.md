@@ -85,7 +85,7 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | Docker Compose | Infra + profile `app` | Cumple |
 | Terraform/AWS | Blueprint conceptual en `infra/terraform/` + entorno **dev ejecutable** en `infra/terraform/dev` (EC2 + Docker Compose, ALB, Secrets Manager, IAM, SSM); no es HA productivo | Cumple parcialmente |
 | Documentación DLQ/Kafka | [worker-and-dlq.md](worker-and-dlq.md) + pruebas de offsets e idempotencia | Cumple |
-| Auditoría de IA | Casos verificables en README con riesgo, corrección, archivos, pruebas y commits | Cumple |
+| Decisiones arquitectónicas | Casos verificables en README con riesgo, corrección, archivos, pruebas y commits | Cumple |
 | OpenTelemetry | Implementado opt-in; exporta OTLP (trazas, métricas y logs); sin collector ni dashboards en Compose | Cumple parcialmente |
 
 ## 7. Limitaciones conscientes
