@@ -1,10 +1,8 @@
 using FleetTelemetry.Application.Interfaces;
 using System.Text;
 
-// Herramientas operativas invocadas por el agente de IA.
 namespace FleetTelemetry.Application.Services;
 
-// Consulta flota, alertas y analítica para responder preguntas.
 public class AiOperationalTools
 {
     private const double StoppedSpeedThresholdKmh = 1;
@@ -27,7 +25,6 @@ public class AiOperationalTools
         _analyticsQueryService = analyticsQueryService;
     }
 
-    // Estado reciente de un vehículo con zona crítica si aplica.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetLatestVehicleStatusAsync(
         string vehicleId,
         CancellationToken cancellationToken = default)
@@ -53,7 +50,6 @@ public class AiOperationalTools
         return (answer.ToString().Trim(), ["GetLatestVehicleStatus", "IFleetQueryService"]);
     }
 
-    // Vehículos detenidos según última telemetría instantánea.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetStoppedVehiclesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -70,7 +66,6 @@ public class AiOperationalTools
             ["GetStoppedVehicles"]);
     }
 
-    // Vehículos detenidos más tiempo que el umbral, con filtros de zona.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetVehiclesStoppedLongerThanAsync(
         int minutes,
         bool criticalZonesOnly = false,
@@ -85,7 +80,6 @@ public class AiOperationalTools
 
         if (criticalZonesOnly || zoneName is not null)
         {
-            // Filtra por zona crítica o nombre específico.
             stopped = stopped
                 .Where(v =>
                 {
@@ -120,7 +114,6 @@ public class AiOperationalTools
         return ($"Vehículos detenidos {scopeLabel} ({stopped.Count}):\n{string.Join('\n', lines)}", sources);
     }
 
-    // Alertas abiertas con severidad crítica.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetVehiclesWithCriticalAlertsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -135,7 +128,6 @@ public class AiOperationalTools
         return ($"Alertas críticas abiertas ({critical.Count}):\n{string.Join('\n', lines)}", ["GetVehiclesWithCriticalAlerts"]);
     }
 
-    // Vehículos cuya velocidad supera el umbral dado.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetVehiclesAboveSpeedAsync(
         double thresholdKmh,
         CancellationToken cancellationToken = default)
@@ -150,7 +142,6 @@ public class AiOperationalTools
         return ($"Vehículos por encima de {thresholdKmh:F0} km/h ({above.Count}):\n{string.Join('\n', lines)}", ["GetVehiclesAboveSpeed"]);
     }
 
-    // Resumen analítico de 24 h para un vehículo.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetAnalyticsSummaryAsync(
         string? vehicleId,
         CancellationToken cancellationToken = default)
@@ -174,7 +165,6 @@ public class AiOperationalTools
         return (answer.Trim(), ["GetAnalyticsSummary", "IAnalyticsQueryService"]);
     }
 
-    // Panorama general: conectividad, alertas y detenciones prolongadas.
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetFleetOverviewAsync(
         CancellationToken cancellationToken = default)
     {
@@ -199,18 +189,15 @@ public class AiOperationalTools
         return (answer.Trim(), ["GetFleetOverview", "IFleetOperationalQueryService"]);
     }
 
-    // Umbral de velocidad con valor por defecto si no se detecta en texto.
     public static double ParseSpeedThreshold(string question, double defaultKmh = DefaultHighSpeedKmh) =>
         ParseSpeedThresholdOrNull(question) ?? defaultKmh;
 
-    // Extrae número de velocidad del texto o devuelve null.
     public static double? ParseSpeedThresholdOrNull(string question)
     {
         var digits = new string(question.Where(c => char.IsDigit(c) || c == '.').ToArray());
         return double.TryParse(digits, out var value) && value > 0 ? value : null;
     }
 
-    // Busca identificador de vehículo con prefijo VH-.
     public static string? ExtractVehicleId(string question)
     {
         const string prefix = "VH-";

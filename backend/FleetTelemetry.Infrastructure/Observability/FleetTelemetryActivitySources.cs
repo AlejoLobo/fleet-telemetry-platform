@@ -1,6 +1,5 @@
 using System.Diagnostics;
 
-// Fuentes de actividad para trazas personalizadas del pipeline.
 namespace FleetTelemetry.Infrastructure.Observability;
 
 public static class FleetTelemetryActivitySources

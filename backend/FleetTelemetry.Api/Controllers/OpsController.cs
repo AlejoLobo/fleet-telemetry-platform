@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Controllers;
 
-// Endpoints operativos de diagnóstico (MVP / sustentación).
 [ApiController]
 [Route("api/ops")]
 public class OpsController : ControllerBase

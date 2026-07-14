@@ -12,7 +12,6 @@ using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Infrastructure.Kafka;
 
-// Publicador de eventos de telemetría en Kafka con batching configurable.
 public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposable
 {
     private readonly IProducer<string, string> _producer;

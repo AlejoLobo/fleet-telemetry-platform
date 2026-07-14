@@ -20,7 +20,6 @@ internal interface IRealtimeKafkaConsumerFactory
     IRealtimeKafkaConsumerSession Create(string groupId);
 }
 
-// Implementación Confluent.Kafka de producción.
 internal sealed class ConfluentRealtimeKafkaConsumerFactory : IRealtimeKafkaConsumerFactory
 {
     private readonly string _bootstrapServers;
@@ -116,7 +115,6 @@ internal sealed class ConfluentRealtimeKafkaConsumerSession : IRealtimeKafkaCons
         }
         catch (ObjectDisposedException)
         {
-            // Ya cerrado.
         }
     }
 

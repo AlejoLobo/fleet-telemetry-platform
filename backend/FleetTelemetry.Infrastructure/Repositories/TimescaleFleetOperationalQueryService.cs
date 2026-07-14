@@ -7,10 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// Consultas operativas de vehículos detenidos.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Detecta detenciones prolongadas con secuencia continua post-movimiento.
 public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryService
 {
     private readonly FleetDbContext _dbContext;

@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Valida configuración sensible al arrancar.
 public static class ConfigurationValidator
 {
     private const string DefaultDbPassword = "Password=fleet";

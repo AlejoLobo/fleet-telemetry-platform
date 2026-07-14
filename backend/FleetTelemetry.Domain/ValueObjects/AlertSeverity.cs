@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Severidad de alerta con valores permitidos.
 public sealed class AlertSeverity : ValueObject
 {
     public static readonly AlertSeverity Info = new("info");

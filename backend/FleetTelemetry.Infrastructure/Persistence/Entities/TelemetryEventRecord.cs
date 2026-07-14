@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-// Entidad ORM de evento de telemetría.
 namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 
 // Mapeo a hypertable telemetry_events.

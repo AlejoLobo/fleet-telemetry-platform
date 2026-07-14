@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.ValueObjects;
 
 namespace FleetTelemetry.Domain.Entities;
 
-// Alerta operativa de flota con severidad y tipo validados.
 public sealed class FleetAlert
 {
     public Guid AlertId => _alertId;

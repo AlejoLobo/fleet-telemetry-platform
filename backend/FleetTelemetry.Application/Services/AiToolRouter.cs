@@ -1,10 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-// Enrutador determinista de intenciones a herramientas operativas.
 namespace FleetTelemetry.Application.Services;
 
-// Resultado del enrutamiento a una herramienta.
 public sealed record AiToolRoutingResult(
     bool Success,
     string? ToolName,
@@ -27,7 +25,6 @@ public class AiToolRouter
         _logger = logger;
     }
 
-    // Enruta la intención parseada a la herramienta correspondiente.
     public async Task<AiToolRoutingResult> RouteAsync(
         AiQuestionIntent intent,
         CancellationToken cancellationToken = default)
@@ -104,7 +101,6 @@ public class AiToolRouter
         }
     }
 
-    // Ejecuta herramienta a partir de tool call estructurado (OpenAI).
     public Task<AiToolRoutingResult> ExecuteToolCallAsync(
         string toolName,
         IReadOnlyDictionary<string, JsonElement> arguments,
@@ -210,7 +206,6 @@ public class AiToolRouter
                 ("Herramienta no soportada.", ["unsupported_tool"]))
         };
 
-    // Trunca listas largas conservando el encabezado y un aviso de recorte.
     public static string ReduceResultLines(string answer, int maxLines)
     {
         if (maxLines <= 0)

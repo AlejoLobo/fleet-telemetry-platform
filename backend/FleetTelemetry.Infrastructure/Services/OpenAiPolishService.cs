@@ -7,10 +7,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 
-// Cliente HTTP para pulir respuestas con OpenAI.
 namespace FleetTelemetry.Infrastructure.Services;
 
-// Reescribe respuestas operativas en español claro vía chat completions.
 public class OpenAiPolishService
 {
     private readonly HttpClient _httpClient;

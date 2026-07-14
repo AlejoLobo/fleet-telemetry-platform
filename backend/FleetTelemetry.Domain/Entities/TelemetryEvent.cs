@@ -130,7 +130,6 @@ public sealed class TelemetryEvent
             ? telemetryEvent!
             : throw new ArgumentException(error);
 
-    // Reconstrucción desde persistencia (datos ya validados al insertar).
     public static TelemetryEvent FromPersistence(
         Guid eventId,
         string vehicleId,

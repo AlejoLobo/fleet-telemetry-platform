@@ -1,7 +1,5 @@
-// Opciones de políticas de resiliencia Polly.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Umbrales de circuit breaker por dependencia.
 public class ResilienceOptions
 {
     public const string SectionName = "Resilience";
@@ -13,7 +11,6 @@ public class ResilienceOptions
     public CircuitBreakerPolicyOptions TimescaleDb { get; set; } = new();
 }
 
-// Parámetros de una política de circuit breaker.
 public class CircuitBreakerPolicyOptions
 {
     public bool Enabled { get; set; } = true;

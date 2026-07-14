@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Services;
 
-// Calcula conectividad online/offline de forma consistente en REST y realtime.
 public static class VehicleConnectivityStatus
 {
     public const string Online = "online";

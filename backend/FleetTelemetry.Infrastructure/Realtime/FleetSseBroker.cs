@@ -219,7 +219,6 @@ public class FleetSseBroker
         }
     }
 
-    // Eventos locales del modo polling con ID autogenerado (no Kafka).
     public FleetSseEvent PublishLocal(string eventType, object data, DateTimeOffset? timestamp = null)
     {
         lock (_sync)

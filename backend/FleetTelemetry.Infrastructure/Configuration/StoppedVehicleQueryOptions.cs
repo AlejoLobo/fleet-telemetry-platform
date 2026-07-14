@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Umbrales configurables para detección de vehículos detenidos.
 public class StoppedVehicleQueryOptions
 {
     public const string SectionName = "StoppedVehicles";
@@ -13,7 +12,6 @@ public class StoppedVehicleQueryOptions
     public double StoppedSpeedThresholdKmh { get; set; } = 1;
 }
 
-// Valida opciones al arranque para evitar umbrales incoherentes.
 public sealed class StoppedVehicleQueryOptionsValidator : IValidateOptions<StoppedVehicleQueryOptions>
 {
     public ValidateOptionsResult Validate(string? name, StoppedVehicleQueryOptions options)

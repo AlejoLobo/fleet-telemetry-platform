@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Límites de paginación y rangos de consulta histórica.
 public class QueryLimitsOptions
 {
     public const string SectionName = "QueryLimits";
