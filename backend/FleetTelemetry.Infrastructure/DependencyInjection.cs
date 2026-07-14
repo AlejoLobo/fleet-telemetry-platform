@@ -94,13 +94,13 @@ public static class DependencyInjection
                     sseOptions.ReplayBufferSize);
             });
 
-            services.AddSingleton<IFleetKafkaPushReadiness>(sp =>
+            services.AddSingleton<IRealtimeStreamCoordinator>(sp =>
             {
-                var readiness = new FleetKafkaPushReadiness();
+                var coordinator = new RealtimeStreamCoordinator(sp.GetRequiredService<FleetSseBroker>());
                 var mode = sp.GetRequiredService<IOptions<SseOptions>>().Value.Mode;
                 if (mode != SseDeliveryMode.KafkaPush)
-                    readiness.MarkBypassed();
-                return readiness;
+                    coordinator.MarkBypassed();
+                return coordinator;
             });
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
@@ -158,7 +158,8 @@ public static class DependencyInjection
     // Consume fleet.realtime y empuja al broker SSE (modo kafka-push).
     public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
     {
-        services.TryAddSingleton<IFleetKafkaPushReadiness, FleetKafkaPushReadiness>();
+        services.TryAddSingleton<IRealtimeStreamCoordinator>(sp =>
+            new RealtimeStreamCoordinator(sp.GetRequiredService<FleetSseBroker>()));
         services.AddHostedService<FleetSseKafkaPushHostedService>();
         return services;
     }

@@ -96,6 +96,32 @@ public class FleetSseBroker
             return _invalidOffsets.Contains(streamId);
     }
 
+    // Línea base al arrancar: High-1. El live empieza en High.
+    public void EstablishBaseline(long baselineOffset)
+    {
+        lock (_sync)
+        {
+            _lastProcessedExternalOffset = baselineOffset;
+            _firstProcessedExternalOffset = baselineOffset >= 0 ? baselineOffset : -1;
+            if (baselineOffset >= 0)
+                _latestStreamId = Math.Max(_latestStreamId, baselineOffset);
+        }
+    }
+
+    // Pérdida por retención Kafka: nueva línea base y replay vacío (obligar snapshot).
+    public void ResetToBaseline(long baselineOffset)
+    {
+        lock (_sync)
+        {
+            _replayBuffer.Clear();
+            _replayIds.Clear();
+            _invalidOffsets.Clear();
+            _lastProcessedExternalOffset = baselineOffset;
+            _firstProcessedExternalOffset = baselineOffset >= 0 ? baselineOffset : -1;
+            _latestStreamId = baselineOffset >= 0 ? baselineOffset : 0;
+        }
+    }
+
     public SseSubscription SubscribeFrom(SseLastEventId lastEventId)
     {
         lock (_sync)

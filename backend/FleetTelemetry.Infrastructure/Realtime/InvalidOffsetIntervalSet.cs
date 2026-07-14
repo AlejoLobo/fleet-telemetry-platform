@@ -110,6 +110,8 @@ internal sealed class InvalidOffsetIntervalSet
             _intervals[0] = (maxRetainedExclusive + 1, _intervals[0].End);
     }
 
+    public void Clear() => _intervals.Clear();
+
     private void TrimIfNeeded()
     {
         while (CoveredOffsetCount > _maxOffsetsCovered && _intervals.Count > 0)

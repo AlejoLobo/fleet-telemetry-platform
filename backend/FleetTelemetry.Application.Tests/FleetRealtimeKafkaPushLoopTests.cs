@@ -4,105 +4,173 @@ using FleetTelemetry.Infrastructure.Realtime;
 
 namespace FleetTelemetry.Application.Tests;
 
-// FT-005: loop Kafka→SSE con confirmación secuencial de offsets.
+// FT-005: pendingRecord único, sin Seek/Commit, sin Retry→Successful.
 public class FleetRealtimeKafkaPushLoopTests
 {
     private static readonly Func<TimeSpan, CancellationToken, Task> NoDelay =
         static (_, _) => Task.CompletedTask;
 
     [Fact]
-    public void Fallo_del_broker_no_confirma_offset_actual()
+    public void No_se_consume_offset_51_mientras_50_esta_pendiente()
     {
         var transport = new FakeKafkaPushTransport();
         var broker = new FailingBroker(50);
         var loop = CreateLoop(broker);
 
         transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-        Assert.Single(transport.SeekCalls);
-        Assert.Equal(50, transport.SeekCalls[0]);
-    }
-
-    [Fact]
-    public void Fallo_transitorio_del_offset_50_impide_confirmar_51()
-    {
-        var transport = new FakeKafkaPushTransport();
-        var broker = new FailingBroker(50);
-        var loop = CreateLoop(broker);
-
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
         transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
 
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-        Assert.Contains(50, transport.SeekCalls);
+        var first = loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Equal(KafkaPushPollResult.TransientFailure, first);
+        Assert.NotNull(loop.PendingRecord);
+        Assert.Equal(50, loop.PendingRecord!.Offset.Value);
+        Assert.Equal(1, transport.ConsumeCalls);
+
+        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Equal(1, transport.ConsumeCalls);
+        Assert.Equal(50, loop.PendingRecord!.Offset.Value);
+        Assert.DoesNotContain(51L, transport.DequeuedOffsets);
     }
 
     [Fact]
-    public void Reintento_exitoso_confirma_una_sola_vez()
+    public void Fallo_transitorio_reintenta_exactamente_el_mismo_ConsumeResult()
     {
         var transport = new FakeKafkaPushTransport();
         var broker = new FailingBroker(50);
         var loop = CreateLoop(broker);
 
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
+        var original = ConsumeResult(50, ValidVehiclePayload());
+        transport.Enqueue(original);
+
         loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Same(original, loop.PendingRecord);
+
+        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Same(original, loop.PendingRecord);
 
         broker.AllowOffset(50);
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50], transport.CommittedOffsets);
-        Assert.Null(loop.BlockedOffset);
+        var completed = loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Equal(KafkaPushPollResult.Completed, completed);
+        Assert.Null(loop.PendingRecord);
+        Assert.Equal(50, broker.LastProcessedExternalOffset);
     }
 
     [Fact]
-    public void Payload_invalido_inmutable_no_bloquea_offset_51()
+    public void TransientFailure_no_se_reporta_como_Completed()
+    {
+        var transport = new FakeKafkaPushTransport();
+        var broker = new FailingBroker(7);
+        var loop = CreateLoop(broker);
+        transport.Enqueue(ConsumeResult(7, ValidVehiclePayload()));
+
+        var result = loop.RunOnce(transport, TimeSpan.FromSeconds(1));
+        Assert.Equal(KafkaPushPollResult.TransientFailure, result);
+        Assert.NotEqual(KafkaPushPollResult.Completed, result);
+        Assert.NotEqual(KafkaPushPollResult.Idle, result);
+    }
+
+    [Fact]
+    public void Payload_invalido_completa_y_libera_pending()
     {
         var transport = new FakeKafkaPushTransport();
         var broker = new FleetSseBroker(TimeProvider.System);
+        broker.EstablishBaseline(49);
         var loop = CreateLoop(broker);
         var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
         transport.Enqueue(ConsumeResult(50, "{not-json"));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50], transport.CommittedOffsets);
-        Assert.Null(loop.BlockedOffset);
+        Assert.Equal(KafkaPushPollResult.Completed, loop.RunOnce(transport, TimeSpan.FromSeconds(1)));
+        Assert.Null(loop.PendingRecord);
         Assert.True(broker.IsInvalidCommittedOffset(50));
-        Assert.Equal(50, broker.LastAcceptedExternalOffset);
+        Assert.Equal(50, broker.LastProcessedExternalOffset);
 
         transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50, 51], transport.CommittedOffsets);
-        Assert.Null(loop.BlockedOffset);
+        Assert.Equal(KafkaPushPollResult.Completed, loop.RunOnce(transport, TimeSpan.FromSeconds(1)));
+        Assert.Equal(51, broker.LastProcessedExternalOffset);
 
         Assert.True(subscription.LiveReader.TryRead(out var resetEvent));
         Assert.Equal(FleetRealtimeEventTypes.StreamReset, resetEvent.EventType);
+    }
 
-        Assert.True(subscription.LiveReader.TryRead(out var liveEvent));
-        Assert.Equal(51, liveEvent.StreamId);
+    [Fact]
+    public void Consume_fatal_devuelve_FatalFailure_sin_absorbido()
+    {
+        var transport = new FakeKafkaPushTransport
+        {
+            ThrowOnConsume = () => throw new ConsumeException(
+                new ConsumeResult<byte[], byte[]>(),
+                new Error(ErrorCode.Local_Fatal, "fatal"))
+        };
+        var loop = CreateLoop(new FleetSseBroker(TimeProvider.System));
 
-        var reconnect = broker.SubscribeFrom(new SseLastEventId.ValidCursor(49));
-        Assert.Equal(SseReplayStatus.ReplayGap, reconnect.ReplayStatus);
-        Assert.Equal("invalid-payload-gap", reconnect.ResetReason);
+        Assert.Equal(KafkaPushPollResult.FatalFailure, loop.RunOnce(transport, TimeSpan.FromMilliseconds(10)));
+        Assert.Null(loop.PendingRecord);
+    }
+
+    [Fact]
+    public void Recuperacion_continua_desde_LastProcessed_mas_uno()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        broker.EstablishBaseline(49);
+        for (var offset = 50L; offset <= 55; offset++)
+            Assert.Equal(ExternalPublishResult.Accepted, broker.PublishExternal(offset, "alert", new { n = offset }));
+
+        Assert.Equal(55, broker.LastProcessedExternalOffset);
+        var resumeOffset = broker.LastProcessedExternalOffset + 1;
+        Assert.Equal(56, resumeOffset);
+
+        // Tras recuperación: el siguiente Process acepta desde resume.
+        var transport = new FakeKafkaPushTransport();
+        var loop = CreateLoop(broker);
+        transport.Enqueue(ConsumeResult(56, ValidVehiclePayload()));
+        Assert.Equal(KafkaPushPollResult.Completed, loop.RunOnce(transport, TimeSpan.FromSeconds(1)));
+        Assert.Equal(56, broker.LastProcessedExternalOffset);
+    }
+
+    [Fact]
+    public void Perdida_por_retencion_crea_nueva_linea_base()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        broker.EstablishBaseline(10);
+        broker.PublishExternal(11, "alert", new { n = 11 });
+        broker.SubscribeFrom(new SseLastEventId.Missing());
+
+        var newBaseline = 99L;
+        broker.ResetToBaseline(newBaseline);
+        Assert.Equal(99, broker.LastProcessedExternalOffset);
+        Assert.Empty(broker.SubscribeFrom(new SseLastEventId.ValidCursor(99)).ReplayEvents);
+
+        var missing = broker.SubscribeFrom(new SseLastEventId.Missing());
+        Assert.Equal("initial-snapshot", missing.ResetReason);
+        Assert.Equal("99", missing.LatestEventId);
+    }
+
+    [Fact]
+    public void Initial_snapshot_cubre_todo_lo_anterior_al_High_inicial()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        // High=100 → baseline=99
+        broker.EstablishBaseline(99);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        coordinator.EnterReady(99);
+
+        var admission = coordinator.TryOpenStream(new SseLastEventId.Missing());
+        Assert.True(admission.Admitted);
+        Assert.Equal("initial-snapshot", admission.Subscription!.ResetReason);
+        Assert.Equal("99", admission.Subscription.LatestEventId);
+        Assert.Equal(99, admission.Subscription.CutoverId);
+        Assert.Empty(admission.Subscription.ReplayEvents);
     }
 
     [Theory]
     [InlineData("value-null")]
     [InlineData("message-null")]
-    public void Tombstone_se_trata_como_payload_invalido(string tombstoneKind)
+    public void Tombstone_completa_como_invalido_permanente(string tombstoneKind)
     {
         var transport = new FakeKafkaPushTransport();
         var broker = new FleetSseBroker(TimeProvider.System);
+        broker.EstablishBaseline(49);
         var loop = CreateLoop(broker);
-        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
         var tombstone = new ConsumeResult<string, string>
         {
@@ -114,131 +182,9 @@ public class FleetRealtimeKafkaPushLoopTests
                 : new Message<string, string> { Value = null! }
         };
         transport.Enqueue(tombstone);
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50], transport.CommittedOffsets);
+        Assert.Equal(KafkaPushPollResult.Completed, loop.RunOnce(transport, TimeSpan.FromSeconds(1)));
         Assert.True(broker.IsInvalidCommittedOffset(50));
-        Assert.True(subscription.LiveReader.TryRead(out var resetEvent));
-        Assert.Equal(FleetRealtimeEventTypes.StreamReset, resetEvent.EventType);
-
-        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50, 51], transport.CommittedOffsets);
-        Assert.True(subscription.LiveReader.TryRead(out var liveEvent));
-        Assert.Equal(51, liveEvent.StreamId);
-
-        var reconnect = broker.SubscribeFrom(new SseLastEventId.ValidCursor(49));
-        Assert.Equal(SseReplayStatus.ReplayGap, reconnect.ReplayStatus);
-        Assert.Equal("invalid-payload-gap", reconnect.ResetReason);
-    }
-
-    [Fact]
-    public void Commit_fallido_bloquea_offset_y_acepta_Duplicate_en_reintento()
-    {
-        var transport = new FakeKafkaPushTransport { FailCommitTimes = 1 };
-        var broker = new FleetSseBroker(TimeProvider.System);
-        var loop = CreateLoop(broker);
-        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
-
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-        Assert.True(subscription.LiveReader.TryRead(out var first));
-        Assert.Equal(50, first.StreamId);
-        Assert.False(subscription.LiveReader.TryRead(out _));
-
-        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-        Assert.False(subscription.LiveReader.TryRead(out _));
-
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([50], transport.CommittedOffsets);
-        Assert.Null(loop.BlockedOffset);
-        Assert.False(subscription.LiveReader.TryRead(out _));
-
-        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        Assert.Equal([50, 51], transport.CommittedOffsets);
-        Assert.True(subscription.LiveReader.TryRead(out var second));
-        Assert.Equal(51, second.StreamId);
-    }
-
-    [Fact]
-    public void Publish_transitorio_aplica_backoff_aunque_Seek_sea_exitoso()
-    {
-        var delays = new List<TimeSpan>();
-        var transport = new FakeKafkaPushTransport();
-        var broker = new FailingBroker(50);
-        var loop = new FleetRealtimeKafkaPushLoop(
-            new RealtimeKafkaPushProcessor(broker),
-            delayAsync: (delay, _) =>
-            {
-                delays.Add(delay);
-                return Task.CompletedTask;
-            },
-            backoff: TimeSpan.FromMilliseconds(25));
-
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-        Assert.Contains(50, transport.SeekCalls);
-        Assert.NotEmpty(delays);
-
-        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        Assert.Empty(transport.CommittedOffsets);
-        Assert.Equal(50, loop.BlockedOffset);
-
-        broker.AllowOffset(50);
-        transport.Enqueue(ConsumeResult(50, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        Assert.Equal([50], transport.CommittedOffsets);
-
-        transport.Enqueue(ConsumeResult(51, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        Assert.Equal([50, 51], transport.CommittedOffsets);
-        Assert.Null(loop.BlockedOffset);
-    }
-
-    [Theory]
-    [InlineData("future-schema", """{"schemaVersion":99,"eventType":"vehicle-update","payload":{"vehicleId":"VH-001","name":"VH-001","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("missing-schema", """{"eventType":"vehicle-update","payload":{"vehicleId":"VH-001","name":"VH-001","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("unknown-event", """{"schemaVersion":1,"eventType":"unknown-event","payload":{"vehicleId":"VH-001"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("null-payload", """{"schemaVersion":1,"eventType":"vehicle-update","payload":null,"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("missing-status", """{"schemaVersion":1,"eventType":"vehicle-update","payload":{"vehicleId":"VH-001","name":"VH-001","lastSeenAt":"2026-07-13T10:00:00Z"},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("alert-missing-alertId", """{"schemaVersion":1,"eventType":"alert","payload":{"vehicleId":"VH-001","alertType":"speed","severity":"high","message":"x","createdAt":"2026-07-13T10:00:00Z","isAcknowledged":false},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("alert-missing-createdAt", """{"schemaVersion":1,"eventType":"alert","payload":{"alertId":"11111111-1111-1111-1111-111111111111","vehicleId":"VH-001","alertType":"speed","severity":"high","message":"x","isAcknowledged":false},"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    [InlineData("fleet-empty-element", """{"schemaVersion":1,"eventType":"fleet-update","payload":[{}],"occurredAt":"2026-07-13T10:00:00Z"}""")]
-    public void Contrato_invalido_avanza_offset_y_fuerza_reset(string _case, string invalidJson)
-    {
-        var transport = new FakeKafkaPushTransport();
-        var broker = new FleetSseBroker(TimeProvider.System);
-        var loop = CreateLoop(broker);
-        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
-
-        transport.Enqueue(ConsumeResult(70, invalidJson));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-        transport.Enqueue(ConsumeResult(71, ValidVehiclePayload()));
-        loop.RunOnce(transport, TimeSpan.FromSeconds(1));
-
-        Assert.Equal([70, 71], transport.CommittedOffsets);
-        Assert.True(broker.IsInvalidCommittedOffset(70));
-        Assert.Equal(71, broker.LastProcessedExternalOffset);
-
-        Assert.True(subscription.LiveReader.TryRead(out var resetEvent));
-        Assert.Equal(FleetRealtimeEventTypes.StreamReset, resetEvent.EventType);
-        Assert.True(subscription.LiveReader.TryRead(out var liveEvent));
-        Assert.Equal(71, liveEvent.StreamId);
-        _ = _case;
+        Assert.Null(loop.PendingRecord);
     }
 
     private static FleetRealtimeKafkaPushLoop CreateLoop(FleetSseBroker broker) =>
@@ -268,39 +214,25 @@ public class FleetRealtimeKafkaPushLoopTests
     {
         private readonly Queue<ConsumeResult<string, string>> _results = new();
 
-        public List<long> CommittedOffsets { get; } = [];
-        public List<long> SeekCalls { get; } = [];
-        public int FailCommitTimes { get; set; }
-        public int FailSeekTimes { get; set; }
+        public int ConsumeCalls { get; private set; }
+        public List<long> DequeuedOffsets { get; } = [];
+        public Func<ConsumeResult<string, string>?>? ThrowOnConsume { get; set; }
 
         public void Enqueue(ConsumeResult<string, string> result) => _results.Enqueue(result);
 
         public ConsumeResult<string, string>? Consume(TimeSpan timeout)
         {
             _ = timeout;
-            return _results.Count == 0 ? null : _results.Dequeue();
-        }
+            ConsumeCalls++;
+            if (ThrowOnConsume is not null)
+                return ThrowOnConsume();
 
-        public void Commit(ConsumeResult<string, string> result)
-        {
-            if (FailCommitTimes > 0)
-            {
-                FailCommitTimes--;
-                throw new KafkaException(new Error(ErrorCode.Local_Fail, "commit failed"));
-            }
+            if (_results.Count == 0)
+                return null;
 
-            CommittedOffsets.Add(result.Offset.Value);
-        }
-
-        public void Seek(long offset)
-        {
-            if (FailSeekTimes > 0)
-            {
-                FailSeekTimes--;
-                throw new KafkaException(new Error(ErrorCode.Local_Fail, "seek failed"));
-            }
-
-            SeekCalls.Add(offset);
+            var next = _results.Dequeue();
+            DequeuedOffsets.Add(next.Offset.Value);
+            return next;
         }
     }
 

@@ -7,36 +7,31 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Consume fleet.realtime con consumer group por réplica y empuja offsets como StreamId SSE.
+// Consume fleet.realtime con Assign manual (sin Subscribe/rebalance) y empuja al broker SSE.
 public sealed class FleetSseKafkaPushHostedService : BackgroundService
 {
     private readonly FleetSseBroker _broker;
     private readonly KafkaOptions _kafkaOptions;
     private readonly SseOptions _sseOptions;
-    private readonly IFleetKafkaPushReadiness _readiness;
+    private readonly IRealtimeStreamCoordinator _coordinator;
     private readonly ILogger<FleetSseKafkaPushHostedService> _logger;
     private readonly FleetTelemetryMetrics? _metrics;
-    private readonly FleetKafkaPushAssignmentCoordinator _assignment;
 
     public FleetSseKafkaPushHostedService(
         FleetSseBroker broker,
         IOptions<KafkaOptions> kafkaOptions,
         IOptions<SseOptions> sseOptions,
-        IFleetKafkaPushReadiness readiness,
+        IRealtimeStreamCoordinator coordinator,
         ILogger<FleetSseKafkaPushHostedService> logger,
         FleetTelemetryMetrics? metrics = null)
     {
         _broker = broker;
         _kafkaOptions = kafkaOptions.Value;
         _sseOptions = sseOptions.Value;
-        _readiness = readiness;
+        _coordinator = coordinator;
         _logger = logger;
         _metrics = metrics;
-        _assignment = new FleetKafkaPushAssignmentCoordinator(broker, readiness, logger);
     }
-
-    // Tests: misma estrategia de asignación que producción.
-    internal FleetKafkaPushAssignmentCoordinator AssignmentCoordinator => _assignment;
 
     internal string ConsumerGroupId =>
         $"{_kafkaOptions.RealtimeConsumerGroupBase}-{_sseOptions.InstanceId}";
@@ -51,83 +46,84 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
                 _sseOptions.RequireSingleRealtimePartition);
             stoppingToken.ThrowIfCancellationRequested();
 
-            var consumerConfig = new ConsumerConfig
-            {
-                BootstrapServers = _kafkaOptions.BootstrapServers,
-                GroupId = ConsumerGroupId,
-                AutoOffsetReset = AutoOffsetReset.Latest,
-                EnableAutoCommit = false
-            };
+            using var consumer = CreateConsumer();
+            var topicPartition = new TopicPartition(_kafkaOptions.RealtimeTopic, 0);
+            var watermarks = consumer.QueryWatermarkOffsets(topicPartition, TimeSpan.FromSeconds(10));
+            var high = watermarks.High.Value;
+            var baseline = high - 1;
 
-            using var consumer = new ConsumerBuilder<string, string>(consumerConfig)
-                .SetPartitionsAssignedHandler((c, partitions) =>
-                    _assignment.HandlePartitionsAssigned(c, partitions))
-                .SetPartitionsRevokedHandler((_, partitions) =>
-                    _assignment.HandlePartitionsRevoked(partitions))
-                .SetPartitionsLostHandler((_, partitions) =>
-                    _assignment.HandlePartitionsLost(partitions))
-                .Build();
+            _broker.EstablishBaseline(baseline);
+            consumer.Assign([new TopicPartitionOffset(topicPartition, new Offset(high))]);
+            EnsureAssigned(consumer, topicPartition);
 
-            consumer.Subscribe(_kafkaOptions.RealtimeTopic);
-
-            using var transport = new KafkaRealtimePushTransport(consumer, _kafkaOptions.RealtimeTopic);
-            var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
-            var loop = new FleetRealtimeKafkaPushLoop(processor, _logger, _metrics);
-
+            _coordinator.EnterReady(baseline);
             _logger.LogInformation(
-                "SSE Kafka push consumer started. Topic={Topic} Group={Group} InstanceId={InstanceId}",
+                "SSE Kafka push Ready via Assign. Topic={Topic} Group={Group} Baseline={Baseline} High={High} InstanceId={InstanceId}",
                 _kafkaOptions.RealtimeTopic,
                 ConsumerGroupId,
+                baseline,
+                high,
                 _sseOptions.InstanceId);
 
-            try
+            using var transport = new KafkaRealtimePushTransport(consumer);
+            var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
+            var loop = new FleetRealtimeKafkaPushLoop(processor, _logger);
+
+            while (!stoppingToken.IsCancellationRequested)
             {
-                while (!stoppingToken.IsCancellationRequested)
+                if (_coordinator.State == RealtimeStreamState.Faulted)
                 {
-                    if (_readiness.State == FleetKafkaPushReadinessState.Faulted)
-                    {
-                        _logger.LogError(
-                            "SSE Kafka push consumer stopped: Faulted. Reason={Reason}",
-                            _readiness.FaultReason);
-                        break;
-                    }
+                    _logger.LogError(
+                        "SSE Kafka push stopped: Faulted. Reason={Reason}",
+                        _coordinator.FaultReason);
+                    break;
+                }
 
-                    try
-                    {
-                        var pollResult = await loop.RunOnceAsync(
-                            transport,
-                            TimeSpan.FromMilliseconds(500),
-                            stoppingToken);
+                try
+                {
+                    var pollResult = await loop.RunOnceAsync(
+                        transport,
+                        TimeSpan.FromMilliseconds(500),
+                        stoppingToken);
 
-                        if (pollResult == KafkaPushPollResult.Successful)
-                        {
-                            _assignment.NotifySuccessfulPollCycle();
-                        }
-                        else if (pollResult == KafkaPushPollResult.FatalFailure)
-                        {
-                            _assignment.EnterFaulted("Fatal Kafka consume error");
+                    switch (pollResult)
+                    {
+                        case KafkaPushPollResult.Idle:
                             break;
-                        }
-                    }
-                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Unhandled Kafka realtime push loop error");
+
+                        case KafkaPushPollResult.Completed:
+                            if (_coordinator.State == RealtimeStreamState.Recovering)
+                                _coordinator.EnterReady();
+                            break;
+
+                        case KafkaPushPollResult.TransientFailure:
+                            if (_coordinator.State == RealtimeStreamState.Ready)
+                                _coordinator.EnterRecovering("Transient publish failure");
+                            break;
+
+                        case KafkaPushPollResult.FatalFailure:
+                            await RecoverConsumerAsync(consumer, topicPartition, loop, stoppingToken);
+                            break;
                     }
                 }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unhandled Kafka realtime push loop error");
+                    if (_coordinator.State == RealtimeStreamState.Ready)
+                        _coordinator.EnterRecovering(ex.Message);
+                }
             }
-            finally
-            {
-                consumer.Close();
-                _logger.LogInformation("SSE Kafka push consumer stopped");
-            }
+
+            consumer.Close();
+            _logger.LogInformation("SSE Kafka push consumer stopped");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _assignment.EnterFaulted(ex.Message);
+            _coordinator.EnterFaulted(ex.Message);
             _logger.LogError(ex, "SSE Kafka push consumer faulted during startup");
             throw;
         }
@@ -135,9 +131,79 @@ public sealed class FleetSseKafkaPushHostedService : BackgroundService
         await Task.CompletedTask;
     }
 
-    // Delega a la estrategia compartida (tests / diagnóstico).
-    internal IEnumerable<TopicPartitionOffset> OnPartitionsAssigned(
+    private async Task RecoverConsumerAsync(
         IConsumer<string, string> consumer,
-        IReadOnlyList<TopicPartition> partitions) =>
-        _assignment.HandlePartitionsAssigned(consumer, partitions);
+        TopicPartition topicPartition,
+        FleetRealtimeKafkaPushLoop loop,
+        CancellationToken cancellationToken)
+    {
+        if (_coordinator.State != RealtimeStreamState.Faulted)
+            _coordinator.EnterRecovering("Fatal Kafka transport failure");
+
+        loop.AbandonPending();
+
+        try
+        {
+            var watermarks = consumer.QueryWatermarkOffsets(topicPartition, TimeSpan.FromSeconds(10));
+            var resumeOffset = _broker.LastProcessedExternalOffset + 1;
+
+            if (resumeOffset < watermarks.Low.Value)
+            {
+                var baseline = watermarks.High.Value - 1;
+                _broker.ResetToBaseline(baseline);
+                consumer.Assign([new TopicPartitionOffset(topicPartition, watermarks.High)]);
+                EnsureAssigned(consumer, topicPartition);
+                _coordinator.EnterReady(baseline);
+                _logger.LogWarning(
+                    "SSE Kafka push retention gap. NewBaseline={Baseline} High={High}",
+                    baseline,
+                    watermarks.High.Value);
+            }
+            else
+            {
+                consumer.Assign([new TopicPartitionOffset(topicPartition, new Offset(resumeOffset))]);
+                EnsureAssigned(consumer, topicPartition);
+                _coordinator.EnterReady();
+                _logger.LogInformation(
+                    "SSE Kafka push recovered. ResumeOffset={ResumeOffset}",
+                    resumeOffset);
+            }
+
+            await Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _coordinator.EnterFaulted($"Recovery failed: {ex.Message}");
+            _logger.LogError(ex, "SSE Kafka push recovery failed");
+        }
+    }
+
+    private IConsumer<string, string> CreateConsumer()
+    {
+        var consumerConfig = new ConsumerConfig
+        {
+            BootstrapServers = _kafkaOptions.BootstrapServers,
+            GroupId = ConsumerGroupId,
+            EnableAutoCommit = false,
+            // Assign manual: no se usa AutoOffsetReset ni Subscribe.
+            AutoOffsetReset = AutoOffsetReset.Latest
+        };
+
+        return new ConsumerBuilder<string, string>(consumerConfig).Build();
+    }
+
+    private static void EnsureAssigned(
+        IConsumer<string, string> consumer,
+        TopicPartition topicPartition)
+    {
+        var assigned = consumer.Assignment;
+        if (assigned is null
+            || assigned.Count != 1
+            || assigned[0].Topic != topicPartition.Topic
+            || assigned[0].Partition != topicPartition.Partition)
+        {
+            throw new InvalidOperationException(
+                $"Assign manual falló para {topicPartition.Topic}/{topicPartition.Partition.Value}.");
+        }
+    }
 }

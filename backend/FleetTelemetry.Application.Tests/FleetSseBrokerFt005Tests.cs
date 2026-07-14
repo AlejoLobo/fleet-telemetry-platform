@@ -47,9 +47,10 @@ public class FleetSseBrokerFt005Tests
     [Fact]
     public void Replicas_no_comparten_consumer_group()
     {
-        var readiness = new FleetKafkaPushReadiness();
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
         var serviceA = new FleetSseKafkaPushHostedService(
-            new FleetSseBroker(TimeProvider.System),
+            broker,
             Microsoft.Extensions.Options.Options.Create(new Infrastructure.Configuration.KafkaOptions
             {
                 RealtimeConsumerGroupBase = "fleet-realtime-sse"
@@ -58,11 +59,11 @@ public class FleetSseBrokerFt005Tests
             {
                 InstanceId = "api-1"
             }),
-            readiness,
+            coordinator,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         var serviceB = new FleetSseKafkaPushHostedService(
-            new FleetSseBroker(TimeProvider.System),
+            broker,
             Microsoft.Extensions.Options.Options.Create(new Infrastructure.Configuration.KafkaOptions
             {
                 RealtimeConsumerGroupBase = "fleet-realtime-sse"
@@ -71,7 +72,7 @@ public class FleetSseBrokerFt005Tests
             {
                 InstanceId = "api-2"
             }),
-            readiness,
+            coordinator,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<FleetSseKafkaPushHostedService>.Instance);
 
         Assert.Equal("fleet-realtime-sse-api-1", serviceA.ConsumerGroupId);
