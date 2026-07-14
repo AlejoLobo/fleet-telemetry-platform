@@ -86,40 +86,12 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             CapturedAt = processedAt
         });
 
-        // Serializa evaluaciones concurrentes del mismo VehicleId (redelivery/concurrencia).
+        // Serializa estado de flota y alertas del mismo VehicleId (incluye fuera de orden).
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtext({telemetryEvent.VehicleId}));",
             cancellationToken);
 
-        var locked = await LockAlertStatesAsync(telemetryEvent.VehicleId, cancellationToken);
-        var evaluation = TelemetryAlertEvaluator.Evaluate(
-            telemetryEvent,
-            locked.StatesByType,
-            processedAt,
-            _alerting);
-
-        ApplyAlertStateUpserts(evaluation.StatesToUpsert, locked.TrackedByType);
-
-        foreach (var alert in evaluation.EmittedAlerts)
-        {
-            _dbContext.FleetAlerts.Add(new FleetAlertRecord
-            {
-                AlertId = alert.AlertId,
-                VehicleId = alert.VehicleId,
-                AlertType = alert.AlertType,
-                Severity = alert.Severity,
-                Message = alert.Message,
-                CreatedAt = alert.CreatedAt,
-                IsAcknowledged = alert.IsAcknowledged
-            });
-
-            _logger.LogInformation(
-                "Alert generated: {AlertType} ({Severity}) for vehicle {VehicleId}",
-                alert.AlertType,
-                alert.Severity,
-                alert.VehicleId);
-        }
-
+        // fleet_alert_states solo refleja el último evento aceptado por fleet_vehicle_state.
         var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (
@@ -159,13 +131,47 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             """,
             cancellationToken);
 
+        IReadOnlyList<FleetAlert> emittedAlerts = Array.Empty<FleetAlert>();
+        if (stateRowsAffected > 0)
+        {
+            var locked = await LockAlertStatesAsync(telemetryEvent.VehicleId, cancellationToken);
+            var evaluation = TelemetryAlertEvaluator.Evaluate(
+                telemetryEvent,
+                locked.StatesByType,
+                processedAt,
+                _alerting);
+
+            ApplyAlertStateUpserts(evaluation.StatesToUpsert, locked.TrackedByType);
+            emittedAlerts = evaluation.EmittedAlerts;
+
+            foreach (var alert in emittedAlerts)
+            {
+                _dbContext.FleetAlerts.Add(new FleetAlertRecord
+                {
+                    AlertId = alert.AlertId,
+                    VehicleId = alert.VehicleId,
+                    AlertType = alert.AlertType,
+                    Severity = alert.Severity,
+                    Message = alert.Message,
+                    CreatedAt = alert.CreatedAt,
+                    IsAcknowledged = alert.IsAcknowledged
+                });
+
+                _logger.LogInformation(
+                    "Alert generated: {AlertType} ({Severity}) for vehicle {VehicleId}",
+                    alert.AlertType,
+                    alert.Severity,
+                    alert.VehicleId);
+            }
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         await PublishRealtimeUpdatesAsync(
             telemetryEvent,
-            evaluation.EmittedAlerts,
-            stateRowsAffected > 0,
+            emittedAlerts,
+            publishVehicleUpdate: stateRowsAffected > 0,
             cancellationToken);
 
         return ProcessTelemetryOutcome.Processed;
