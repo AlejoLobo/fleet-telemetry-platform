@@ -117,23 +117,7 @@ public class TelemetryMessageProcessor
         {
             return await HandleTransientFailureAsync(message, currentAttempt, ex, "transient_database");
         }
-        catch (Exception ex)
-        {
-            // Error permanente: DLQ inmediata sin agotar reintentos.
-            _logger.LogWarning(
-                ex,
-                "Permanent processing error; sending to DLQ immediately. Attempt={Attempt} Topic={Topic} Partition={Partition} Offset={Offset}",
-                currentAttempt,
-                message.Topic,
-                message.Partition,
-                message.Offset);
-
-            return TerminalDeadLetterOutcome(
-                message,
-                reason: "processing_failure",
-                exceptionMessage: ex.Message,
-                attemptNumber: currentAttempt);
-        }
+        // Excepciones desconocidas se propagan: no DLQ ni commit (el coordinador detiene el Worker).
     }
 
     public async Task PublishDeadLetterAsync(DeadLetterMessage deadLetterMessage, CancellationToken cancellationToken = default)

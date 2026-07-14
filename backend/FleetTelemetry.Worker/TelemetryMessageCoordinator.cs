@@ -66,6 +66,19 @@ public sealed class TelemetryMessageCoordinator
         {
             return CoordinatorResult.CancelledWithoutCommit;
         }
+        catch (Exception ex)
+        {
+            // Error de programación u otro fallo no clasificado: no DLQ, no commit, detener el host.
+            _logger.LogCritical(
+                ex,
+                "Unexpected processing error; stopping worker without commit. ExceptionType={ExceptionType} Topic={Topic} Partition={Partition} Offset={Offset}",
+                ex.GetType().FullName,
+                message.Topic,
+                message.Partition,
+                message.Offset);
+            _lifetime.StopApplication();
+            return CoordinatorResult.StopWithoutCommit;
+        }
     }
 
     private async Task<CoordinatorResult> ProcessUntilTerminalCoreAsync(
