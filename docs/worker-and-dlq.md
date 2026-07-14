@@ -28,14 +28,28 @@
 - **Double controlable:** `ControllableDeadLetterPublisher` reemplaza `IDeadLetterPublisher` solo cuando se necesita simular fallos de publicación, redelivery tras agotar intentos o contar reintentos sin depender del broker.
 - **Esquema TimescaleDB:** el Worker inicializa el esquema al arrancar; el test host ya no llama `DatabaseInitializer` en `CreateAsync`. La concurrencia del DDL se protege con `pg_advisory_lock` en una única conexión abierta.
 
+## Taxonomía de errores (procesamiento)
+
+Clasificación deliberadamente simple; los errores desconocidos **no** se tratan como fallos del mensaje:
+
+| Clase | Comportamiento |
+|-------|----------------|
+| Datos / contrato inválido (`TelemetryKafkaContractException`, `ArgumentException` en validación, payload vacío) | Preparar DLQ → commit **solo** tras publicación DLQ exitosa |
+| Transitorio reconocido (`BrokenCircuitException`, `DatabaseTransientFailureClassifier.IsTransient`) | Retry del mismo offset según `MaxProcessingAttempts`; al agotar → DLQ `processing_failure` |
+| Excepción inesperada (p. ej. `NullReferenceException`, `InvalidOperationException` de programación) | `LogCritical` (tipo, topic, partition, offset) → `StopApplication()` → **sin** DLQ ni commit |
+| Fallo al publicar DLQ | Reintento solo de publicación; al límite → `LogCritical` + stop **sin** commit (comportamiento actual) |
+| Cancelación solicitada | Sin commit |
+
+Los errores desconocidos no se clasifican automáticamente como problemas del mensaje: ocultarlos en DLQ provocaría commits incorrectos y pérdida de visibilidad sobre defectos sistémicos.
+
 ## At-least-once (mismo offset)
 
 Tras `Consume`, no se llama a `Consume()` de nuevo hasta:
 
 1. Procesamiento OK o duplicado → commit.
-2. Payload inválido/vacío/whitespace → DLQ `invalid_payload` → commit (si DLQ OK).
-3. Fallo transitorio → reintento + backoff; al agotar intentos → DLQ `processing_failure`.
-4. Fallo permanente → DLQ inmediata.
+2. Payload / contrato inválido → DLQ → commit (si DLQ OK).
+3. Fallo transitorio reconocido → reintento + backoff; al agotar intentos → DLQ `processing_failure`.
+4. Excepción inesperada → stop del Worker **sin** DLQ ni commit (redelivery tras corrección/reinicio).
 5. Fallo al publicar DLQ → reintento **solo** de publicación (sin reprocesar ni reiniciar intentos de negocio); al límite → `LogCritical` + stop del Worker **sin** commit.
 6. Cancelación / apagado → sin commit.
 
@@ -65,7 +79,7 @@ Tras `Consume`, no se llama a `Consume()` de nuevo hasta:
 
 ## Fallos DB
 
-Polly y el processor usan `DatabaseTransientFailureClassifier.IsTransient`. Errores permanentes (constraints, esquema, tipos) van a DLQ inmediata; no abren el circuit breaker ni agotan reintentos inútiles.
+Polly y el processor usan `DatabaseTransientFailureClassifier.IsTransient` para reintentos. Un fallo de base de datos **no** marcado como transitorio se trata como excepción inesperada (stop sin DLQ/commit), no como “permanente del mensaje”.
 
 ## Verificar DLQ localmente
 

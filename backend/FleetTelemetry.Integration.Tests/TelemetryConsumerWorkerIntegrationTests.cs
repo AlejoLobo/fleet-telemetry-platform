@@ -169,25 +169,25 @@ public class TelemetryConsumerWorkerIntegrationTests
     }
 
     [Fact]
-    public async Task Permanent_error_goes_to_dlq_immediately()
+    public async Task Unexpected_error_stops_without_dlq_or_commit()
     {
         await using var host = await TelemetryConsumerWorkerTestHost.CreateAsync(
             _kafka,
-            "worker-perm",
-            "worker-perm-group");
+            "worker-unexpected",
+            "worker-unexpected-group");
 
-        host.Processing!.Handler = (_, _) => throw new InvalidOperationException("permanent");
+        host.Processing!.Handler = (_, _) => throw new NullReferenceException("unexpected");
 
         await host.StartAsync();
-        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent("P")));
+        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent("U")));
 
         await WaitUntilAsync(() => host.Processing!.CallCount > 0, TimeSpan.FromSeconds(30));
-        await WaitUntilAsync(() => host.DeadLetterPublisher!.Messages.Count > 0, TimeSpan.FromSeconds(15));
-        await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, expectedOffset: 1, TimeSpan.FromSeconds(15));
+        await Task.Delay(TimeSpan.FromSeconds(2));
 
-        Assert.Single(host.DeadLetterPublisher!.Messages);
-        Assert.Equal("processing_failure", host.DeadLetterPublisher.Messages[0].Reason);
         Assert.Equal(1, host.Processing.CallCount);
+        Assert.Empty(host.DeadLetterPublisher!.Messages);
+        var committed = await GetCommittedOffsetAsync(host.GroupId, host.Topic);
+        AssertNoCommittedOffset(committed);
     }
 
     [Fact]
