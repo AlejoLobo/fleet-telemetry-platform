@@ -53,6 +53,7 @@ public class DatabaseInitializerIntegrationTests : IAsyncLifetime
         Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_vehicle_timestamp"));
         Assert.True(await IndexExistsAsync(connection, "ix_fleet_alert_states_active_condition"));
         Assert.True(await SchemaVersionExistsAsync(connection, 4));
+        Assert.True(await SchemaVersionExistsAsync(connection, 5));
         Assert.Equal(0, await CountActiveAdvisoryLocksAsync(connection));
     }
 
