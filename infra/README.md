@@ -1,75 +1,115 @@
-# Infraestructura AWS — blueprint ejecutivo
+# Infraestructura AWS
 
-Índice de documentación del monorepo: [../docs/README.md](../docs/README.md).
+Índice del monorepo: [../docs/README.md](../docs/README.md).
 
-Terraform en `infra/terraform/` describe la **base** de red y cómputo para Fleet Telemetry. Es un **blueprint**, no un despliegue productivo completo.
+Hay **dos** capas Terraform separadas a propósito:
 
-## Qué incluye
+## 1. Blueprint conceptual — `infra/terraform/`
 
-| Recurso | Rol |
-|---------|-----|
-| VPC + subnets públicas/privadas | Red base |
-| Internet Gateway + route table pública | Salida a Internet desde subnets públicas |
-| Security groups API / datos | HTTP 80 y PostgreSQL 5432 (solo desde SG API) |
-| RDS PostgreSQL 16 | **Solo PostgreSQL estándar** — AWS RDS no ofrece TimescaleDB como extensión administrada |
-| ECS cluster Fargate | Contenedores API/Worker (sin services aún) |
-| ECR (`api`, `worker`) | Imágenes Docker |
-| Task definitions de ejemplo | Plantilla; placeholders de Kafka/secrets |
-| CloudWatch log group | Logs de API |
+Mapa de referencia (VPC, subnets, RDS PostgreSQL 16, ECS cluster, ECR, logs).
 
-## Outputs útiles
+| Incluye | No incluye |
+|---------|------------|
+| VPC + IGW | TimescaleDB real |
+| Subnets públicas/privadas | MSK / Kafka gestionado |
+| RDS PostgreSQL 16 (sin hypertables) | ALB + ECS services |
+| ECS cluster (sin services) | Despliegue Web |
+| ECR api/worker | Alta disponibilidad / autoscaling |
 
-Tras `terraform apply`:
+Sirve para conversar arquitectura en sustentación. **No** es un despliegue completo del MVP.
+RDS del blueprint **no** sustituye TimescaleDB.
 
-| Output | Uso |
-|--------|-----|
-| `vpc_id` | Referencia de red |
-| `public_subnet_ids` | Futuro ALB / ingress |
-| `private_subnet_ids` | RDS y tasks Fargate |
-| `ecs_cluster_name` | Cluster ECS |
-| `db_endpoint` | Endpoint RDS PostgreSQL (no TimescaleDB) |
-
-## Persistencia de series de tiempo en AWS
-
-El blueprint crea **RDS PostgreSQL 16** como placeholder de red/seguridad. **No es TimescaleDB** y no soporta `CREATE EXTENSION timescaledb` en RDS estándar.
-
-Opciones honestas para producción:
-
-| Opción | Cuándo usarla | Notas |
-|--------|---------------|-------|
-| [Timescale Cloud](https://www.timescale.com/cloud) | Recomendado para MVP productivo | Servicio gestionado, hypertables nativas, connection string en Secrets Manager |
-| TimescaleDB self-hosted (EC2/ECS/EKS) | Control total del motor | Imagen `timescale/timescaledb-ha` o paquetes oficiales; operación propia |
-| RDS PostgreSQL (este blueprint) | Solo demostrar red/IAM/ECS | Válido para tablas relacionales sin hypertables; **no** para el pipeline actual sin cambios |
-
-Las task definitions usan `TimescaleDb__ConnectionString` como nombre de configuración de la app; el valor debe apuntar al endpoint Timescale real, no al RDS del blueprint si se esperan hypertables.
-
-También: URLs ECR y ARNs de task definitions de ejemplo.
-
-## Variables sensibles
-
-| Variable | Sensitive | Cómo pasarla |
-|----------|-----------|--------------|
-| `db_password` | `true` | `export TF_VAR_db_password="..."` (nunca en git) |
-
-## Uso
+Uso:
 
 ```bash
 cd infra/terraform
-export TF_VAR_db_password="cambiar-en-produccion"
-
+export TF_VAR_db_password="cambiar-en-local"
 terraform init
 terraform plan
-terraform validate
+```
+
+## 2. Entorno ejecutable de desarrollo — `infra/terraform/dev/`
+
+Ruta reproducible y económica para **desarrollo/demostración** (no producción):
+
+- VPC + 2 subnets públicas + Internet Gateway
+- 1× EC2 con Docker Compose (`--profile app`)
+- Redpanda + TimescaleDB + API + Worker + Web
+- Application Load Balancer (HTTP 80)
+- Secrets Manager + IAM (lectura del secreto) + SSM (sin SSH público)
+
+Documentación operativa: [`terraform/dev/README.md`](terraform/dev/README.md).
+
+### Prerrequisitos
+
+- Terraform `>= 1.9.8`
+- Credenciales AWS (VPC, EC2, ELB, IAM, Secrets Manager)
+- `ami_id` de Amazon Linux 2023 en la región
+- `app_git_ref` = SHA Git completo de 40 caracteres (obligatorio)
+
+### Despliegue
+
+```bash
+cd infra/terraform/dev
+cp terraform.tfvars.example terraform.tfvars
+# ami_id, instance_type, allowed_cidr_blocks, app_git_repository, app_git_ref
+terraform init
+terraform plan
 terraform apply
 ```
 
-## Limitaciones (consciente — no es producción)
+Obtener AMI:
 
-- **No MSK / Kafka gestionado.** El pipeline local usa Redpanda; en AWS habría que añadir MSK (u otro broker) y cablear bootstrap en las tasks.
-- **No ALB completo.** No hay Application Load Balancer, listeners ni target groups; tampoco ECS services que registren tareas.
-- **No task definitions productivas.** Las definitions en `ecs_tasks.tf` son plantilla (CPU/memoria mínimos, placeholders de Kafka/secrets). No sustituyen un despliegue con Secrets Manager, health checks y autoscaling.
-- **No dashboard deploy.** El frontend Next.js (`web/`) no tiene hosting (CloudFront/S3/ECS) en este blueprint.
+```bash
+aws ec2 describe-images --owners amazon \
+  --filters "Name=name,Values=al2023-ami-2023*-x86_64" "Name=state,Values=available" \
+  --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text
+```
 
-Para demo local seguir usando Docker Compose. Este Terraform sirve para explicar el mapa de infraestructura en sustentación o como punto de partida.
+Fijar el SHA a desplegar:
 
-Detalle adicional de comandos: `infra/terraform/README.md`.
+```bash
+git rev-parse HEAD
+```
+
+### Acceso SSM y validación
+
+```bash
+aws ssm start-session --target "$(terraform output -raw instance_id)"
+# logs: /var/log/fleet-telemetry-user-data.log
+
+ALB="$(terraform output -raw alb_url)"
+curl -fsS "$ALB/"
+curl -fsS "$ALB/health/ready"
+```
+
+### Destruir
+
+```bash
+terraform destroy
+```
+
+### Seguridad del entorno `dev`
+
+| Superficie | Exposición |
+|------------|-----------|
+| ALB :80 | Solo `allowed_cidr_blocks` |
+| EC2 :3000 / :5000 | Solo desde el SG del ALB |
+| SSH | No expuesto |
+| 5432 / 19092 | No expuestos al ALB ni a Internet (SG) |
+| Secreto Postgres | Secrets Manager; recuperado en arranque por IAM role |
+
+### Costos y limitaciones
+
+Cobran EC2, EBS, ALB, IPv4 públicos, Secrets Manager y tráfico.
+Una sola EC2: datos locales, sin multi-AZ ni HA.
+HTTP sin TLS / Route53 / WAF / CloudFront.
+**Solo desarrollo y demostración.**
+
+## Persistencia de series de tiempo en AWS
+
+| Opción | Notas |
+|--------|-------|
+| Entorno `dev/` (Compose + Timescale) | Demo/dev funcional |
+| [Timescale Cloud](https://www.timescale.com/cloud) | Opción gestionada productiva |
+| TimescaleDB self-hosted | Operación propia |
