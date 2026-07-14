@@ -31,6 +31,109 @@ public class KafkaResumePositionTests
     }
 }
 
+public class KafkaAssignmentMaterializerTests
+{
+    [Fact]
+    public void Materializacion_expira_sin_confirmacion()
+    {
+        var tp = new TopicPartition("fleet.realtime", 0);
+        var assigned = new Dictionary<TopicPartition, long> { [tp] = 10 };
+        var assignment = new List<TopicPartition>();
+
+        var ex = Assert.Throws<RealtimeKafkaAssignmentMaterializationException>(() =>
+            KafkaAssignmentMaterializer.Materialize(
+                consume: _ => new ConsumeResult<string, string>
+                {
+                    Topic = tp.Topic,
+                    Partition = tp.Partition,
+                    Offset = 0
+                },
+                getAssignment: () => assignment,
+                getPosition: _ => Offset.Unset,
+                assignedOffsets: assigned,
+                timeout: TimeSpan.FromMilliseconds(80),
+                topic: tp.Topic));
+
+        Assert.Equal("fleet.realtime", ex.Topic);
+        Assert.Equal(0, ex.Partition);
+        Assert.Equal(10, ex.TargetOffset);
+    }
+
+    [Fact]
+    public void Materializacion_tip_confirmado_sin_prefetch()
+    {
+        var tp = new TopicPartition("fleet.realtime", 0);
+        var assigned = new Dictionary<TopicPartition, long> { [tp] = 10 };
+        var assignment = new List<TopicPartition> { tp };
+
+        var prefetch = KafkaAssignmentMaterializer.Materialize(
+            consume: _ => null,
+            getAssignment: () => assignment,
+            getPosition: _ => new Offset(10),
+            assignedOffsets: assigned,
+            timeout: TimeSpan.FromSeconds(1),
+            topic: tp.Topic);
+
+        Assert.Null(prefetch);
+    }
+
+    [Fact]
+    public void Materializacion_tip_con_Assignment_y_Position_Unset_es_valido()
+    {
+        var tp = new TopicPartition("fleet.realtime", 0);
+        var assigned = new Dictionary<TopicPartition, long> { [tp] = 10 };
+
+        var prefetch = KafkaAssignmentMaterializer.Materialize(
+            consume: _ => null,
+            getAssignment: () => [tp],
+            getPosition: _ => Offset.Unset,
+            assignedOffsets: assigned,
+            timeout: TimeSpan.FromSeconds(1),
+            topic: tp.Topic);
+
+        Assert.Null(prefetch);
+    }
+
+    [Fact]
+    public void Materializacion_null_sin_Assignment_no_confirma_tip()
+    {
+        var tp = new TopicPartition("fleet.realtime", 0);
+        var assigned = new Dictionary<TopicPartition, long> { [tp] = 10 };
+
+        Assert.Throws<RealtimeKafkaAssignmentMaterializationException>(() =>
+            KafkaAssignmentMaterializer.Materialize(
+                consume: _ => null,
+                getAssignment: () => Array.Empty<TopicPartition>(),
+                getPosition: _ => Offset.Unset,
+                assignedOffsets: assigned,
+                timeout: TimeSpan.FromMilliseconds(80),
+                topic: tp.Topic));
+    }
+
+    [Fact]
+    public void Materializacion_registro_en_posicion_correcta_se_prefetchea()
+    {
+        var tp = new TopicPartition("fleet.realtime", 0);
+        var assigned = new Dictionary<TopicPartition, long> { [tp] = 10 };
+        var record = new ConsumeResult<string, string>
+        {
+            Topic = tp.Topic,
+            Partition = tp.Partition,
+            Offset = 10
+        };
+
+        var prefetch = KafkaAssignmentMaterializer.Materialize(
+            consume: _ => record,
+            getAssignment: () => [tp],
+            getPosition: _ => new Offset(10),
+            assignedOffsets: assigned,
+            timeout: TimeSpan.FromSeconds(1),
+            topic: tp.Topic);
+
+        Assert.Same(record, prefetch);
+    }
+}
+
 public class KafkaPushPollStateMachineTests
 {
     [Fact]
@@ -131,7 +234,6 @@ public class KafkaPushPollStateMachineTests
         var coordinator = new RealtimeStreamCoordinator(broker);
         Assert.Equal(RealtimeStreamState.Starting, coordinator.State);
 
-        // Assign solo prepara; Transient no habilita Ready desde Starting.
         KafkaPushPollStateMachine.Apply(coordinator, KafkaPushPollResult.TransientFailure, 10);
         Assert.Equal(RealtimeStreamState.Starting, coordinator.State);
         Assert.False(coordinator.IsReady);
@@ -215,12 +317,147 @@ public class KafkaPushPollStateMachineTests
             long streamId, string eventType, object data, DateTimeOffset? timestamp = null) =>
             throw new RealtimeKafkaTransientPublishException("fail", new InvalidOperationException());
     }
-
 }
 
-// Pump productivo: recreación de consumidor ante FatalFailure (sin bucles Transient).
 public class KafkaManualAssignmentPumpTests
 {
+    [Fact]
+    public async Task Create_falla_temporalmente_y_luego_funciona()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        var delays = new List<TimeSpan>();
+        using var cts = new CancellationTokenSource();
+        var factory = new FailingCreateFactory(failCount: 2, onHealthyIdle: () => cts.Cancel());
+
+        var pump = CreatePump(broker, coordinator, factory, delays);
+        var run = pump.RunAsync(cts.Token);
+
+        await WaitUntilAsync(() => coordinator.IsReady, TimeSpan.FromSeconds(5));
+        Assert.Equal(3, factory.CreateCount);
+        Assert.Equal(2, delays.Count);
+        Assert.Equal(TimeSpan.FromMilliseconds(200), delays[0]);
+        Assert.Equal(TimeSpan.FromMilliseconds(400), delays[1]);
+        Assert.NotEqual(RealtimeStreamState.Faulted, coordinator.State);
+        Assert.True(coordinator.IsReady);
+
+        await AwaitCancelledAsync(run);
+    }
+
+    [Fact]
+    public async Task Create_no_admite_SSE_antes_del_poll_saludable()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        using var cts = new CancellationTokenSource();
+        var factory = new AssignThenIdleFactory(() => cts.Cancel());
+
+        var pump = CreatePump(broker, coordinator, factory);
+        var run = pump.RunAsync(cts.Token);
+
+        await WaitUntilAsync(() => factory.Assigned, TimeSpan.FromSeconds(5));
+        Assert.False(coordinator.TryOpenStream(new SseLastEventId.Missing()).Admitted);
+        Assert.Equal(RealtimeStreamState.Starting, coordinator.State);
+
+        factory.ReleaseIdle();
+        await WaitUntilAsync(() => coordinator.IsReady, TimeSpan.FromSeconds(5));
+        Assert.True(coordinator.TryOpenStream(new SseLastEventId.Missing()).Admitted);
+
+        await AwaitCancelledAsync(run);
+    }
+
+    [Fact]
+    public async Task QueryWatermarkOffsets_falla_y_luego_funciona()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        using var cts = new CancellationTokenSource();
+        var factory = new FailWatermarksThenIdleFactory(onHealthyIdle: () => cts.Cancel());
+
+        var pump = CreatePump(broker, coordinator, factory);
+        var run = pump.RunAsync(cts.Token);
+
+        await WaitUntilAsync(() => coordinator.IsReady && factory.CreateCount >= 2, TimeSpan.FromSeconds(5));
+        Assert.True(factory.Sessions[0].Disposed);
+        Assert.True(factory.CreateCount >= 2);
+        Assert.NotEqual(RealtimeStreamState.Faulted, coordinator.State);
+
+        await AwaitCancelledAsync(run);
+    }
+
+    [Fact]
+    public async Task Assign_falla_y_luego_funciona()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        using var cts = new CancellationTokenSource();
+        var factory = new FailAssignThenIdleFactory(onHealthyIdle: () => cts.Cancel());
+
+        var pump = CreatePump(broker, coordinator, factory);
+        var run = pump.RunAsync(cts.Token);
+
+        await WaitUntilAsync(() => coordinator.IsReady && factory.CreateCount >= 2, TimeSpan.FromSeconds(5));
+        Assert.True(factory.Sessions[0].Disposed);
+        Assert.True(factory.AssignSuccessCount >= 1);
+        Assert.NotEqual(RealtimeStreamState.Faulted, coordinator.State);
+
+        await AwaitCancelledAsync(run);
+    }
+
+    [Fact]
+    public async Task Materializacion_expira_recrea_sesion()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        using var cts = new CancellationTokenSource();
+        var factory = new FailMaterializeThenIdleFactory(onHealthyIdle: () => cts.Cancel());
+
+        var pump = CreatePump(broker, coordinator, factory);
+        var run = pump.RunAsync(cts.Token);
+
+        await WaitUntilAsync(() => coordinator.IsReady && factory.CreateCount >= 2, TimeSpan.FromSeconds(5));
+        Assert.True(factory.Sessions[0].Disposed);
+        Assert.Null(factory.Sessions[0].PrefetchProbe);
+        Assert.NotEqual(RealtimeStreamState.Faulted, coordinator.State);
+        Assert.True(coordinator.IsReady);
+
+        await AwaitCancelledAsync(run);
+    }
+
+    [Fact]
+    public async Task Cancelacion_durante_backoff_termina_sin_Faulted()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        var coordinator = new RealtimeStreamCoordinator(broker);
+        using var cts = new CancellationTokenSource();
+        var enteredBackoff = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new AlwaysFailCreateFactory();
+
+        var pump = new KafkaManualAssignmentPump(
+            broker,
+            coordinator,
+            factory,
+            topic: "fleet.realtime",
+            groupId: "fleet-realtime-sse-test",
+            delayAsync: async (_, ct) =>
+            {
+                enteredBackoff.TrySetResult();
+                await Task.Delay(TimeSpan.FromSeconds(30), ct);
+            },
+            pollTimeout: TimeSpan.FromMilliseconds(20),
+            watermarkTimeout: TimeSpan.FromMilliseconds(20));
+
+        var run = pump.RunAsync(cts.Token);
+        await enteredBackoff.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var createsBeforeCancel = factory.CreateCount;
+        cts.Cancel();
+
+        await AwaitCancelledAsync(run);
+        Assert.Equal(createsBeforeCancel, factory.CreateCount);
+        Assert.NotEqual(RealtimeStreamState.Faulted, coordinator.State);
+        Assert.False(coordinator.IsReady);
+    }
+
     [Fact]
     public async Task Consumidor_fatal_es_dispuesto()
     {
@@ -280,17 +517,32 @@ public class KafkaManualAssignmentPumpTests
         await AwaitCancelledAsync(run);
     }
 
+    [Fact]
+    public void SessionBackoff_crece_hasta_cinco_segundos()
+    {
+        Assert.Equal(TimeSpan.FromMilliseconds(200), KafkaManualAssignmentPump.ComputeSessionBackoff(1));
+        Assert.Equal(TimeSpan.FromMilliseconds(400), KafkaManualAssignmentPump.ComputeSessionBackoff(2));
+        Assert.Equal(TimeSpan.FromMilliseconds(800), KafkaManualAssignmentPump.ComputeSessionBackoff(3));
+        Assert.Equal(TimeSpan.FromMilliseconds(1600), KafkaManualAssignmentPump.ComputeSessionBackoff(4));
+        Assert.Equal(TimeSpan.FromSeconds(5), KafkaManualAssignmentPump.ComputeSessionBackoff(6));
+    }
+
     private static KafkaManualAssignmentPump CreatePump(
         FleetSseBroker broker,
         IRealtimeStreamCoordinator coordinator,
-        IRealtimeKafkaConsumerFactory factory) =>
+        IRealtimeKafkaConsumerFactory factory,
+        List<TimeSpan>? capturedDelays = null) =>
         new(
             broker,
             coordinator,
             factory,
             topic: "fleet.realtime",
             groupId: "fleet-realtime-sse-test",
-            delayAsync: static (_, ct) => Task.Delay(1, ct),
+            delayAsync: (delay, ct) =>
+            {
+                capturedDelays?.Add(delay);
+                return Task.Delay(1, ct);
+            },
             pollTimeout: TimeSpan.FromMilliseconds(20),
             watermarkTimeout: TimeSpan.FromMilliseconds(20));
 
@@ -319,6 +571,105 @@ public class KafkaManualAssignmentPumpTests
         catch (TimeoutException)
         {
             Assert.Fail("Pump no terminó tras cancelación");
+        }
+    }
+
+    private sealed class FailingCreateFactory : IRealtimeKafkaConsumerFactory
+    {
+        private readonly int _failCount;
+        private readonly Action _onHealthyIdle;
+
+        public FailingCreateFactory(int failCount, Action onHealthyIdle)
+        {
+            _failCount = failCount;
+            _onHealthyIdle = onHealthyIdle;
+        }
+
+        public int CreateCount { get; private set; }
+
+        public IRealtimeKafkaConsumerSession Create(string groupId)
+        {
+            CreateCount++;
+            if (CreateCount <= _failCount)
+                throw new IOException($"transient-create-{CreateCount}");
+
+            return new PumpSession(failFatallyOnce: false, onHealthyIdle: _onHealthyIdle);
+        }
+    }
+
+    private sealed class AlwaysFailCreateFactory : IRealtimeKafkaConsumerFactory
+    {
+        public int CreateCount { get; private set; }
+
+        public IRealtimeKafkaConsumerSession Create(string groupId)
+        {
+            CreateCount++;
+            throw new IOException("persistent-create-failure");
+        }
+    }
+
+    private sealed class FailWatermarksThenIdleFactory : IRealtimeKafkaConsumerFactory
+    {
+        private readonly Action _onHealthyIdle;
+
+        public FailWatermarksThenIdleFactory(Action onHealthyIdle) => _onHealthyIdle = onHealthyIdle;
+
+        public int CreateCount { get; private set; }
+        public List<PumpSession> Sessions { get; } = [];
+
+        public IRealtimeKafkaConsumerSession Create(string groupId)
+        {
+            CreateCount++;
+            var session = new PumpSession(
+                failFatallyOnce: false,
+                onHealthyIdle: CreateCount == 1 ? null : _onHealthyIdle,
+                failWatermarksOnce: CreateCount == 1);
+            Sessions.Add(session);
+            return session;
+        }
+    }
+
+    private sealed class FailAssignThenIdleFactory : IRealtimeKafkaConsumerFactory
+    {
+        private readonly Action _onHealthyIdle;
+
+        public FailAssignThenIdleFactory(Action onHealthyIdle) => _onHealthyIdle = onHealthyIdle;
+
+        public int CreateCount { get; private set; }
+        public int AssignSuccessCount { get; private set; }
+        public List<PumpSession> Sessions { get; } = [];
+
+        public IRealtimeKafkaConsumerSession Create(string groupId)
+        {
+            CreateCount++;
+            var session = new PumpSession(
+                failFatallyOnce: false,
+                onHealthyIdle: CreateCount == 1 ? null : _onHealthyIdle,
+                failAssignOnce: CreateCount == 1,
+                onAssignSuccess: () => AssignSuccessCount++);
+            Sessions.Add(session);
+            return session;
+        }
+    }
+
+    private sealed class FailMaterializeThenIdleFactory : IRealtimeKafkaConsumerFactory
+    {
+        private readonly Action _onHealthyIdle;
+
+        public FailMaterializeThenIdleFactory(Action onHealthyIdle) => _onHealthyIdle = onHealthyIdle;
+
+        public int CreateCount { get; private set; }
+        public List<PumpSession> Sessions { get; } = [];
+
+        public IRealtimeKafkaConsumerSession Create(string groupId)
+        {
+            CreateCount++;
+            var session = new PumpSession(
+                failFatallyOnce: false,
+                onHealthyIdle: CreateCount == 1 ? null : _onHealthyIdle,
+                failMaterializeOnce: CreateCount == 1);
+            Sessions.Add(session);
+            return session;
         }
     }
 
@@ -369,35 +720,76 @@ public class KafkaManualAssignmentPumpTests
         private readonly bool _failFatallyOnce;
         private readonly Action? _onHealthyIdle;
         private readonly Action? _onAssign;
+        private readonly Action? _onAssignSuccess;
         private readonly Task? _waitBeforeIdle;
+        private readonly bool _failWatermarksOnce;
+        private readonly bool _failAssignOnce;
+        private readonly bool _failMaterializeOnce;
         private bool _fatalConsumed;
         private bool _idleEmitted;
+        private bool _watermarksFailed;
+        private bool _assignFailed;
+        private bool _materializeFailed;
         private readonly List<TopicPartition> _assignment = [];
 
         public PumpSession(
             bool failFatallyOnce,
             Action? onHealthyIdle,
             Action? onAssign = null,
-            Task? waitBeforeIdle = null)
+            Task? waitBeforeIdle = null,
+            bool failWatermarksOnce = false,
+            bool failAssignOnce = false,
+            bool failMaterializeOnce = false,
+            Action? onAssignSuccess = null)
         {
             _failFatallyOnce = failFatallyOnce;
             _onHealthyIdle = onHealthyIdle;
             _onAssign = onAssign;
             _waitBeforeIdle = waitBeforeIdle;
+            _failWatermarksOnce = failWatermarksOnce;
+            _failAssignOnce = failAssignOnce;
+            _failMaterializeOnce = failMaterializeOnce;
+            _onAssignSuccess = onAssignSuccess;
         }
 
         public bool Disposed { get; private set; }
+        public ConsumeResult<string, string>? PrefetchProbe { get; private set; }
         public IReadOnlyList<TopicPartition> Assignment => _assignment;
 
-        public WatermarkOffsets QueryWatermarkOffsets(TopicPartition partition, TimeSpan timeout) =>
-            new(new Offset(0), new Offset(1));
+        public WatermarkOffsets QueryWatermarkOffsets(TopicPartition partition, TimeSpan timeout)
+        {
+            if (_failWatermarksOnce && !_watermarksFailed)
+            {
+                _watermarksFailed = true;
+                throw new KafkaException(new Error(ErrorCode.Local_Transport, "watermark-timeout", isFatal: false));
+            }
+
+            return new WatermarkOffsets(new Offset(0), new Offset(1));
+        }
 
         public void Assign(IEnumerable<TopicPartitionOffset> offsets)
         {
+            if (_failAssignOnce && !_assignFailed)
+            {
+                _assignFailed = true;
+                throw new KafkaException(new Error(ErrorCode.Local_Transport, "assign-transient", isFatal: false));
+            }
+
+            if (_failMaterializeOnce && !_materializeFailed)
+            {
+                _materializeFailed = true;
+                PrefetchProbe = null;
+                throw new RealtimeKafkaAssignmentMaterializationException(
+                    topic: "fleet.realtime",
+                    partition: 0,
+                    targetOffset: 1);
+            }
+
             _assignment.Clear();
             foreach (var tpo in offsets)
                 _assignment.Add(tpo.TopicPartition);
             _onAssign?.Invoke();
+            _onAssignSuccess?.Invoke();
         }
 
         public ConsumeResult<string, string>? Consume(TimeSpan timeout)
@@ -410,7 +802,6 @@ public class KafkaManualAssignmentPumpTests
                     new Error(ErrorCode.Local_Fatal, "simulated-fatal", isFatal: true));
             }
 
-            // Hasta ReleaseIdle: Transient (Starting permanece); null sería Idle→Ready prematuro.
             if (_waitBeforeIdle is { IsCompleted: false })
             {
                 throw new ConsumeException(
@@ -434,4 +825,3 @@ public class KafkaManualAssignmentPumpTests
         public void Dispose() => Disposed = true;
     }
 }
-

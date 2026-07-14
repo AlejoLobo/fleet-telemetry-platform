@@ -4,9 +4,11 @@ using Microsoft.Extensions.Logging;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Ciclo productivo Assign → poll → recrear consumidor ante FatalFailure.
+// Ciclo productivo Assign → poll → recrear consumidor ante FatalFailure / fallos transitorios.
 internal sealed class KafkaManualAssignmentPump
 {
+    private static readonly TimeSpan MaxSessionBackoff = TimeSpan.FromSeconds(5);
+
     private readonly FleetSseBroker _broker;
     private readonly IRealtimeStreamCoordinator _coordinator;
     private readonly IRealtimeKafkaConsumerFactory _consumerFactory;
@@ -14,7 +16,7 @@ internal sealed class KafkaManualAssignmentPump
     private readonly string _groupId;
     private readonly ILogger? _logger;
     private readonly FleetTelemetryMetrics? _metrics;
-    private readonly Func<TimeSpan, CancellationToken, Task>? _delayAsync;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
     private readonly TimeSpan _pollTimeout;
     private readonly TimeSpan _watermarkTimeout;
     private readonly bool _startInRecovery;
@@ -39,7 +41,7 @@ internal sealed class KafkaManualAssignmentPump
         _groupId = groupId;
         _logger = logger;
         _metrics = metrics;
-        _delayAsync = delayAsync;
+        _delayAsync = delayAsync ?? ((delay, ct) => Task.Delay(delay, ct));
         _pollTimeout = pollTimeout ?? TimeSpan.FromMilliseconds(500);
         _watermarkTimeout = watermarkTimeout ?? TimeSpan.FromSeconds(10);
         _startInRecovery = startInRecovery;
@@ -52,17 +54,27 @@ internal sealed class KafkaManualAssignmentPump
 
         var topicPartition = new TopicPartition(_topic, 0);
         var isFirstSession = !_startInRecovery;
+        var consecutiveFailures = 0;
 
         while (!cancellationToken.IsCancellationRequested
                && _coordinator.State != RealtimeStreamState.Faulted)
         {
             IRealtimeKafkaConsumerSession? session = null;
+            var phase = "CreateConsumer";
+            var recreateWithBackoff = false;
             try
             {
+                phase = "CreateConsumer";
                 session = _consumerFactory.Create(_groupId);
-                long? baselineForReady = PrepareAssignment(session, topicPartition, isFirstSession);
+
+                phase = "QueryWatermarks";
+                long? baselineForReady = PrepareAssignment(session, topicPartition, isFirstSession, ref phase);
                 isFirstSession = false;
 
+                // Sesión lista para poll: reinicia backoff de recreación.
+                consecutiveFailures = 0;
+
+                phase = "Poll";
                 var processor = new RealtimeKafkaPushProcessor(_broker, _logger, _metrics);
                 var loop = new FleetRealtimeKafkaPushLoop(
                     processor,
@@ -73,7 +85,9 @@ internal sealed class KafkaManualAssignmentPump
                 if (!fatal)
                     break;
 
-                // FatalFailure: EnterRecovering ya aplicado; se dispone la sesión y se crea otra.
+                // FatalFailure en poll: EnterRecovering ya aplicado; backoff tras disponer.
+                consecutiveFailures++;
+                recreateWithBackoff = true;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -81,19 +95,56 @@ internal sealed class KafkaManualAssignmentPump
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger?.LogError(ex, "Kafka manual assignment pump session failed");
-                if (_coordinator.State == RealtimeStreamState.Starting)
+                phase = KafkaPushErrorClassifier.ResolveFailedPhase(phase, ex);
+                if (KafkaPushErrorClassifier.IsPermanent(ex))
                 {
-                    _coordinator.EnterFaulted(ex.Message);
+                    _logger?.LogError(
+                        ex,
+                        "SSE Kafka push permanent failure. Phase={Phase} Topic={Topic} Group={Group}",
+                        phase,
+                        _topic,
+                        _groupId);
+
+                    if (_coordinator.State != RealtimeStreamState.Faulted)
+                        _coordinator.EnterFaulted(ex.Message);
                     throw;
                 }
 
-                if (_coordinator.State != RealtimeStreamState.Faulted)
+                if (_coordinator.State == RealtimeStreamState.Ready)
                     _coordinator.EnterRecovering(ex.Message);
+
+                // Starting: permanece sin admitir SSE hasta poll saludable.
+                consecutiveFailures++;
+                recreateWithBackoff = true;
+                var backoff = ComputeSessionBackoff(consecutiveFailures);
+                _logger?.LogWarning(
+                    ex,
+                    "SSE Kafka push transient failure; recreating session. Phase={Phase} Attempt={Attempt} BackoffMs={BackoffMs} Topic={Topic} Group={Group}",
+                    phase,
+                    consecutiveFailures,
+                    (int)backoff.TotalMilliseconds,
+                    _topic,
+                    _groupId);
             }
             finally
             {
                 session?.Dispose();
+            }
+
+            if (!recreateWithBackoff
+                || cancellationToken.IsCancellationRequested
+                || _coordinator.State == RealtimeStreamState.Faulted)
+            {
+                continue;
+            }
+
+            try
+            {
+                await DelaySessionBackoffAsync(consecutiveFailures, phase, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
         }
     }
@@ -101,12 +152,15 @@ internal sealed class KafkaManualAssignmentPump
     private long? PrepareAssignment(
         IRealtimeKafkaConsumerSession session,
         TopicPartition topicPartition,
-        bool isFirstSession)
+        bool isFirstSession,
+        ref string phase)
     {
+        phase = "QueryWatermarks";
         var watermarks = session.QueryWatermarkOffsets(topicPartition, _watermarkTimeout);
         var low = watermarks.Low.Value;
         var high = watermarks.High.Value;
 
+        phase = "Assign";
         if (isFirstSession)
         {
             var baseline = high - 1;
@@ -175,5 +229,33 @@ internal sealed class KafkaManualAssignmentPump
         }
 
         return false;
+    }
+
+    private Task DelaySessionBackoffAsync(
+        int consecutiveFailures,
+        string phase,
+        CancellationToken cancellationToken)
+    {
+        var backoff = ComputeSessionBackoff(consecutiveFailures);
+        _logger?.LogInformation(
+            "SSE Kafka push session backoff. Phase={Phase} Attempt={Attempt} BackoffMs={BackoffMs} Topic={Topic} Group={Group}",
+            phase,
+            consecutiveFailures,
+            (int)backoff.TotalMilliseconds,
+            _topic,
+            _groupId);
+        return _delayAsync(backoff, cancellationToken);
+    }
+
+    // intento 1: 200ms … duplica hasta 5s.
+    internal static TimeSpan ComputeSessionBackoff(int consecutiveFailures)
+    {
+        var attempt = Math.Max(1, consecutiveFailures);
+        var shift = Math.Min(attempt - 1, 8);
+        var milliseconds = 200L * (1L << shift);
+        if (milliseconds > MaxSessionBackoff.TotalMilliseconds)
+            return MaxSessionBackoff;
+
+        return TimeSpan.FromMilliseconds(milliseconds);
     }
 }
