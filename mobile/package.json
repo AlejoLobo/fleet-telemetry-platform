@@ -43,6 +43,18 @@
     ],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1"
-    }
+    },
+    "coverageReporters": [
+      "text",
+      "json-summary"
+    ],
+    "collectCoverageFrom": [
+      "src/services/**/*.ts",
+      "src/db/**/*.ts",
+      "src/hooks/**/*.ts",
+      "!src/**/*.test.ts",
+      "!src/types/**",
+      "!src/**/*.d.ts"
+    ]
   }
 }

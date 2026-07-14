@@ -6,7 +6,7 @@ Guion ejecutivo para evaluación técnica senior. Detalle operativo en [architec
 
 La plataforma ingiere telemetría de conductores (Expo offline-first) o clientes HTTP hacia una API .NET event-driven. La API valida y publica en Kafka/Redpanda (`telemetry.raw`); un Worker consume, valida dominio, persiste de forma transaccional e idempotente en TimescaleDB y genera alertas. Fallos no recuperables van a DLQ (`telemetry.dead-letter`).
 
-El dashboard Next.js consulta la API y recibe actualizaciones por SSE (polling MVP). Un agente IA operativo responde consultas de flota/alertas (`POST /api/ai/query`), con OpenAI opcional detrás de circuit breaker. El stack local se levanta con Docker Compose; hay smoke E2E, k6, CI y un blueprint Terraform AWS.
+El dashboard Next.js consulta la API y recibe actualizaciones por SSE en modo **KafkaPush** (predeterminado; Polling es alternativo). Un agente IA operativo responde consultas de flota/alertas (`POST /api/ai/query`), con OpenAI opcional detrás de circuit breaker. El stack local se levanta con Docker Compose; hay smoke E2E, k6, CI, blueprint Terraform AWS y un entorno **dev ejecutable** en `infra/terraform/dev`. OpenTelemetry OTLP está implementado como **opt-in**.
 
 ## 2. Arquitectura end-to-end
 
@@ -18,7 +18,7 @@ flowchart LR
   Worker --> Ts[TimescaleDB]
   Worker -->|invalid_or_failure| Dlq[DLQ_telemetry.dead-letter]
   Api --> Ts
-  Api -->|SSE_polling| Dash[Dashboard_Next.js]
+  Api -->|SSE_KafkaPush| Dash[Dashboard_Next.js]
   Dash --> Api
   Dash -->|query| Ai[AI_Agent]
   Ai --> Api
@@ -46,7 +46,7 @@ flowchart LR
 | Validación Kafka | `TelemetryDomainEventValidator` en Worker (además del validador de API) |
 | Health checks | `/health/live`, `/health/ready` (DB + Kafka) |
 | Smoke E2E | `scripts/smoke-test.*`: API → Kafka → Worker → DB + DLQ |
-| Tests / CI | Application + Worker + Integration; jobs Backend / Web / Mobile |
+| Tests / CI | Application + Worker + Integration; Web Vitest (`test:ci` + cobertura); Mobile Jest (`test:ci` + cobertura) |
 
 ## 5. Comandos de demo
 
@@ -76,30 +76,31 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | Circuit breakers | Polly en Kafka, DB y OpenAI; solo fallos transitorios de DB | Cumple |
 | Agente IA | `POST /api/ai/query` + pulido OpenAI opcional | Cumple |
 | SPA reactiva | Dashboard Next.js 15 | Cumple |
-| WebSockets/SSE | SSE por polling MVP | Limitación MVP |
+| WebSockets/SSE | KafkaPush predeterminado; Polling alternativo; replay acotado, Last-Event-ID, stream-reset, resync por snapshot; multi-réplica según limitaciones documentadas | Cumple |
 | Mobile offline-first | Expo 52 + cola local | Cumple |
 | SQLite | `expo-sqlite` en mobile | Cumple |
 | Batch sync | `POST /api/telemetry/batch` | Cumple |
+| Pruebas Web/Mobile | CI ejecuta Vitest (`npm run test:ci --prefix web`) y Jest (`npm run test:ci` en mobile) con cobertura | Cumple |
 | k6/JMeter | `load-tests/` (k6) | Cumple |
 | Docker Compose | Infra + profile `app` | Cumple |
-| Terraform/AWS CDK | Blueprint en `infra/terraform/` | Blueprint |
+| Terraform/AWS | Blueprint conceptual en `infra/terraform/` + entorno **dev ejecutable** en `infra/terraform/dev` (EC2 + Docker Compose, ALB, Secrets Manager, IAM, SSM); no es HA productivo | Cumple parcialmente |
 | Documentación DLQ/Kafka | [worker-and-dlq.md](worker-and-dlq.md) + pruebas de offsets e idempotencia | Cumple |
 | Auditoría de IA | Casos verificables en README con riesgo, corrección, archivos, pruebas y commits | Cumple |
-| OpenTelemetry | No implementado | No implementado |
+| OpenTelemetry | Implementado opt-in; exporta OTLP (trazas, métricas y logs); sin collector ni dashboards en Compose | Cumple parcialmente |
 
 ## 7. Limitaciones conscientes
 
-- Terraform es **blueprint**, no un despliegue productivo completo (sin MSK/ALB/services productivos).
+- Terraform incluye blueprint conceptual y entorno **dev ejecutable** (`infra/terraform/dev`), pero **no** es un despliegue productivo de alta disponibilidad (sin multi-AZ de datos, TLS/WAF, autoscaling ni servicios gestionados MSK/ECS).
 - Druid real no está desplegado; se usa un contrato intercambiable con implementación Timescale.
 - Mobile preview es **manual** con EAS (GitHub Actions); no hay publicación en tiendas.
-- SSE usa **polling MVP** a DB; no hay push Kafka → SSE.
+- SSE usa **KafkaPush** por defecto; **Polling** permanece como modo alternativo. Replay, `Last-Event-ID`, `stream-reset` y resync tienen límites documentados (p. ej. fan-out multi-réplica).
+- OpenTelemetry está **implementado** y es **opt-in**; Compose no incluye collector, Grafana, Tempo ni Prometheus.
 - Auth es **parcial** para MVP (`AuthorizeWhenEnabled`; JWT opcional).
 
 ## 8. Próximos pasos productivos
 
 - MSK o Kafka gestionado en AWS.
 - ALB + ECS services reales para API/Worker.
-- Secrets Manager (connection strings, API keys, JWT).
-- Observabilidad OpenTelemetry (traces/metrics/logs).
-- Push Kafka → SSE (o bus interno) en lugar de polling.
+- Secrets Manager (connection strings, API keys, JWT) en rutas productivas.
+- Observabilidad: añadir collector, Grafana, Tempo y Prometheus (u otra plataforma) sobre el export OTLP existente.
 - Pipeline de release mobile formal (store / distribución interna versionada).

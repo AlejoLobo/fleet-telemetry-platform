@@ -67,4 +67,16 @@ npx expo start
 
 ## Pruebas
 
-Jest (`jest-expo`) cubre auth, telemetry-api, sync-policy, coordinator y operaciones de cola.
+`npm run test:ci` ejecuta Jest (`jest-expo`) con cobertura (`text` + `json-summary`) sobre `src/services`, `src/db` y `src/hooks`. No hay umbral porcentual global obligatorio. El directorio `coverage/` está ignorado por Git.
+
+Áreas cubiertas (archivos representativos):
+
+| Área | Archivo |
+|------|---------|
+| Auth + SecureStore + cola | `src/__tests__/auth-service.test.ts`, `auth-expiration.test.ts`, `auth-expiration-integration.test.ts` |
+| telemetry-api (401/403, captura) | `src/__tests__/telemetry-api.test.ts` |
+| Cola SQLite / estados terminales / EventId | `src/__tests__/offline-queue.test.ts` |
+| Sync batch / policy | `src/__tests__/offline-sync-coordinator.test.ts`, `sync-policy.test.ts` |
+| Fallback parcial / 413 | `src/__tests__/offline-sync-fallback-sqlite.test.ts`, `offline-sync-fallback-413-sqlite.test.ts`, `offline-sync-split-sqlite.test.ts` |
+| Reanudación post-login | `src/__tests__/resume-sync.test.ts`, `use-driver-telemetry-resume.test.ts` |
+| Ubicación simulada explícita | `src/__tests__/location-provider.test.ts` |
