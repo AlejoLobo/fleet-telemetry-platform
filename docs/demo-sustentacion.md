@@ -84,6 +84,7 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | Docker Compose | Infra + profile `app` | Cumple |
 | Terraform/AWS CDK | Blueprint en `infra/terraform/` | Blueprint |
 | Documentación DLQ/Kafka | [worker-and-dlq.md](worker-and-dlq.md) + pruebas de offsets e idempotencia | Cumple |
+| Auditoría de IA | Casos verificables en README con riesgo, corrección, archivos, pruebas y commits | Cumple |
 | OpenTelemetry | No implementado | No implementado |
 
 ## 7. Limitaciones conscientes
