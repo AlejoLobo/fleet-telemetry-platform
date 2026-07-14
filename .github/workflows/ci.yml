@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify AI audit section in README
+        run: |
+          set -euo pipefail
+          test -f README.md
+          grep -Fq '## Auditoría de IA y criterio arquitectónico' README.md
+          grep -Fq '### Caso 1:' README.md
+          grep -Fq '### Caso 2:' README.md
+          grep -Fq '**Propuesta deficiente:**' README.md
+          grep -Fq '**Riesgo:**' README.md
+          grep -Fq '**Criterio aplicado y corrección:**' README.md
+          grep -Fq '**Archivos:**' README.md
+          grep -Fq '**Pruebas:**' README.md
+          grep -Fq '**Commit:**' README.md
+
   backend:
     name: Backend (.NET 10)
     runs-on: ubuntu-latest

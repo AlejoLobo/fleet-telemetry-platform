@@ -158,21 +158,91 @@ tipo(alcance): descripción breve en imperativo
 
 Ejemplos: `feat(worker): ...`, `fix(ci): ...`, `docs(readme): ...`, `test(e2e): ...`.
 
-## AI Audit
+## Auditoría de IA y criterio arquitectónico
 
-Registro de propuestas incorrectas de IA durante el desarrollo, la corrección aplicada y la verificación asociada.
+Esta sección documenta **propuestas históricas deficientes** surgidas durante el desarrollo
+(asistencia automatizada o diseño preliminar) y el **criterio técnico** con el que se
+corregieron. **No** describe defectos actuales del código en `develop`: cada caso ya tiene
+corrección fusionada, archivos concretos, pruebas y SHA verificable.
 
-| Caso | Problema / propuesta incorrecta | Riesgo | Decisión aplicada | Verificación | Estado |
-|------|----------------------------------|--------|-------------------|--------------|--------|
-| Persistencia desde controllers | Guardar telemetría directamente en TimescaleDB desde `TelemetryController` | Acopla ingesta con persistencia; rompe desacoplamiento Kafka | Ingesta publica en `telemetry.raw` y responde `202`; Worker persiste | Smoke test + integración Worker | **Implementado y probado** |
-| Datasets completos al LLM | Enviar todos los eventos o tablas completas al modelo | Fuga de datos, costo y alucinaciones | Catálogo cerrado `AiToolCatalog` + `AiToolRouter`; `unsupported_query` sin LLM | `AiToolCatalogTests`, `AiToolRouterTests` | **Implementado y probado** |
-| Dashboard sin backend | Depender solo del API real sin modo mock | Demo inutilizable sin stack levantado | `NEXT_PUBLIC_DATA_MODE=mock` en web | `npm run build` web | **Implementado y probado** |
-| Simulación GPS silenciosa | Fabricar coordenadas cuando GPS falla sin marcar origen | Telemetría ficticia indistinguible en operaciones | `EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION=true` explícito; `source` propagado; consultas excluyen `simulated` por defecto | `location-provider.test.ts`, consultas Timescale | **Implementado y probado** |
-| SSE `_lastAlertCheck` | Cursor solo por timestamp pierde alertas concurrentes | Pérdida/duplicación de alertas en polling | Cursor compuesto `CreatedAt` + `AlertId`, límite superior estable y paginación | `AlertStreamCursorIntegrationTests` | **Implementado y probado** |
-| Detención = último movimiento | Duración desde timestamp del último evento en movimiento | Subestima tiempo detenido | `first_stop_after_move` en SQL + gaps y frescura configurables | `StoppedVehicleQueryIntegrationTests` | **Implementado y probado** |
-| RDS = TimescaleDB en Terraform | Presentar RDS PostgreSQL estándar como Timescale | Arquitectura engañosa en producción | Blueprint documenta Timescale Cloud / self-hosted; RDS solo PG compatible | `infra/README.md`, `terraform fmt/validate` en CI | **Blueprint** |
-| EF migrations productivas | DDL automático en cada arranque | Riesgo de esquema en producción | `DatabaseInitializationPolicy` + `schema_versions`; DDL auto solo Development | `DatabaseInitializationPolicyTests` | **Implementado con limitaciones** |
-| JWT en query string SSE | Token largo en URL para EventSource | Exposición en logs y referrers | Documentado en `docs/realtime-sse.md`; auth opcional; ticket/cookie como siguiente paso | Documentación + políticas API | **Siguiente paso productivo** |
-| OpenAI tool calls arbitrarios | SQL generado o herramientas no tipadas | Inyección y acceso no controlado | Catálogo tipado, validación de argumentos, sin SQL; fallback determinista sin API key | Tests router + catálogo | **Implementado y probado** |
+### Caso 1: reintento Kafka sin reutilizar el mismo offset
 
-Commits de referencia en ramas `fix/*`, `feature/*` y `develop`: ver historial Git (`fix/worker-dlq-retries`, `fix/stopped-vehicle-duration`, `fix/sse-alert-cursor`, `fix/mobile-offline-sync`, `refactor/ai-tool-routing`, `feature/security-hardening`, `feature/opentelemetry`).
+- **Propuesta deficiente:** Tras un `RetryWithoutCommit`, no confirmar el offset, hacer
+  `Task.Delay` y volver a llamar a `Consume()` para obtener un mensaje nuevo, en lugar de
+  seguir trabajando el mismo `ConsumeResult`.
+- **Riesgo:** No hacer commit **no** reposiciona automáticamente el cursor local del
+  consumidor. Se puede procesar el mensaje N+1 antes de resolver N; si luego se confirma un
+  offset posterior, se produce **pérdida silenciosa** de N. Eso viola la semántica
+  **at-least-once** esperada en el Worker.
+- **Criterio aplicado y corrección:** Conservar el mismo `ConsumeResult` y **no** llamar de
+  nuevo a `Consume()` hasta un resultado terminal. Aplicar backoff configurable
+  (`RetryInitialDelayMilliseconds` / `RetryMaxDelayMilliseconds`) sobre el mismo offset.
+  Confirmar únicamente tras éxito, duplicado o DLQ publicada correctamente.
+- **Archivos:**
+  `backend/FleetTelemetry.Worker/TelemetryConsumerWorker.cs`,
+  `backend/FleetTelemetry.Worker/TelemetryMessageProcessor.cs`,
+  `backend/FleetTelemetry.Worker/KafkaProcessingRetryBackoff.cs`,
+  `backend/FleetTelemetry.Infrastructure/Configuration/KafkaOptions.cs`,
+  `backend/FleetTelemetry.Infrastructure/Configuration/ConfigurationValidator.cs`,
+  `backend/FleetTelemetry.Worker/appsettings.json`,
+  `.env.example`
+- **Pruebas:**
+  `backend/FleetTelemetry.Worker.Tests/KafkaProcessingRetryBackoffTests.cs`,
+  `TelemetryMessageProcessorTests.Transient_db_error_sigue_reintentando`,
+  integración
+  `TelemetryConsumerWorkerIntegrationTests.Failed_first_offset_is_retried_before_second_offset_is_processed`
+  (el primer offset falla y se procesa antes que el segundo)
+- **Commit:** `e557210ad9aa526d622ba678fe4ec9464487d253` —
+  `fix(worker): garantizar at-least-once reintentando el mismo offset`
+
+### Caso 2: excepciones desconocidas enviadas a DLQ
+
+- **Propuesta deficiente:** Capturar cualquier `Exception` restante, publicarla en DLQ como
+  `processing_failure` y confirmar el offset, tratando `NullReferenceException`, errores de
+  mapping o defectos de programación como problemas permanentes del mensaje.
+- **Riesgo:** Ocultar errores sistémicos, confirmar el offset y perder la oportunidad de
+  reprocesar tras corregir el software. Convierte un defecto de código en un falso problema
+  de datos.
+- **Criterio aplicado y corrección:** Taxonomía explícita en el Worker: datos o contrato
+  inválido → DLQ; fallo transitorio reconocido → retry sin commit; excepción desconocida →
+  `LogCritical`, `StopApplication`, **sin** DLQ y **sin** commit.
+- **Archivos:**
+  `backend/FleetTelemetry.Worker/TelemetryMessageCoordinator.cs`,
+  `backend/FleetTelemetry.Worker/TelemetryMessageProcessor.cs`,
+  `docs/worker-and-dlq.md`
+- **Pruebas:**
+  `TelemetryMessageCoordinatorTests.Excepcion_inesperada_detiene_worker_sin_commit`
+  (no publica DLQ, no confirma offset, solicita detener el Worker),
+  `TelemetryMessageCoordinatorTests.Excepcion_inesperada_no_se_reintenta`,
+  `TelemetryMessageProcessorTests.Excepcion_inesperada_se_propaga_sin_crear_DLQ`,
+  integración
+  `TelemetryConsumerWorkerIntegrationTests.Unexpected_error_stops_without_dlq_or_commit`
+- **Commit:** `fc5f37368769f15026bd68bac366583958199f4c` —
+  `fix(worker): detener procesamiento ante errores inesperados`
+  (merge relacionado: `4cbb8bdcfa17ff09a674fce9235a9d7895c4fbe2`)
+
+### Caso 3: Terraform aparentaba ser desplegable
+
+- **Propuesta deficiente:** Presentar RDS PostgreSQL estándar, task definitions incompletas y
+  placeholders `REPLACE_WITH_` como ruta desplegable de TimescaleDB/Kafka, describiendo
+  definiciones sin services ni ALB como si fueran un despliegue funcional.
+- **Riesgo:** Infraestructura engañosa: un `terraform apply` del blueprint no entrega un
+  stack end-to-end; no hay TimescaleDB real ni una ruta reproducible de ejecución del MVP.
+- **Criterio aplicado y corrección:** Conservar el blueprint conceptual claramente separado;
+  agregar entorno **dev** ejecutable en `infra/terraform/dev/` (VPC, EC2 + Docker Compose,
+  Redpanda, TimescaleDB, API, Worker, Web, ALB, Secrets Manager, IAM y SSM). Eliminar
+  `REPLACE_WITH_` y las task definitions incompletas del árbol desplegable.
+- **Archivos:**
+  `infra/terraform/dev/` (`network.tf`, `alb.tf`, `compute.tf`, `security.tf`, `secrets.tf`,
+  `variables.tf`, `user-data.sh.tftpl`, `terraform.tfvars.example`, `README.md`),
+  `infra/README.md`,
+  `docker-compose.yml`,
+  `.github/workflows/ci.yml` (job Infra validation: `terraform fmt`/`validate` y rechazo de
+  placeholders/secretos)
+- **Pruebas:** Validación local y CI de Terraform (`fmt -check`, `init -backend=false`,
+  `validate` en blueprint y `dev`); `git grep "REPLACE_WITH_"` vacío en `infra/terraform`;
+  `docker compose config --quiet`. Run aprobado:
+  https://github.com/AlejoLobo/fleet-telemetry-platform/actions/runs/29363945100
+- **Commit:** `ba74a436f9c8a9d6bc9bda55eae970a554e4b850` —
+  `fix(infra): añadir entorno dev reproducible en AWS`
+  (merge en `develop`: `949be8e3086e35bbbaab52f9b3cbcaf2f7a5dd12`)
