@@ -128,7 +128,9 @@ Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
 - Si `Low <= resumeOffset <= High` → Assign en `resumeOffset`.
 - Si `resumeOffset < Low` o `resumeOffset > High` → `ResetToBaseline(High - 1)`, Assign en High, `initial-snapshot`.
 - Ready solo tras Idle/Completed saludable con el consumidor nuevo.
-- Fallos transitorios en creación del consumidor, watermarks, Assign o materialización de Assign se recuperan disponiendo la sesión, backoff cancelable (200 ms → 5 s) y recreando la sesión; no pasan a `Faulted` ni habilitan Ready sin poll saludable.
+- Fallos transitorios en validación de metadata, creación del consumidor, watermarks, Assign o materialización de Assign se recuperan disponiendo la sesión, backoff cancelable (200 ms → 5 s) y recreando la sesión; no pasan a `Faulted` ni habilitan Ready sin poll saludable.
+- El backoff de sesión (`consecutiveFailures`) solo se reinicia tras el primer `Idle`/`Completed` saludable; un `PrepareAssignment` exitoso no reinicia la racha.
+- Metadata Kafka inaccesible o tópico aún no disponible → `RealtimeTopicMetadataUnavailableException` (transitoria, Starting). `Partitions.Count != 1` → `RealtimeTopicPartitionCountException` (permanente, Faulted). No hay Assign ni Ready hasta validar una partición.
 - Si la materialización de Assign expira sin confirmar la posición objetivo, se lanza un error transitorio específico y se recrea el consumidor.
 
 ### Configuración (`Sse` / `Kafka`)
@@ -137,7 +139,7 @@ Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
 |--------|---------|-------------|
 | `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo de identidad del GroupId |
 | `Sse:InstanceId` | `HOSTNAME` o `MachineName` | Sufijo estable por proceso (post-configure) |
-| `Sse:RequireSingleRealtimePartition` | `true` | Falla al iniciar si el tópico tiene >1 partición |
+| `Sse:RequireSingleRealtimePartition` | `true` | Exige 1 partición; metadata transitoria reintenta en Starting; conteo ≠ 1 → Faulted |
 | `Sse:ReplayBufferSize` | `200` | Eventos retenidos para replay local |
 
 ### Cliente web

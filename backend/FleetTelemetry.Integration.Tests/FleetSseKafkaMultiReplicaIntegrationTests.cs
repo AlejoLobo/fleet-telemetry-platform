@@ -200,7 +200,7 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
     [Fact]
     public void KafkaPush_rechaza_topic_con_mas_de_una_particion()
     {
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<RealtimeTopicPartitionCountException>(() =>
             RealtimeTopicValidator.EnsureSinglePartition(
                 _kafka.BootstrapServers,
                 "__consumer_offsets",

@@ -20,6 +20,35 @@ public sealed class RealtimeKafkaTransientPublishException : Exception
     }
 }
 
+// Metadata Kafka inaccesible o tópico aún no visible: recuperación con backoff (no Faulted).
+public sealed class RealtimeTopicMetadataUnavailableException : Exception
+{
+    public RealtimeTopicMetadataUnavailableException(string message) : base(message)
+    {
+    }
+
+    public RealtimeTopicMetadataUnavailableException(string message, Exception inner)
+        : base(message, inner)
+    {
+    }
+}
+
+// Metadata OK pero Partitions.Count != 1: fallo permanente → Faulted.
+public sealed class RealtimeTopicPartitionCountException : Exception
+{
+    public RealtimeTopicPartitionCountException(string topic, int actualPartitionCount)
+        : base(
+            $"El tópico {topic} debe tener exactamente 1 partición para replay SSE global. Particiones actuales: {actualPartitionCount}.")
+    {
+        Topic = topic;
+        ActualPartitionCount = actualPartitionCount;
+    }
+
+    public string Topic { get; }
+
+    public int ActualPartitionCount { get; }
+}
+
 // Assign no confirmó la posición objetivo a tiempo; recrear sesión (no Faulted).
 public sealed class RealtimeKafkaAssignmentMaterializationException : Exception
 {
