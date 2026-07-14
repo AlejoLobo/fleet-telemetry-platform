@@ -1,10 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-// Entidad ORM de alerta de flota.
 namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 
-// Mapeo a tabla fleet_alerts.
 [Table("fleet_alerts")]
 public class FleetAlertRecord
 {

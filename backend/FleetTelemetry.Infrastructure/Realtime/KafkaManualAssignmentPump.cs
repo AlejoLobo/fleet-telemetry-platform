@@ -139,7 +139,6 @@ internal sealed class KafkaManualAssignmentPump
                 if (_coordinator.State == RealtimeStreamState.Ready)
                     _coordinator.EnterRecovering(ex.Message);
 
-                // Starting: permanece sin admitir SSE hasta poll saludable.
                 consecutiveFailures++;
                 recreateWithBackoff = true;
                 var backoff = ComputeSessionBackoff(consecutiveFailures);
@@ -284,7 +283,6 @@ internal sealed class KafkaManualAssignmentPump
         return _delayAsync(backoff, cancellationToken);
     }
 
-    // intento 1: 200ms … duplica hasta 5s.
     internal static TimeSpan ComputeSessionBackoff(int consecutiveFailures)
     {
         var attempt = Math.Max(1, consecutiveFailures);

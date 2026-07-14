@@ -5,7 +5,6 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
-// Agrega métricas operativas mediante consultas SQL agregadas.
 public class OpsQueryService : IOpsQueryService
 {
     private readonly IFleetStateAggregateRepository _aggregateRepository;

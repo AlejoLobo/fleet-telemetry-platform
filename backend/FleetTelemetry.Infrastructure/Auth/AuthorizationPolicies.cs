@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Infrastructure.Auth;
 
-// Nombres de políticas de autorización expuestas por la API.
 public static class AuthorizationPolicies
 {
     public const string TelemetryWrite = "TelemetryWrite";

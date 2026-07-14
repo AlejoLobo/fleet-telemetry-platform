@@ -1,4 +1,3 @@
-// Opciones de exportación OTLP (trazas, métricas y logs).
 namespace FleetTelemetry.Infrastructure.Configuration;
 
 public class OpenTelemetryOptions
@@ -11,6 +10,5 @@ public class OpenTelemetryOptions
 
     public string OtlpEndpoint { get; set; } = "http://localhost:4317";
 
-    // Valores admitidos: grpc | http/protobuf
     public string OtlpProtocol { get; set; } = "grpc";
 }

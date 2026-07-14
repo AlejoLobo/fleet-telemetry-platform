@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Exceptions;
 
-// Manejador global que unifica errores no controlados en ProblemDetails.
 public sealed class GlobalExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<GlobalExceptionHandler> _logger;

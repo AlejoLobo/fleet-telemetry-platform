@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Identificador único de evento de telemetría.
 public sealed class EventId : ValueObject
 {
     public Guid Value { get; }

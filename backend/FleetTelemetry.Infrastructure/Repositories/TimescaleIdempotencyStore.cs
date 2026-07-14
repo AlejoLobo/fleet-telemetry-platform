@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 // Almacén de idempotencia en TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Inserta EventId con ON CONFLICT DO NOTHING.
 public class TimescaleIdempotencyStore : IIdempotencyStore
 {
     private readonly FleetDbContext _dbContext;

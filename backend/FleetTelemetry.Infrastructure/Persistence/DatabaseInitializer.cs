@@ -4,10 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-// Inicialización del esquema TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Persistence;
 
-// Crea extensiones, tablas e índices si no existen.
 public static class DatabaseInitializer
 {
     private const long SchemaAdvisoryLockKey = 742001;

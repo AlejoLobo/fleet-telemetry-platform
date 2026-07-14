@@ -86,12 +86,10 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             CapturedAt = processedAt
         });
 
-        // Serializa estado de flota y alertas del mismo VehicleId (incluye fuera de orden).
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtext({telemetryEvent.VehicleId}));",
             cancellationToken);
 
-        // fleet_alert_states solo refleja el último evento aceptado por fleet_vehicle_state.
         var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (

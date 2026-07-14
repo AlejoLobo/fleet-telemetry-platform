@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Common;
 
-// Error de validación tipado con código estable para API y logs.
 public sealed record ValidationError(string Code, string Message)
 {
     public static ValidationError Required(string field) =>
@@ -10,7 +9,6 @@ public sealed record ValidationError(string Code, string Message)
         new($"{field}_invalid", detail);
 }
 
-// Resultado explícito sin excepciones para flujos de validación.
 public readonly struct Result<T>
 {
     public bool IsSuccess { get; }

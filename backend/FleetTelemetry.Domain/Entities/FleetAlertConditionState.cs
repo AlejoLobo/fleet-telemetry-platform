@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.ValueObjects;
 
 namespace FleetTelemetry.Domain.Entities;
 
-// Estado persistente de condición de alerta por vehículo y tipo (no es IsAcknowledged).
 public sealed class FleetAlertConditionState
 {
     public string VehicleId => _vehicleId.Value;

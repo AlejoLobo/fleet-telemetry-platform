@@ -20,7 +20,6 @@ public static class RealtimeTopicValidator
             throw new RealtimeTopicPartitionCountException(topic, partitionCount);
     }
 
-    // Atajo productivo: AdminClient vía bootstrap servers.
     public static void EnsureSinglePartition(
         string bootstrapServers,
         string topic,

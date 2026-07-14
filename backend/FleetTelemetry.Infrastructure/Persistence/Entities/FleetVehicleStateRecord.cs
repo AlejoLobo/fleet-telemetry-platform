@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-// Entidad ORM del estado actual por vehículo.
 namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 
 [Table("fleet_vehicle_state")]

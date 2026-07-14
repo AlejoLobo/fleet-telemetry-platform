@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace FleetTelemetry.Infrastructure.Auth;
 
-// Configura políticas de autorización basadas en claims de permiso.
 public static class AuthorizationPolicyRegistrar
 {
     public static void ConfigurePolicies(AuthorizationOptions options)

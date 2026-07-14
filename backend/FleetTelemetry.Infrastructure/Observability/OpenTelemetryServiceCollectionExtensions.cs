@@ -10,7 +10,6 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
-// Registro de trazas, métricas y correlación de logs vía OTLP.
 namespace FleetTelemetry.Infrastructure.Observability;
 
 public static class OpenTelemetryServiceCollectionExtensions

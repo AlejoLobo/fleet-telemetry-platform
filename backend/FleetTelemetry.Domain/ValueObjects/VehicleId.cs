@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Identificador de vehículo normalizado y no vacío.
 public sealed class VehicleId : ValueObject
 {
     public string Value { get; }

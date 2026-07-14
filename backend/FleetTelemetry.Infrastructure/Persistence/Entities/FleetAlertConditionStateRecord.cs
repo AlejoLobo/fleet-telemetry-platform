@@ -3,7 +3,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 
-// Estado activo/cooldown por vehículo y tipo de alerta.
 [Table("fleet_alert_states")]
 public class FleetAlertConditionStateRecord
 {

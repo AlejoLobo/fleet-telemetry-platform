@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Api.Middleware;
 
-// Cabeceras de seguridad HTTP recomendadas para la API.
 public sealed class SecurityHeadersMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)

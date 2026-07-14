@@ -2,7 +2,6 @@ using System.Text.Json;
 
 namespace FleetTelemetry.Application.Services;
 
-// Convierte nombre de herramienta y argumentos JSON al intent operativo.
 public static class AiToolIntentMapper
 {
     public static AiQuestionIntent FromToolCall(string toolName, IReadOnlyDictionary<string, JsonElement> arguments)
