@@ -19,7 +19,6 @@ public class FleetSsePollerHostedService : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<FleetSsePollerHostedService> _logger;
     private AlertStreamCursor _alertCursor = AlertStreamCursor.Origin;
-    private DateTimeOffset _lastHeartbeat = DateTimeOffset.MinValue;
     private string _lastFleetHash = string.Empty;
     private bool _fleetChangedLastPoll;
 
@@ -43,8 +42,6 @@ public class FleetSsePollerHostedService : BackgroundService
         {
             try
             {
-                _broker.PruneStaleSubscribers();
-
                 if (_broker.SubscriberCount == 0)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(_sseOptions.ActivePollIntervalSeconds), stoppingToken);
@@ -57,7 +54,6 @@ public class FleetSsePollerHostedService : BackgroundService
 
                 await PublishFleetUpdatesAsync(fleetQuery, stoppingToken);
                 await PublishNewAlertsAsync(alertRepository, stoppingToken);
-                await PublishHeartbeatIfNeededAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -78,6 +74,9 @@ public class FleetSsePollerHostedService : BackgroundService
 
     private async Task PublishFleetUpdatesAsync(IFleetQueryService fleetQuery, CancellationToken cancellationToken)
     {
+        if (_sseOptions.Mode == SseDeliveryMode.KafkaPush)
+            return;
+
         var vehicles = await fleetQuery.GetAllFleetStatusesAsync(
             liveOnly: false,
             excludeSimulated: true,
@@ -90,7 +89,7 @@ public class FleetSsePollerHostedService : BackgroundService
             return;
 
         _lastFleetHash = hash;
-        _broker.Publish(FleetRealtimeEventTypes.FleetUpdate, vehicles, _timeProvider.GetUtcNow());
+        _broker.PublishLocal(FleetRealtimeEventTypes.FleetUpdate, vehicles, _timeProvider.GetUtcNow());
     }
 
     private async Task PublishNewAlertsAsync(IAlertRepository alertRepository, CancellationToken cancellationToken)
@@ -114,7 +113,7 @@ public class FleetSsePollerHostedService : BackgroundService
 
             foreach (var alert in batch)
             {
-                _broker.Publish(
+                _broker.PublishLocal(
                     FleetRealtimeEventTypes.Alert,
                     new FleetAlertResponse(
                         alert.AlertId,
@@ -132,20 +131,5 @@ public class FleetSsePollerHostedService : BackgroundService
             if (batch.Count < _sseOptions.AlertBatchSize)
                 break;
         }
-    }
-
-    private Task PublishHeartbeatIfNeededAsync(CancellationToken cancellationToken)
-    {
-        var heartbeatInterval = TimeSpan.FromSeconds(_sseOptions.HeartbeatIntervalSeconds);
-        if (_timeProvider.GetUtcNow() - _lastHeartbeat < heartbeatInterval)
-            return Task.CompletedTask;
-
-        _lastHeartbeat = _timeProvider.GetUtcNow();
-        _broker.Publish(
-            FleetRealtimeEventTypes.Heartbeat,
-            new { status = "ok", subscribers = _broker.SubscriberCount },
-            _lastHeartbeat);
-
-        return Task.CompletedTask;
     }
 }

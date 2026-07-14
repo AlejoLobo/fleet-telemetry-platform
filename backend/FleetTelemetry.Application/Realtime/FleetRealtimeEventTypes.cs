@@ -8,4 +8,5 @@ public static class FleetRealtimeEventTypes
     public const string Alert = "alert";
     public const string Heartbeat = "heartbeat";
     public const string Connected = "connected";
+    public const string StreamReset = "stream-reset";
 }

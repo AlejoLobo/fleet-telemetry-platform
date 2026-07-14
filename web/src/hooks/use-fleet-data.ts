@@ -16,6 +16,11 @@ import {
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
 import { getApiBaseUrl } from "@/lib/utils";
+import {
+  ResyncFailedError,
+  ResyncSupersededError,
+  type ResyncSnapshotResult,
+} from "@/lib/sse-resync";
 
 type FleetDataState = {
   vehicles: VehicleStatus[];
@@ -62,8 +67,13 @@ export function useFleetData(selectedVehicleId: string | null) {
   const dataSourceRef = useRef<FleetDataSource>("api");
   const telemetryAbortRef = useRef<AbortController | null>(null);
   const telemetryRequestIdRef = useRef(0);
+  const snapshotGenerationRef = useRef(0);
+  const vehiclesRef = useRef<VehicleStatus[]>([]);
 
-  const loadFleetAndAlerts = useCallback(async () => {
+  const isCurrentGeneration = (generation: number) =>
+    generation === snapshotGenerationRef.current;
+
+  const loadFleetAndAlerts = useCallback(async (generation: number): Promise<boolean> => {
     setState((prev) => ({
       ...prev,
       fleetLoading: true,
@@ -78,10 +88,13 @@ export function useFleetData(selectedVehicleId: string | null) {
         apiClient.fetchAlertsLive(),
       ]);
 
+      if (!isCurrentGeneration(generation)) return false;
+
       let globalAnalytics;
       if (fleetSnapshot.truncated) {
         try {
           const summary = await apiClient.fetchOpsSummary();
+          if (!isCurrentGeneration(generation)) return false;
           globalAnalytics = computeGlobalAnalyticsFromOps(
             {
               totalVehicles: summary.totalVehicles,
@@ -107,6 +120,9 @@ export function useFleetData(selectedVehicleId: string | null) {
           ? fleetSnapshot.error ?? "Carga parcial de la flota."
           : null;
 
+      if (!isCurrentGeneration(generation)) return false;
+
+      vehiclesRef.current = fleetSnapshot.vehicles;
       setState((prev) => ({
         ...prev,
         vehicles: fleetSnapshot.vehicles,
@@ -123,17 +139,25 @@ export function useFleetData(selectedVehicleId: string | null) {
         dataSource: "api",
       }));
       dataSourceRef.current = "api";
+      return true;
     } catch {
+      if (!isCurrentGeneration(generation)) return false;
       setState((prev) => ({
         ...prev,
         fleetLoading: false,
         fleetError: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
         dataSource: "api",
       }));
+      return true;
     }
   }, []);
 
-  const loadTelemetryForVehicle = useCallback(async (vehicleId: string) => {
+  const loadTelemetryForVehicle = useCallback(async (
+    vehicleId: string,
+    generation: number,
+  ) => {
+    if (!isCurrentGeneration(generation)) return;
+
     telemetryAbortRef.current?.abort();
     const controller = new AbortController();
     telemetryAbortRef.current = controller;
@@ -150,6 +174,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     try {
       const snapshot = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
       if (requestId !== telemetryRequestIdRef.current) return;
+      if (!isCurrentGeneration(generation)) return;
 
       const selectedAnalytics = computeSelectedAnalytics(vehicleId, snapshot.events);
       const telemetryWarning = snapshot.truncated
@@ -170,6 +195,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       if (requestId !== telemetryRequestIdRef.current) return;
+      if (!isCurrentGeneration(generation)) return;
 
       setState((prev) => ({
         ...prev,
@@ -179,11 +205,36 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
   }, []);
 
+  const clearSelectedTelemetry = useCallback(() => {
+    telemetryAbortRef.current?.abort();
+    setState((prev) => ({
+      ...prev,
+      telemetry: [],
+      selectedAnalytics: null,
+      telemetryLoading: false,
+      telemetryError: null,
+      telemetryPartial: false,
+      telemetryTruncated: false,
+    }));
+  }, []);
+
   const loadFromApi = useCallback(async () => {
-    await loadFleetAndAlerts();
-    const vehicleId = selectedVehicleId ?? "VH-001";
-    await loadTelemetryForVehicle(vehicleId);
-  }, [loadFleetAndAlerts, loadTelemetryForVehicle, selectedVehicleId]);
+    const generation = ++snapshotGenerationRef.current;
+    const fleetOk = await loadFleetAndAlerts(generation);
+    if (!fleetOk || !isCurrentGeneration(generation)) return;
+
+    const vehicleId = selectedVehicleId
+      && vehiclesRef.current.some((v) => v.vehicleId === selectedVehicleId)
+      ? selectedVehicleId
+      : null;
+
+    if (!vehicleId) {
+      clearSelectedTelemetry();
+      return;
+    }
+
+    await loadTelemetryForVehicle(vehicleId, generation);
+  }, [clearSelectedTelemetry, loadFleetAndAlerts, loadTelemetryForVehicle, selectedVehicleId]);
 
   const loadDemoData = useCallback(async () => {
     telemetryAbortRef.current?.abort();
@@ -199,13 +250,16 @@ export function useFleetData(selectedVehicleId: string | null) {
     }));
 
     const dataset = refreshMockDataset(10);
+    vehiclesRef.current = dataset.vehicles;
     const vehicleId =
       selectedVehicleId && dataset.vehicles.some((v) => v.vehicleId === selectedVehicleId)
         ? selectedVehicleId
-        : (dataset.vehicles[0]?.vehicleId ?? "VH-001");
-    const telemetry = dataset.telemetryByVehicle[vehicleId] ?? [];
+        : (dataset.vehicles[0]?.vehicleId ?? null);
+    const telemetry = vehicleId ? dataset.telemetryByVehicle[vehicleId] ?? [] : [];
     const globalAnalytics = computeGlobalAnalytics(dataset.vehicles, dataset.alerts, "demo");
-    const selectedAnalytics = computeSelectedAnalytics(vehicleId, telemetry);
+    const selectedAnalytics = vehicleId
+      ? computeSelectedAnalytics(vehicleId, telemetry)
+      : null;
 
     setState({
       vehicles: dataset.vehicles,
@@ -234,15 +288,130 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
   }, [loadDemoData, loadFromApi]);
 
+  const refreshForResync = useCallback(async (vehicleId: string | null): Promise<ResyncSnapshotResult> => {
+    telemetryAbortRef.current?.abort();
+    const generation = ++snapshotGenerationRef.current;
+
+    if (dataSourceRef.current === "demo") {
+      await loadDemoData();
+      if (!isCurrentGeneration(generation)) {
+        throw new ResyncSupersededError();
+      }
+      return {
+        resolvedVehicleId: vehicleId
+          && vehiclesRef.current.some((v) => v.vehicleId === vehicleId)
+          ? vehicleId
+          : vehiclesRef.current[0]?.vehicleId ?? null,
+        applied: true,
+      };
+    }
+
+    const [fleetSnapshot, alerts] = await Promise.all([
+      apiClient.fetchFleetLive(),
+      apiClient.fetchAlertsLive(),
+    ]);
+
+    if (!isCurrentGeneration(generation)) {
+      throw new ResyncSupersededError();
+    }
+
+    if (fleetSnapshot.partial && fleetSnapshot.error) {
+      throw new ResyncFailedError(fleetSnapshot.error);
+    }
+
+    const resolvedVehicleId = vehicleId
+      && fleetSnapshot.vehicles.some((v) => v.vehicleId === vehicleId)
+      ? vehicleId
+      : fleetSnapshot.vehicles[0]?.vehicleId ?? null;
+
+    let telemetrySnapshot: Awaited<ReturnType<typeof fetchTelemetrySnapshot>> = {
+      events: [],
+      partial: false,
+      truncated: false,
+    };
+
+    if (resolvedVehicleId) {
+      telemetrySnapshot = await fetchTelemetrySnapshot(resolvedVehicleId);
+      if (!isCurrentGeneration(generation)) {
+        throw new ResyncSupersededError();
+      }
+      if (telemetrySnapshot.partial && telemetrySnapshot.error) {
+        throw new ResyncFailedError(telemetrySnapshot.error);
+      }
+    }
+
+    let globalAnalytics;
+    if (fleetSnapshot.truncated) {
+      try {
+        const summary = await apiClient.fetchOpsSummary();
+        if (!isCurrentGeneration(generation)) {
+          throw new ResyncSupersededError();
+        }
+        globalAnalytics = computeGlobalAnalyticsFromOps(
+          {
+            totalVehicles: summary.totalVehicles,
+            activeVehicles: summary.activeVehicles,
+          },
+          alerts.length,
+          "api",
+          { partial: true },
+        );
+      } catch (error) {
+        if (error instanceof ResyncSupersededError) throw error;
+        globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api", {
+          partial: true,
+          aggregationSource: "snapshot",
+        });
+      }
+    } else {
+      globalAnalytics = computeGlobalAnalytics(fleetSnapshot.vehicles, alerts, "api");
+    }
+
+    if (!isCurrentGeneration(generation)) {
+      throw new ResyncSupersededError();
+    }
+
+    const selectedAnalytics = resolvedVehicleId
+      ? computeSelectedAnalytics(resolvedVehicleId, telemetrySnapshot.events)
+      : null;
+
+    vehiclesRef.current = fleetSnapshot.vehicles;
+    setState((prev) => ({
+      ...prev,
+      vehicles: fleetSnapshot.vehicles,
+      alerts,
+      telemetry: telemetrySnapshot.events,
+      globalAnalytics,
+      selectedAnalytics,
+      fleetLoading: false,
+      telemetryLoading: false,
+      fleetPartial: fleetSnapshot.partial,
+      fleetTruncated: fleetSnapshot.truncated,
+      telemetryPartial: telemetrySnapshot.partial,
+      telemetryTruncated: telemetrySnapshot.truncated,
+      fleetError: fleetSnapshot.vehicles.length === 0
+        ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
+        : null,
+      telemetryError: null,
+      dataSource: "api",
+    }));
+    dataSourceRef.current = "api";
+
+    return { resolvedVehicleId, applied: true };
+  }, [loadDemoData]);
+
   useEffect(() => {
-    void loadFleetAndAlerts();
+    const generation = ++snapshotGenerationRef.current;
+    void loadFleetAndAlerts(generation);
     return () => telemetryAbortRef.current?.abort();
   }, [loadFleetAndAlerts]);
 
   useEffect(() => {
-    if (!selectedVehicleId) return;
-
     if (dataSourceRef.current === "demo") {
+      if (!selectedVehicleId) {
+        clearSelectedTelemetry();
+        return;
+      }
       const dataset = getMockDataset();
       const telemetryForVehicle = dataset.telemetryByVehicle[selectedVehicleId] ?? [];
       setState((prev) => {
@@ -257,8 +426,21 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
 
     if (state.fleetLoading) return;
-    void loadTelemetryForVehicle(selectedVehicleId);
-  }, [selectedVehicleId, state.fleetLoading, loadTelemetryForVehicle]);
+
+    if (!selectedVehicleId
+      || !state.vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
+      clearSelectedTelemetry();
+      return;
+    }
+
+    void loadTelemetryForVehicle(selectedVehicleId, snapshotGenerationRef.current);
+  }, [
+    selectedVehicleId,
+    state.fleetLoading,
+    state.vehicles,
+    loadTelemetryForVehicle,
+    clearSelectedTelemetry,
+  ]);
 
   const analytics: AnalyticsSummary = toLegacyAnalytics(
     state.globalAnalytics,
@@ -284,9 +466,11 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryTruncated: state.telemetryTruncated,
     dataSource: state.dataSource,
     refresh,
+    refreshForResync,
     loadFromApi,
     loadDemoData,
   };
 }
 
 export type { FleetDataSource };
+export { ResyncFailedError, ResyncSupersededError } from "@/lib/sse-resync";

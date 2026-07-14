@@ -20,6 +20,38 @@ describe("sse-fetch-client FT-001", () => {
     expect(buildSseHeaders(true, null)).toEqual({});
   });
 
+  it("buildSseHeaders incluye Last-Event-ID cuando hay cursor", () => {
+    expect(buildSseHeaders(false, null, "42")).toEqual({
+      "Last-Event-ID": "42",
+    });
+  });
+
+  it("buildSseHeaders incluye offset cero como cursor valido", () => {
+    expect(buildSseHeaders(false, null, "0")).toEqual({
+      "Last-Event-ID": "0",
+    });
+  });
+
+  it("Parser_extrae_id_SSE", () => {
+    const parser = new SseParser();
+    const events = parser.feed("id: 99\nevent: vehicle-update\ndata: {}\n\n");
+    expect(events[0]?.id).toBe("99");
+    expect(events[0]?.event).toBe("vehicle-update");
+  });
+
+  it("Parser_soporta_id_fragmentado_entre_chunks", () => {
+    const parser = new SseParser();
+    parser.feed("id: 12");
+    const events = parser.feed("34\nevent: alert\ndata: {}\n\n");
+    expect(events[0]?.id).toBe("1234");
+  });
+
+  it("Parser_soporta_retry", () => {
+    const parser = new SseParser();
+    const events = parser.feed("retry: 5000\nevent: heartbeat\ndata: {}\n\n");
+    expect(events[0]?.retry).toBe(5000);
+  });
+
   it("SseParser interpreta connected, fleet-update, alert y heartbeat", () => {
     const parser = new SseParser();
     const payload = [
@@ -75,7 +107,7 @@ describe("sse-fetch-client FT-001", () => {
         signal: controller.signal,
       },
       {
-        onEvent: ({ event }) => events.push(event),
+        onEvent: ({ event }) => { events.push(event); },
       },
     );
 
@@ -103,6 +135,39 @@ describe("sse-fetch-client FT-001", () => {
   it("computeReconnectDelayMs incrementa el backoff", () => {
     expect(computeReconnectDelayMs(0)).toBeGreaterThanOrEqual(1_000);
     expect(computeReconnectDelayMs(3)).toBeGreaterThan(computeReconnectDelayMs(0));
+  });
+
+  it("Eventos_del_mismo_chunk_se_procesan_en_orden", async () => {
+    const order: string[] = [];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          "event: connected\ndata: {}\n\nevent: alert\ndata: {}\n\n",
+        ));
+        controller.close();
+      },
+    });
+
+    global.fetch = (async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })) as typeof fetch;
+
+    const controller = new AbortController();
+    await consumeSseFetchStream(
+      "http://localhost:5000/api/events/stream",
+      { signal: controller.signal },
+      {
+        onEvent: async (event) => {
+          order.push(event.event);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        },
+      },
+    );
+
+    expect(order).toEqual(["connected", "alert"]);
   });
 });
 

@@ -10,7 +10,14 @@ public class KafkaOptions
     public string TelemetryTopic { get; set; } = "telemetry.raw";
     public string DeadLetterTopic { get; set; } = "telemetry.dead-letter";
     public string RealtimeTopic { get; set; } = "fleet.realtime";
-    public string RealtimeConsumerGroup { get; set; } = "fleet-realtime-sse";
+    public string RealtimeConsumerGroupBase { get; set; } = "fleet-realtime-sse";
+
+    // Compatibilidad con configuración anterior.
+    public string RealtimeConsumerGroup
+    {
+        get => RealtimeConsumerGroupBase;
+        set => RealtimeConsumerGroupBase = value;
+    }
     public string ConsumerGroup { get; set; } = "telemetry-processor";
 
     // Intentos de procesamiento del mismo mensaje antes de DLQ.

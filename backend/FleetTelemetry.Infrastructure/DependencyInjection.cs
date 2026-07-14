@@ -15,6 +15,7 @@ using FleetTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 // Registro de dependencias de infraestructura.
@@ -40,6 +41,8 @@ public static class DependencyInjection
         services.Configure<TimescaleDbOptions>(configuration.GetSection(TimescaleDbOptions.SectionName));
         services.Configure<ResilienceOptions>(configuration.GetSection(ResilienceOptions.SectionName));
         services.Configure<SseOptions>(configuration.GetSection(SseOptions.SectionName));
+        services.AddSingleton<IPostConfigureOptions<SseOptions>, SseOptionsPostConfigure>();
+        services.AddSingleton<IValidateOptions<SseOptions>, SseOptionsValidator>();
         services.Configure<QueryLimitsOptions>(configuration.GetSection(QueryLimitsOptions.SectionName));
         services.AddOptions<QueryLimitsOptions>()
             .Bind(configuration.GetSection(QueryLimitsOptions.SectionName))
@@ -89,6 +92,15 @@ public static class DependencyInjection
                     sp.GetRequiredService<TimeProvider>(),
                     sseOptions.SubscriberChannelCapacity,
                     sseOptions.ReplayBufferSize);
+            });
+
+            services.AddSingleton<IRealtimeStreamCoordinator>(sp =>
+            {
+                var coordinator = new RealtimeStreamCoordinator(sp.GetRequiredService<FleetSseBroker>());
+                var mode = sp.GetRequiredService<IOptions<SseOptions>>().Value.Mode;
+                if (mode != SseDeliveryMode.KafkaPush)
+                    coordinator.MarkBypassed();
+                return coordinator;
             });
 
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
@@ -146,6 +158,8 @@ public static class DependencyInjection
     // Consume fleet.realtime y empuja al broker SSE (modo kafka-push).
     public static IServiceCollection AddFleetSseKafkaPush(this IServiceCollection services)
     {
+        services.TryAddSingleton<IRealtimeStreamCoordinator>(sp =>
+            new RealtimeStreamCoordinator(sp.GetRequiredService<FleetSseBroker>()));
         services.AddHostedService<FleetSseKafkaPushHostedService>();
         return services;
     }
@@ -159,6 +173,8 @@ public static class DependencyInjection
 
     public static IServiceCollection AddFleetSseDelivery(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddHostedService<FleetSseMaintenanceHostedService>();
+
         var mode = configuration.GetSection(SseOptions.SectionName).Get<SseOptions>()?.Mode
             ?? SseDeliveryMode.Polling;
 
