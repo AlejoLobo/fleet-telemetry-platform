@@ -22,6 +22,10 @@ public sealed class FleetTelemetryMetrics
     public Histogram<double> AiToolDuration { get; }
     public Counter<long> KafkaMessagesConsumed { get; }
     public Counter<long> DlqMessagesPublished { get; }
+    public Counter<long> RealtimeInvalidPayloadTotal { get; }
+    public Counter<long> RealtimeCommitFailuresTotal { get; }
+    public Counter<long> RealtimeSeekFailuresTotal { get; }
+    public Counter<long> RealtimePublishFailuresTotal { get; }
 
     public FleetTelemetryMetrics(FleetSseBroker? sseBroker = null)
     {
@@ -73,6 +77,22 @@ public sealed class FleetTelemetryMetrics
             "fleet.kafka.dlq.published",
             description: "Mensajes publicados en el tópico dead-letter");
 
+        RealtimeInvalidPayloadTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.invalid_payload_total",
+            description: "Payloads inválidos en fleet.realtime avanzados sin reintento");
+
+        RealtimeCommitFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.commit_failures_total",
+            description: "Fallos al confirmar offsets del consumidor SSE Kafka");
+
+        RealtimeSeekFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.seek_failures_total",
+            description: "Fallos al repositionar el consumidor SSE Kafka");
+
+        RealtimePublishFailuresTotal = _meter.CreateCounter<long>(
+            "fleet.realtime.publish_failures_total",
+            description: "Fallos transitorios al publicar offsets Kafka en el broker SSE");
+
         if (sseBroker is not null)
         {
             _meter.CreateObservableGauge(
@@ -81,9 +101,9 @@ public sealed class FleetTelemetryMetrics
                 description: "Suscriptores SSE activos");
 
             _meter.CreateObservableCounter(
-                "fleet.sse.events_dropped_total",
-                () => new Measurement<long>(sseBroker.DroppedEvents),
-                description: "Eventos SSE descartados por suscriptores lentos");
+                "fleet.sse.events_overflow_total",
+                () => new Measurement<long>(sseBroker.OverflowEvents),
+                description: "Desbordes SSE que cierran la suscripción para forzar reconexión");
         }
     }
 

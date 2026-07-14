@@ -176,6 +176,21 @@ public sealed class SseStreamAuthenticationWebApplicationFactory : WebApplicatio
             var hosted = services.Where(d => d.ServiceType == typeof(IHostedService)).ToList();
             foreach (var descriptor in hosted)
                 services.Remove(descriptor);
+
+            // Sin hosted KafkaPush: marcar Ready para no bloquear tests de autenticación SSE.
+            var readinessDescriptors = services
+                .Where(d => d.ServiceType == typeof(FleetTelemetry.Infrastructure.Realtime.IRealtimeStreamCoordinator))
+                .ToList();
+            foreach (var descriptor in readinessDescriptors)
+                services.Remove(descriptor);
+
+            services.AddSingleton<FleetTelemetry.Infrastructure.Realtime.IRealtimeStreamCoordinator>(sp =>
+            {
+                var coordinator = new FleetTelemetry.Infrastructure.Realtime.RealtimeStreamCoordinator(
+                    sp.GetRequiredService<FleetTelemetry.Infrastructure.Realtime.FleetSseBroker>());
+                coordinator.EnterReady(0);
+                return coordinator;
+            });
         });
     }
 }

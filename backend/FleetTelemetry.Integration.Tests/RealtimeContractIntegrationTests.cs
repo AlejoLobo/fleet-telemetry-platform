@@ -29,6 +29,7 @@ public class RealtimeContractIntegrationTests
 
         var kafkaMessage = new FleetRealtimeKafkaMessage
         {
+            SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
             EventType = FleetRealtimeEventTypes.VehicleUpdate,
             Payload = JsonDocument.Parse(payloadJson).RootElement,
             OccurredAt = DateTimeOffset.UtcNow,
@@ -42,12 +43,13 @@ public class RealtimeContractIntegrationTests
         Assert.Equal(payload.VehicleId, deserialized.VehicleId);
 
         var broker = new FleetSseBroker(TimeProvider.System);
-        var published = broker.Publish(
+        var published = broker.PublishExternal(
+            42,
             deserialized.EventType,
             deserialized.Payload,
             deserialized.OccurredAt);
 
-        Assert.Equal(FleetRealtimeEventTypes.VehicleUpdate, published.EventType);
+        Assert.Equal(Application.Realtime.ExternalPublishResult.Accepted, published);
     }
 
     [Fact]

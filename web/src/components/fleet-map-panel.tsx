@@ -25,7 +25,7 @@ const LeafletFleetMap = dynamic(
 
 type FleetMapPanelProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string;
+  selectedVehicleId?: string | null;
   focusTarget?: MapFocusTarget | null;
   autoFit?: boolean;
 };

@@ -53,6 +53,7 @@ public sealed class KafkaFleetRealtimePublisher : IFleetRealtimePublisher, IDisp
         using var payloadDoc = JsonDocument.Parse(payloadJson);
         var message = new FleetRealtimeKafkaMessage
         {
+            SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
             EventType = eventType,
             Payload = payloadDoc.RootElement.Clone(),
             OccurredAt = DateTimeOffset.UtcNow,

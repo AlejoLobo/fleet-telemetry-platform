@@ -1,6 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FleetTelemetry.Application.Tests" />
+    <InternalsVisibleTo Include="FleetTelemetry.Integration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FleetTelemetry.Application\FleetTelemetry.Application.csproj" />
     <ProjectReference Include="..\FleetTelemetry.Domain\FleetTelemetry.Domain.csproj" />
   </ItemGroup>

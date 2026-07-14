@@ -1,13 +1,17 @@
-/** Parser SSE conforme al estándar (event:, data:, líneas múltiples, separador vacío). */
+/** Parser SSE conforme al estándar (id:, event:, data:, retry:). */
 export type SseParsedEvent = {
   event: string;
   data: string;
+  id?: string;
+  retry?: number;
 };
 
 export class SseParser {
   private buffer = "";
   private eventName = "message";
   private dataLines: string[] = [];
+  private eventId?: string;
+  private retryMs?: number;
 
   feed(chunk: string): SseParsedEvent[] {
     this.buffer += chunk;
@@ -23,27 +27,15 @@ export class SseParser {
       this.buffer = "";
 
       if (line !== "" && !line.startsWith(":")) {
-        const colonIndex = line.indexOf(":");
-        const field = colonIndex === -1 ? line : line.slice(0, colonIndex);
-        let value = colonIndex === -1 ? "" : line.slice(colonIndex + 1);
-        if (value.startsWith(" ")) value = value.slice(1);
-
-        if (field === "event") this.eventName = value;
-        else if (field === "data") this.dataLines.push(value);
+        this.applyLine(line);
       }
     }
 
     if (this.dataLines.length > 0) {
-      events.push({
-        event: this.eventName,
-        data: this.dataLines.join("\n"),
-      });
+      events.push(this.buildEvent());
     }
 
-    this.eventName = "message";
-    this.dataLines = [];
-    this.buffer = "";
-
+    this.resetEventState();
     return events;
   }
 
@@ -60,28 +52,50 @@ export class SseParser {
 
       if (line === "") {
         if (this.dataLines.length > 0) {
-          events.push({
-            event: this.eventName,
-            data: this.dataLines.join("\n"),
-          });
+          events.push(this.buildEvent());
         }
-        this.eventName = "message";
-        this.dataLines = [];
+        this.resetEventState();
         continue;
       }
 
       if (line.startsWith(":")) continue;
-
-      const colonIndex = line.indexOf(":");
-      const field = colonIndex === -1 ? line : line.slice(0, colonIndex);
-      let value = colonIndex === -1 ? "" : line.slice(colonIndex + 1);
-      if (value.startsWith(" ")) value = value.slice(1);
-
-      if (field === "event") this.eventName = value;
-      else if (field === "data") this.dataLines.push(value);
+      this.applyLine(line);
     }
 
     return events;
+  }
+
+  private applyLine(line: string) {
+    const colonIndex = line.indexOf(":");
+    const field = colonIndex === -1 ? line : line.slice(0, colonIndex);
+    let value = colonIndex === -1 ? "" : line.slice(colonIndex + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+
+    if (field === "event") this.eventName = value;
+    else if (field === "data") this.dataLines.push(value);
+    else if (field === "id") this.eventId = value;
+    else if (field === "retry") {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isNaN(parsed)) this.retryMs = parsed;
+    }
+  }
+
+  private buildEvent(): SseParsedEvent {
+    const event: SseParsedEvent = {
+      event: this.eventName,
+      data: this.dataLines.join("\n"),
+    };
+
+    if (this.eventId !== undefined) event.id = this.eventId;
+    if (this.retryMs !== undefined) event.retry = this.retryMs;
+    return event;
+  }
+
+  private resetEventState() {
+    this.eventName = "message";
+    this.dataLines = [];
+    this.eventId = undefined;
+    this.retryMs = undefined;
   }
 }
 
@@ -100,9 +114,55 @@ export function isSseAuthError(error: unknown): error is SseAuthError {
 }
 
 export type SseFetchHandlers = {
-  onEvent: (event: SseParsedEvent) => void;
+  onEvent: (event: SseParsedEvent) => void | Promise<void>;
   onOpen?: () => void;
 };
+
+const LAST_EVENT_ID_STORAGE_KEY = "fleet-sse-last-event-id";
+const RESYNC_MARKER_STORAGE_KEY = "fleet-sse-resync-pending";
+
+export function readStoredLastEventId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(LAST_EVENT_ID_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredLastEventId(value: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (value === null) window.sessionStorage.removeItem(LAST_EVENT_ID_STORAGE_KEY);
+    else window.sessionStorage.setItem(LAST_EVENT_ID_STORAGE_KEY, value);
+  } catch {
+    /* storage no disponible */
+  }
+}
+
+export function readStoredResyncMarker(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(RESYNC_MARKER_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeStoredResyncMarker(required: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (required) window.sessionStorage.setItem(RESYNC_MARKER_STORAGE_KEY, "1");
+    else window.sessionStorage.removeItem(RESYNC_MARKER_STORAGE_KEY);
+  } catch {
+    /* storage no disponible */
+  }
+}
+
+export function clearSseCursorState() {
+  writeStoredLastEventId(null);
+  writeStoredResyncMarker(false);
+}
 
 /** Conecta al stream SSE vía fetch con soporte de Authorization y AbortSignal. */
 export async function consumeSseFetchStream(
@@ -144,20 +204,28 @@ export async function consumeSseFetchStream(
     const { done, value } = await reader.read();
     if (done) {
       for (const event of parser.flush()) {
-        handlers.onEvent(event);
+        await handlers.onEvent(event);
       }
       break;
     }
     const chunk = decoder.decode(value, { stream: true });
     for (const event of parser.feed(chunk)) {
-      handlers.onEvent(event);
+      await handlers.onEvent(event);
     }
   }
 }
 
-export function buildSseHeaders(authEnabled: boolean, token: string | null): Record<string, string> {
-  if (!authEnabled || !token) return {};
-  return { Authorization: `Bearer ${token}` };
+export function buildSseHeaders(
+  authEnabled: boolean,
+  token: string | null,
+  lastEventId?: string | null,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (authEnabled && token) headers.Authorization = `Bearer ${token}`;
+  if (lastEventId !== null && lastEventId !== undefined) {
+    headers["Last-Event-ID"] = lastEventId;
+  }
+  return headers;
 }
 
 export function computeReconnectDelayMs(attempt: number, maxMs = 30_000): number {
