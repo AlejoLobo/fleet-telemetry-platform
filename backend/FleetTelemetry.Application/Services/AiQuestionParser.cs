@@ -1,9 +1,7 @@
 using System.Text.RegularExpressions;
 
-// Parser de intención en preguntas de lenguaje natural.
 namespace FleetTelemetry.Application.Services;
 
-// Tipos de consulta operativa reconocidos.
 public enum AiQueryIntent
 {
     FleetOverview,
@@ -17,7 +15,6 @@ public enum AiQueryIntent
     UnsupportedQuery
 }
 
-// Intención parseada con parámetros extraídos.
 public sealed record AiQuestionIntent(
     AiQueryIntent Intent,
     int? StoppedMinutes,
@@ -62,7 +59,6 @@ public sealed record AiQuestionIntent(
 /// <summary>
 /// Interpreta preguntas en lenguaje natural sin depender de un LLM externo.
 /// </summary>
-// Clasifica preguntas y extrae minutos, velocidad y zona.
 public static class AiQuestionParser
 {
     private const int DefaultStoppedMinutes = 20;
@@ -88,7 +84,6 @@ public static class AiQuestionParser
         ["sesenta"] = 60,
     };
 
-    // Determina la intención principal de la pregunta.
     public static AiQuestionIntent Parse(string question)
     {
         var text = question.Trim();
@@ -146,7 +141,6 @@ public static class AiQuestionParser
         return AiQuestionIntent.Unsupported();
     }
 
-    // Extrae minutos de detención desde texto o números en español.
     public static int? ParseStoppedMinutes(string lower)
     {
         var match = MinutesRegex.Match(lower);
@@ -173,7 +167,6 @@ public static class AiQuestionParser
         return null;
     }
 
-    // Extrae umbral de velocidad en km/h.
     public static double? ParseSpeedThreshold(string question)
     {
         var match = SpeedRegex.Match(question);
@@ -188,7 +181,6 @@ public static class AiQuestionParser
         return AiOperationalTools.ParseSpeedThresholdOrNull(question);
     }
 
-    // Identifica nombre de zona crítica mencionada.
     public static string? ExtractZoneName(string lower)
     {
         foreach (var zone in CriticalZoneCatalog.All)

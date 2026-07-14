@@ -42,7 +42,6 @@ internal sealed class InvalidOffsetIntervalSet
                 continue;
             if (start > inclusiveEnd)
                 break;
-            // Intersección no vacía con (exclusiveStart, inclusiveEnd]
             var overlapStart = Math.Max(start, exclusiveStart + 1);
             var overlapEnd = Math.Min(end, inclusiveEnd);
             if (overlapStart <= overlapEnd)

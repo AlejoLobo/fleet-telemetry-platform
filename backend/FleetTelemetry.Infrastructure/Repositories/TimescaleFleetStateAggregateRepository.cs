@@ -7,7 +7,6 @@ using FleetTelemetry.Infrastructure.Configuration;
 
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Agregados SQL sobre fleet_vehicle_state y alertas abiertas.
 public class TimescaleFleetStateAggregateRepository : IFleetStateAggregateRepository
 {
     private readonly FleetDbContext _dbContext;

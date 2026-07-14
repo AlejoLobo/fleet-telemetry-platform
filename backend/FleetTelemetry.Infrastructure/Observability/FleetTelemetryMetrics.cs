@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using FleetTelemetry.Infrastructure.Realtime;
 
-// Métricas operativas básicas del pipeline de telemetría.
 namespace FleetTelemetry.Infrastructure.Observability;
 
 public sealed class FleetTelemetryMetrics

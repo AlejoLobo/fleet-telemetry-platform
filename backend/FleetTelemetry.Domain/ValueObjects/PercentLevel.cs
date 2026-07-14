@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Porcentaje opcional acotado entre 0 y 100.
 public sealed class PercentLevel : ValueObject
 {
     public double Value { get; }

@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Interfaces;
 
-// Marca durable de transiciones offline ya publicadas.
 public interface IFleetOfflinePublishMarkerRepository
 {
     Task<bool> ShouldPublishOfflineAsync(

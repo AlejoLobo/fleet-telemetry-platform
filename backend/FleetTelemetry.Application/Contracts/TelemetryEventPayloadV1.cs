@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Contracts;
 
-// Payload versionado V1 para Kafka. No es entidad de dominio.
 public sealed class TelemetryEventPayloadV1
 {
     public Guid EventId { get; init; }

@@ -6,14 +6,12 @@ public enum SseDeliveryMode
     KafkaPush
 }
 
-// Intervalos del poller SSE para el dashboard en tiempo real.
 public class SseOptions
 {
     public const string SectionName = "Sse";
 
     public SseDeliveryMode Mode { get; set; } = SseDeliveryMode.Polling;
 
-    // Identidad de réplica; vacío = HOSTNAME o MachineName del proceso.
     public string InstanceId { get; set; } = string.Empty;
 
     // Exige una sola partición en fleet.realtime para orden global de offsets.
@@ -22,19 +20,15 @@ public class SseOptions
     // Eventos SSE retenidos para replay con Last-Event-ID.
     public int ReplayBufferSize { get; set; } = 200;
 
-    // Capacidad por suscriptor; al llenarse se cierra la suscripción (backpressure).
     public int SubscriberChannelCapacity { get; set; } = 100;
 
-    // Intervalo cuando hay cambios recientes o primera consulta.
     public int ActivePollIntervalSeconds { get; set; } = 3;
 
-    // Intervalo cuando la flota no cambió (reduce carga en DB).
     public int IdlePollIntervalSeconds { get; set; } = 10;
 
     // Frecuencia de heartbeat para mantener conexiones vivas.
     public int HeartbeatIntervalSeconds { get; set; } = 15;
 
-    // Máximo de alertas por ciclo de polling.
     public int AlertBatchSize { get; set; } = 100;
 
     // Intervalo del servicio de expiración de conectividad (KafkaPush).
@@ -43,6 +37,5 @@ public class SseOptions
     // Ventana incremental consultada sobre LastTimestamp al cruzar el umbral.
     public int ConnectivityExpiryLookbackSeconds { get; set; } = 90;
 
-    // Tope de vehículos evaluados por ciclo de expiración.
     public int ConnectivityExpiryBatchSize { get; set; } = 200;
 }

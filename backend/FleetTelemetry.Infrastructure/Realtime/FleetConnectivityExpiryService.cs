@@ -11,7 +11,6 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Realtime;
 
-// Detecta vehículos recién expirados y publica vehicle-update offline.
 public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpiryService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()

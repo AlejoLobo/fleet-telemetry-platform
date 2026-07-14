@@ -1,12 +1,9 @@
-// Utilidades de cálculo geográfico.
 namespace FleetTelemetry.Application.Services;
 
-// Distancias en superficie terrestre con fórmula de Haversine.
 public static class GeoMath
 {
     private const double EarthRadiusKm = 6371.0;
 
-    // Distancia en kilómetros entre dos coordenadas.
     public static double DistanceKm(double lat1, double lon1, double lat2, double lon2)
     {
         var dLat = DegreesToRadians(lat2 - lat1);

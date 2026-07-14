@@ -9,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// Consultas de último estado de vehículos desde fleet_vehicle_state.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
 public class TimescaleFleetQueryService : IFleetQueryService

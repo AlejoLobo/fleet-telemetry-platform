@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Application.Interfaces;
 
-// Agregados SQL sobre fleet_vehicle_state y alertas.
 public interface IFleetStateAggregateRepository
 {
     Task<FleetAggregateSnapshot> GetFleetAggregateSnapshotAsync(CancellationToken cancellationToken = default);

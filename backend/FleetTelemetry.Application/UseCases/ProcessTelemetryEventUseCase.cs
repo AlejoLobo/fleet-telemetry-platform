@@ -2,7 +2,6 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using Microsoft.Extensions.Logging;
 
-// Caso de uso de procesamiento de telemetría desde el worker.
 namespace FleetTelemetry.Application.UseCases;
 
 // Delega persistencia e idempotencia a la unidad de trabajo.
@@ -19,7 +18,6 @@ public class ProcessTelemetryEventUseCase
         _logger = logger;
     }
 
-    // Procesa el evento; registra duplicados sin error.
     public async Task<ProcessTelemetryOutcome> ExecuteAsync(
         TelemetryEvent telemetryEvent,
         CancellationToken cancellationToken = default)

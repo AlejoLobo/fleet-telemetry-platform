@@ -7,7 +7,6 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-// Parte de consulta histórica de telemetría por vehículo.
 namespace FleetTelemetry.Api.Controllers;
 
 public partial class TelemetryController

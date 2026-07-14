@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Opciones de rate limiting global para la API.
 public class RateLimitingOptions
 {
     public const string SectionName = "RateLimiting";

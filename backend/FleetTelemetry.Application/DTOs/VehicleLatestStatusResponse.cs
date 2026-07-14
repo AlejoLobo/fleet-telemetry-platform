@@ -1,7 +1,5 @@
-// DTO del último estado conocido de un vehículo.
 namespace FleetTelemetry.Application.DTOs;
 
-// Posición, velocidad y conectividad recientes.
 public record VehicleLatestStatusResponse(
     string VehicleId,
     string Name,

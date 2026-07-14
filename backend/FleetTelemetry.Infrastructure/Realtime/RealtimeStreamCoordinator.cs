@@ -12,7 +12,6 @@ public enum RealtimeStreamState
     Faulted = 3
 }
 
-// Resultado atómico de admisión SSE.
 public sealed record StreamAdmissionResult(
     bool Admitted,
     SseSubscription? Subscription,

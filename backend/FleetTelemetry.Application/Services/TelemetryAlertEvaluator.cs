@@ -3,14 +3,12 @@ using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Services;
 
-// Evalúa umbrales y aplica la máquina de estados activa/cooldown (sin estado en memoria).
 public static class TelemetryAlertEvaluator
 {
     public const string OverspeedAlertType = "overspeed";
     public const string LowFuelAlertType = "low_fuel";
     public const string LowBatteryAlertType = "low_battery";
 
-    // Detecta observaciones tri-estado (sin crear alertas).
     public static IReadOnlyList<AlertConditionObservation> Observe(
         TelemetryEvent telemetryEvent,
         AlertingOptions options)
@@ -77,10 +75,6 @@ public static class TelemetryAlertEvaluator
         return new AlertEvaluationResult(emitted, upserts);
     }
 
-    // Política de cooldown documentada (reloj de LastAlertAt, no de LastConditionAt):
-    // - NotObserved → NoChange (null no recupera ni recuerda).
-    // - Recovered → desactiva solo si estaba activa.
-    // - Breached → política activa/cooldown existente.
     public static AlertConditionTransition Transition(
         string vehicleId,
         AlertConditionObservation observation,
@@ -148,12 +142,10 @@ public static class TelemetryAlertEvaluator
                     current);
             }
 
-            // Oscilación tras recuperación dentro del cooldown: activa sin nueva alerta.
             current.MarkActive(now, alertAt: null, updatedAt: now);
             return AlertConditionTransition.StateOnly(current);
         }
 
-        // Activa + incumplimiento.
         current!.RefreshCondition(now, now);
         if (!cooldownElapsed)
             return AlertConditionTransition.StateOnly(current);

@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Valida límites de consulta al iniciar la aplicación.
 public sealed class QueryLimitsOptionsValidator : IValidateOptions<QueryLimitsOptions>
 {
     public ValidateOptionsResult Validate(string? name, QueryLimitsOptions options)
