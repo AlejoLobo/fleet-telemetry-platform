@@ -17,17 +17,48 @@ Causa: `CREATE TABLE IF NOT EXISTS` no añade columnas a tablas ya creadas.
 4. Índices y `schema_meta` / `PRAGMA user_version` = **5**.
 5. Backfill de eventos activos vía `migratePendingEventsToDeviceId` (no toca `synced` / `permanent_failure`).
 
-Las pruebas Jest simulan `PRAGMA table_info` y no sustituyen una prueba nativa de `expo-sqlite`.
+Las pruebas Jest simulan `PRAGMA table_info` y **no** sustituyen una prueba nativa de `expo-sqlite` / `NativeDatabase`.
 
-## Cómo validar en Android físico / emulador
+## Procedimiento de validación en Android (manual obligatorio)
 
-1. Instalar una build anterior **sin** `device_id` (o borrar solo el esquema no es aceptable en prod; use APK legacy).
-2. Generar telemetría offline para llenar la cola.
-3. Instalar la build nueva **sin** desinstalar (actualizar sobre la existente).
-4. Abrir la app: no debe aparecer el error `no column named device_id`.
-5. Comprobar pendientes UI y sync.
+### Pasos
 
-Limpieza de bundle/cache de desarrollo:
+1. Instalar una APK o development build **anterior** sin la columna `device_id`.
+2. Abrir la aplicación.
+3. Generar al menos **cinco** eventos offline (tracking sin red o API bloqueada).
+4. Anotar: DeviceId local, cantidad de pendientes en UI.
+5. Cerrar la aplicación (no desinstalar).
+6. Actualizar con la build nueva **sobre la instalación existente** (sin borrar datos).
+7. Abrir la nueva versión.
+8. Confirmar que **no** aparece el error `table telemetry_queue has no column named device_id`.
+9. Confirmar que la UI conserva la cantidad de pendientes (±0 por captura nueva).
+10. Recuperar red / auth y sincronizar; confirmar envío.
+11. Confirmar que los eventos activos quedan con `device_id` = UUID local.
+12. Reiniciar la app; confirmar que no falla la migración y la cola permanece coherente.
+
+### Plantilla de evidencia (sin datos sensibles)
+
+| Campo | Valor |
+|-------|-------|
+| Fecha de validación | _pendiente_ |
+| Dispositivo / emulador | _pendiente_ |
+| Versión Android | _pendiente_ |
+| Build antigua (commit / versionCode) | _pendiente_ |
+| Build nueva (commit / versionCode) | _pendiente_ |
+| Eventos pendientes antes | _pendiente_ |
+| Eventos pendientes después | _pendiente_ |
+| Resultado sync | _pendiente_ |
+| Error `device_id` reapareció | No / Sí |
+
+### Estado en este entorno Cursor Cloud
+
+```text
+Validación nativa Android: MANUAL PENDIENTE
+```
+
+No hay dispositivo Android ni emulador disponible en el agente cloud. El procedimiento queda listo; **no** se afirma ejecución nativa aquí.
+
+### Limpieza de cache de desarrollo
 
 ```bash
 cd mobile
@@ -35,4 +66,4 @@ npx expo start -c
 npx expo export --clear
 ```
 
-Si usa APK o development build, reconstruir e **reinstalar** (o actualizar) la app: un binario antiguo en el dispositivo puede seguir mostrando UI o schema cacheados.
+Si se usa APK o development build, reconstruir e **reinstalar/actualizar** la app.
