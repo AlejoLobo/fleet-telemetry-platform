@@ -123,7 +123,7 @@ function generateVehicleBundle(
     const eventOnline = isLatest ? online : Math.random() > 0.35;
     events.push({
       eventId: randomId(),
-      vehicleId: fleetCode,
+      vehicleId: deviceId,
       driverId: driverName,
       timestamp: isLatest
         ? randomTelemetryTimestamp(online)
@@ -149,8 +149,9 @@ function generateVehicleBundle(
       ? computeBearingDegrees(previous.latitude, previous.longitude, latest.latitude, latest.longitude)
       : travelHeading;
 
+  // Misma semántica que mobile/API: vehicleId = device UUID, name = código de flota.
   const vehicle: VehicleStatus = {
-    vehicleId: fleetCode,
+    vehicleId: deviceId,
     name: fleetCode,
     deviceId,
     vehicleType: VEHICLE_TYPES[index % VEHICLE_TYPES.length],
@@ -184,7 +185,7 @@ function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
       vehicleId: vehicle.vehicleId,
       alertType: template.type,
       severity: template.severity,
-      message: template.message(vehicle.vehicleId, value),
+      message: template.message(vehicle.name || vehicle.vehicleId, value),
       createdAt: new Date(Date.now() - randomInt(1, 120) * 60_000).toISOString(),
       isAcknowledged: false,
     });

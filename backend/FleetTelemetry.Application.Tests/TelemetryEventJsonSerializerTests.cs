@@ -175,6 +175,57 @@ public class TelemetryEventJsonSerializerTests
     }
 
     [Fact]
+    public void Deserialize_legacy_preserves_vehicle_name()
+    {
+        var eventId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        var timestamp = new DateTimeOffset(2026, 7, 12, 8, 30, 0, TimeSpan.Zero);
+        var deviceId = "11111111-1111-1111-1111-111111111111";
+        var original = TelemetryEvent.Create(
+            eventId,
+            deviceId,
+            "Miguel",
+            timestamp,
+            4.6533,
+            -74.0836,
+            101,
+            42.0,
+            91.0,
+            "gps",
+            vehicleName: "VH-001");
+
+        var json = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: false);
+        Assert.Contains("\"vehicleName\":\"VH-001\"", json, StringComparison.Ordinal);
+
+        var restored = TelemetryEventJsonSerializer.Deserialize(json, useEventEnvelope: false);
+        Assert.Equal(deviceId, restored.VehicleId);
+        Assert.Equal("VH-001", restored.VehicleName);
+        Assert.Equal("Miguel", restored.DriverId);
+    }
+
+    [Fact]
+    public void Round_trip_v1_preserves_vehicle_name()
+    {
+        var eventId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        var timestamp = new DateTimeOffset(2026, 7, 12, 8, 30, 0, TimeSpan.Zero);
+        var original = TelemetryEvent.Create(
+            eventId,
+            "11111111-1111-1111-1111-111111111111",
+            "Miguel",
+            timestamp,
+            4.65,
+            -74.08,
+            40,
+            null,
+            null,
+            "gps",
+            vehicleName: "VH-004");
+
+        var json = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
+        var restored = TelemetryEventJsonSerializer.Deserialize(json, useEventEnvelope: true);
+        Assert.Equal("VH-004", restored.VehicleName);
+    }
+
+    [Fact]
     public void Deserialize_legacy_valid_when_use_event_envelope_false()
     {
         var original = CreateSampleEvent();

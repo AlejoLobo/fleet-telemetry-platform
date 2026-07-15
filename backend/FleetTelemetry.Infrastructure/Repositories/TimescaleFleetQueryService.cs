@@ -157,7 +157,8 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastLocationSource: record.LocationSource,
             LastEventId: record.LastEventId,
             StatusEvaluatedAt: now,
-            DriverId: record.DriverId);
+            DriverId: record.DriverId,
+            DeviceId: ResolveDeviceId(record.VehicleId));
     }
 
     private static string ResolvePublicVehicleName(string? displayName, string vehicleId)
@@ -173,6 +174,9 @@ public class TimescaleFleetQueryService : IFleetQueryService
 
         return displayName.Trim();
     }
+
+    private static string? ResolveDeviceId(string vehicleId) =>
+        LooksLikeDeviceUuid(vehicleId) ? vehicleId : null;
 
     private static bool LooksLikeDeviceUuid(string value) =>
         Guid.TryParse(value.Trim(), out _);

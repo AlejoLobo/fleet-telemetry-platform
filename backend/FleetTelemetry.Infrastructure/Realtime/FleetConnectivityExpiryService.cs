@@ -171,6 +171,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
             state.LocationSource,
             state.LastEventId,
             evaluatedAt,
-            state.DriverId);
+            state.DriverId,
+            Guid.TryParse(state.VehicleId, out _) ? state.VehicleId : null);
     }
 }

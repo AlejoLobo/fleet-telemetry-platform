@@ -26,13 +26,13 @@ describe("vehicle-display", () => {
     ).toBe("Sin nombre");
   });
 
-  it("en demo usa deviceId explícito para la línea ID", () => {
+  it("en demo alineado a mobile usa deviceId/vehicleId UUID en la línea ID", () => {
     expect(
       getVehicleDeviceId({
-        vehicleId: "VH-004",
-        deviceId: "df32fdsf-43gf-fr32-f34f-4aaaaaaa0001",
+        vehicleId: "11111111-1111-1111-1111-111111111111",
+        deviceId: "11111111-1111-1111-1111-111111111111",
       }),
-    ).toBe("df32fdsf-43gf-fr32-f34f-4aaaaaaa0001");
+    ).toBe("11111111-1111-1111-1111-111111111111");
   });
 
   it("isMeaningfulVehicleName acepta códigos de flota", () => {

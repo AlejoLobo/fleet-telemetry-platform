@@ -29,7 +29,7 @@ import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 
 export default function DashboardPage() {
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("VH-001");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);

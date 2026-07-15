@@ -282,7 +282,8 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     telemetryEvent.LocationSource,
                     telemetryEvent.EventId,
                     now,
-                    telemetryEvent.DriverId);
+                    telemetryEvent.DriverId,
+                    Guid.TryParse(telemetryEvent.VehicleId, out _) ? telemetryEvent.VehicleId : null);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
                     telemetryEvent.VehicleId,

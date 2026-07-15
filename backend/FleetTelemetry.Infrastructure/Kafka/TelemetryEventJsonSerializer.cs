@@ -101,7 +101,8 @@ public static class TelemetryEventJsonSerializer
                 legacy.BatteryPercent,
                 out var telemetryEvent,
                 out var error,
-                locationSource: legacy.LocationSource))
+                locationSource: legacy.LocationSource,
+                vehicleName: legacy.VehicleName))
         {
             throw new TelemetryKafkaContractException("invalid_domain", error ?? "Domain validation failed.");
         }
@@ -120,7 +121,8 @@ public static class TelemetryEventJsonSerializer
         SpeedKmh = telemetryEvent.SpeedKmh,
         FuelLevelPercent = telemetryEvent.FuelLevelPercent,
         BatteryPercent = telemetryEvent.BatteryPercent,
-        LocationSource = telemetryEvent.LocationSource
+        LocationSource = telemetryEvent.LocationSource,
+        VehicleName = telemetryEvent.VehicleName
     };
 
     private sealed class LegacyTelemetryEventDto
@@ -135,5 +137,6 @@ public static class TelemetryEventJsonSerializer
         public double? FuelLevelPercent { get; set; }
         public double? BatteryPercent { get; set; }
         public string? LocationSource { get; set; }
+        public string? VehicleName { get; set; }
     }
 }

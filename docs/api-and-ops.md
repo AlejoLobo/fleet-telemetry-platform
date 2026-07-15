@@ -84,6 +84,16 @@ curl -X POST http://localhost:5000/api/telemetry \
 
 Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y publica en `telemetry.raw`.
 
+### Identidad del vehículo (mobile → flota)
+
+| Campo wire | Persistencia | Dashboard |
+|------------|--------------|-----------|
+| `vehicleId` (UUID del dispositivo) | `fleet_vehicle_state.VehicleId` | línea `ID:` / clave técnica |
+| `vehicleName` (ej. `VH-001`) | `DisplayName` → DTO `name` | título lista/mapa |
+| `driverId` (nombre del conductor en mobile) | `DriverId` | `Conductor:` |
+
+El serializador Kafka **legacy** incluye `vehicleName`. Sin ese campo el Worker no rellenaba `DisplayName` y el portal mostraba “Sin nombre”.
+
 ### Consulta
 
 ```bash

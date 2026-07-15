@@ -12,4 +12,6 @@ public record VehicleLatestStatusResponse(
     string? LastLocationSource = null,
     Guid? LastEventId = null,
     DateTimeOffset? StatusEvaluatedAt = null,
-    string? DriverId = null);
+    string? DriverId = null,
+    /// <summary>ID estable del dispositivo (UUID móvil). Coincide con VehicleId en la ingesta mobile.</summary>
+    string? DeviceId = null);
