@@ -193,6 +193,13 @@ describe("FleetStatusPanel vehicle labels", () => {
     expect(screen.getByText("Conductor: Ana López")).toBeTruthy();
     expect(screen.getByText("Conductor: Luis")).toBeTruthy();
 
+    // Orden visual: nombre, luego ID, luego conductor.
+    const firstCard = screen.getByText("Camión norte").closest("button");
+    expect(firstCard).toBeTruthy();
+    const text = firstCard!.textContent ?? "";
+    expect(text.indexOf("Camión norte")).toBeLessThan(text.indexOf("ID: bbbbbbbb"));
+    expect(text.indexOf("ID: bbbbbbbb")).toBeLessThan(text.indexOf("Conductor: Luis"));
+
     // El device ID no debe usarse como título del vehículo.
     const idLine = screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     expect(idLine.className).toContain("text-xs");

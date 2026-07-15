@@ -128,6 +128,7 @@ export function FleetStatusPanel({
                 </div>
 
                 <div className="min-w-0 flex-1">
+                  {/* 1) Nombre del vehículo */}
                   <div className="flex items-center gap-2">
                     <p className="truncate font-semibold text-slate-800">
                       {getVehicleDisplayName(vehicle)}
@@ -139,10 +140,13 @@ export function FleetStatusPanel({
                       <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
                     )}
                   </div>
+                  {/* 2) ID de dispositivo */}
                   <p className="truncate text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
-                  {vehicle.driverId ? (
-                    <p className="truncate text-xs text-slate-500">Conductor: {vehicle.driverId}</p>
-                  ) : null}
+                  {/* 3) Conductor */}
+                  <p className="truncate text-xs text-slate-500">
+                    Conductor: {vehicle.driverId?.trim() ? vehicle.driverId : "—"}
+                  </p>
+                  {/* 4) Velocidad y hora */}
                   <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
                     <span className="flex items-center gap-1">
                       <Gauge className="h-3 w-3" />

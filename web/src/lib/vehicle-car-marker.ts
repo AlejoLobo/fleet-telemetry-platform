@@ -13,10 +13,16 @@ export function createCarMarkerIcon(vehicle: VehicleStatus, selected: boolean): 
   const heading = normalizeHeading(vehicle.headingDegrees);
   const scale = selected ? 1.12 : 1;
   const ring = selected ? "filter:drop-shadow(0 0 4px #38bdf8);" : "filter:drop-shadow(0 2px 4px rgba(15,23,42,0.2));";
-  const label = getVehicleDisplayName(vehicle).replace(/[<>&]/g, "");
+  const label = getVehicleDisplayName(vehicle)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  // Ancho aproximado para que el nombre no se corte hacia el ID.
+  const labelWidth = Math.min(Math.max(label.length * 7 + 16, 72), 160);
 
   const html = `
-    <div style="display:flex;flex-direction:column;align-items:center;">
+    <div style="display:flex;flex-direction:column;align-items:center;width:${labelWidth}px;">
       <div style="${ring} transform:rotate(${heading}deg) scale(${scale}); transform-origin:center center;">
         <svg xmlns="http://www.w3.org/2000/svg" width="34" height="42" viewBox="0 0 34 42" aria-hidden="true">
           <path d="M17 1 L22 8 H12 Z" fill="${body}" stroke="white" stroke-width="1.2"/>
@@ -27,17 +33,18 @@ export function createCarMarkerIcon(vehicle: VehicleStatus, selected: boolean): 
         </svg>
       </div>
       <span style="
-        margin-top:2px;padding:1px 7px;border-radius:9999px;
+        margin-top:2px;padding:1px 7px;border-radius:9999px;max-width:${labelWidth}px;
         background:rgba(255,255,255,0.95);font-size:10px;font-weight:700;
         color:#334155;border:1px solid #e2e8f0;white-space:nowrap;
-      ">${label}</span>
+        overflow:hidden;text-overflow:ellipsis;
+      " title="${label}">${label}</span>
     </div>
   `;
 
   return L.divIcon({
     className: "",
     html,
-    iconSize: [44, 56],
-    iconAnchor: [22, 28],
+    iconSize: [labelWidth, 56],
+    iconAnchor: [labelWidth / 2, 28],
   });
 }

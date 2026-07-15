@@ -21,8 +21,13 @@ type RawVehicle = VehicleStatus & {
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   const vehicleId = vehicle.vehicleId ?? vehicle.VehicleId ?? "";
   const rawName = (vehicle.name ?? vehicle.Name ?? "").trim();
-  // Nunca promover el device/vehicle ID a "name": el título debe ser el nombre operativo.
-  const name = rawName && rawName !== vehicleId ? rawName : "";
+  // Nunca promover UUID/device ID a name.
+  const name =
+    rawName &&
+    rawName.toLowerCase() !== vehicleId.toLowerCase() &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawName)
+      ? rawName
+      : "";
   return {
     vehicleId,
     name,

@@ -39,4 +39,19 @@ describe("vehicle-display", () => {
     expect(isMeaningfulVehicleName("VH-001", "VH-001")).toBe(false);
     expect(isMeaningfulVehicleName("Camión", "VH-001")).toBe(true);
   });
+
+  it("rechaza UUID aunque no coincida byte a byte con el id", () => {
+    expect(
+      isMeaningfulVehicleName(
+        "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      ),
+    ).toBe(false);
+    expect(
+      getVehicleDisplayName({
+        vehicleId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        name: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+      }),
+    ).toBe("Sin nombre");
+  });
 });

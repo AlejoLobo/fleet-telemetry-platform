@@ -117,31 +117,30 @@ export function LeafletFleetMap({
         <TileLayer url={OSM_TILE_URL} attribution={OSM_TILE_ATTRIBUTION} />
         <FitBounds vehicles={snappedVehicles} enabled={autoFit} />
         <FocusVehicle focusTarget={focusTarget} vehicles={snappedVehicles} />
-        {positioned.map((vehicle) => (
+        {positioned.map((vehicle) => {
+          const displayName = getVehicleDisplayName(vehicle);
+          return (
           <Marker
-            key={vehicle.vehicleId}
+            key={`${vehicle.vehicleId}:${displayName}`}
             position={[vehicle.lastLatitude!, vehicle.lastLongitude!]}
             icon={createCarMarkerIcon(vehicle, vehicle.vehicleId === selectedVehicleId)}
           >
             <Popup>
-              <strong>{getVehicleDisplayName(vehicle)}</strong>
-              <br />
-              <span className="text-slate-500">ID: {vehicle.vehicleId}</span>
-              {vehicle.driverId ? (
-                <>
-                  <br />
-                  <span className="text-slate-500">Conductor: {vehicle.driverId}</span>
-                </>
-              ) : null}
-              <br />
-              <span className="text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</span>
-              <br />
-              <span className="text-xs text-slate-400">
-                {vehicle.lastLatitude?.toFixed(5)}, {vehicle.lastLongitude?.toFixed(5)}
-              </span>
+              <div className="space-y-0.5 text-sm">
+                <p className="font-semibold text-slate-800">{displayName}</p>
+                <p className="text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
+                <p className="text-xs text-slate-500">
+                  Conductor: {vehicle.driverId?.trim() ? vehicle.driverId : "—"}
+                </p>
+                <p className="text-xs text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</p>
+                <p className="text-xs text-slate-400">
+                  {vehicle.lastLatitude?.toFixed(5)}, {vehicle.lastLongitude?.toFixed(5)}
+                </p>
+              </div>
             </Popup>
           </Marker>
-        ))}
+          );
+        })}
       </MapContainer>
     </div>
   );
