@@ -105,7 +105,8 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
             0,
             TimeSpan.Zero);
 
-        var vehicleId = "VH-HOURLY-001";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HOURLY-001");
+        var deviceIdStorage = deviceId.ToString("D");
         var eventA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         var eventB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
@@ -122,7 +123,7 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
                 """;
             insert.Parameters.AddWithValue("eventA", eventA);
             insert.Parameters.AddWithValue("eventB", eventB);
-            insert.Parameters.AddWithValue("vehicleId", vehicleId);
+            insert.Parameters.AddWithValue("vehicleId", deviceIdStorage);
             insert.Parameters.AddWithValue("tsA", bucketStart.AddMinutes(10));
             insert.Parameters.AddWithValue("tsB", bucketStart.AddMinutes(20));
             await insert.ExecuteNonQueryAsync();
@@ -148,7 +149,7 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
             WHERE "VehicleId" = @vehicleId
               AND "Bucket" = @bucket;
             """;
-        query.Parameters.AddWithValue("vehicleId", vehicleId);
+        query.Parameters.AddWithValue("vehicleId", deviceIdStorage);
         query.Parameters.AddWithValue("bucket", bucketStart);
 
         await using var reader = await query.ExecuteReaderAsync();

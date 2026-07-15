@@ -258,19 +258,20 @@ public class FleetSseKafkaMultiReplicaIntegrationTests
 
         for (var index = 0; index < count; index++)
         {
+            var deviceIdStorage = DeviceIdTestHelper.ToStorage($"VH-{index:D3}");
+            var payloadJson = $"{{\"deviceId\":\"{deviceIdStorage}\",\"vehicleName\":\"{deviceIdStorage}\",\"status\":\"online\",\"lastSeenAt\":\"2026-07-13T10:00:00Z\"}}";
             var message = FleetRealtimeKafkaMessage.Serialize(new FleetRealtimeKafkaMessage
             {
                 SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
                 EventType = FleetRealtimeEventTypes.VehicleUpdate,
-                Payload = System.Text.Json.JsonDocument.Parse(
-                    $$"""{"vehicleId":"VH-{{index:D3}}","name":"VH-{{index:D3}}","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"}""").RootElement,
+                Payload = System.Text.Json.JsonDocument.Parse(payloadJson).RootElement,
                 OccurredAt = DateTimeOffset.UtcNow,
-                VehicleId = $"VH-{index:D3}"
+                DeviceId = deviceIdStorage
             });
 
             await producer.ProduceAsync(topic, new Message<string, string>
             {
-                Key = $"VH-{index:D3}",
+                Key = deviceIdStorage,
                 Value = message
             });
         }

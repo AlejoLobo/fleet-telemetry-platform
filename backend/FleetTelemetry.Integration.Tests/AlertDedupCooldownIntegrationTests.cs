@@ -44,19 +44,20 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Cien_overspeed_dentro_del_cooldown_persisten_una_sola_alerta()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("OO");
+        var deviceId = UniqueDevice("OO");
+        var deviceIdStorage = deviceId.ToString("D");
 
         for (var i = 0; i < 100; i++)
         {
             // Todos dentro de la ventana de cooldown (60s).
             _timeProvider.SetUtcNow(T0.AddMilliseconds(i));
-            await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+            await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
         }
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "overspeed"));
-        var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == vehicleId && s.AlertType == "overspeed");
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
+        var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == deviceIdStorage && s.AlertType == "overspeed");
         Assert.True(state.IsActive);
     }
 
@@ -64,53 +65,55 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Overspeed_sostenido_despues_del_cooldown_crea_recordatorio()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("RM");
+        var deviceId = UniqueDevice("RM");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
         _timeProvider.SetUtcNow(T0.AddSeconds(CooldownSeconds));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 131));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 131));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "overspeed"));
+        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
     }
 
     [Fact]
     public async Task Overspeed_recuperacion_y_nueva_incidencia_respetan_cooldown()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("RC");
+        var deviceId = UniqueDevice("RC");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
         _timeProvider.SetUtcNow(T0.AddSeconds(10));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 80));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 80));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == vehicleId && s.AlertType == "overspeed");
+            var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == deviceIdStorage && s.AlertType == "overspeed");
             Assert.False(state.IsActive);
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
         }
 
         _timeProvider.SetUtcNow(T0.AddSeconds(20));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 140));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 140));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "overspeed" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
         }
 
         _timeProvider.SetUtcNow(T0.AddSeconds(CooldownSeconds));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 150));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 150));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+            Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
         }
     }
 
@@ -118,34 +121,37 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Low_fuel_y_low_battery_simultaneos_son_independientes()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("FB");
+        var deviceId = UniqueDevice("FB");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, fuel: 10, battery: 10));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, fuel: 10, battery: 10));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
-        Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.VehicleId == vehicleId && s.IsActive));
-        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == vehicleId).Select(a => a.AlertType).ToListAsync(), t => t == "low_fuel");
-        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == vehicleId).Select(a => a.AlertType).ToListAsync(), t => t == "low_battery");
+        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage && s.IsActive));
+        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == deviceIdStorage).Select(a => a.AlertType).ToListAsync(), t => t == "low_fuel");
+        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == deviceIdStorage).Select(a => a.AlertType).ToListAsync(), t => t == "low_battery");
     }
 
     [Fact]
     public async Task Dos_vehiculos_tienen_estados_independientes()
     {
         await ResetAsync();
-        var a = UniqueVehicle("A");
-        var b = UniqueVehicle("B");
+        var deviceA = UniqueDevice("A");
+        var deviceAStorage = deviceA.ToString("D");
+        var deviceB = UniqueDevice("B");
+        var deviceBStorage = deviceB.ToString("D");
 
-        await ProcessAsync(CreateEvent(a, speedKmh: 130));
-        await ProcessAsync(CreateEvent(b, speedKmh: 130));
-        await ProcessAsync(CreateEvent(a, speedKmh: 135));
-        await ProcessAsync(CreateEvent(b, speedKmh: 135));
+        await ProcessAsync(CreateEvent(deviceA, speedKmh: 130));
+        await ProcessAsync(CreateEvent(deviceB, speedKmh: 130));
+        await ProcessAsync(CreateEvent(deviceA, speedKmh: 135));
+        await ProcessAsync(CreateEvent(deviceB, speedKmh: 135));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == a));
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == b));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == deviceAStorage));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == deviceBStorage));
         Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.IsActive));
     }
 
@@ -153,15 +159,16 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Redelivery_del_mismo_EventId_no_genera_otra_alerta()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("ID");
-        var evt = CreateEvent(vehicleId, speedKmh: 130);
+        var deviceId = UniqueDevice("ID");
+        var deviceIdStorage = deviceId.ToString("D");
+        var evt = CreateEvent(deviceId, speedKmh: 130);
 
         Assert.Equal(ProcessTelemetryOutcome.Processed, await ProcessAsync(evt));
         Assert.Equal(ProcessTelemetryOutcome.Duplicate, await ProcessAsync(evt));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
         Assert.Equal(1, await db.TelemetryEvents.CountAsync(e => e.EventId == evt.EventId));
     }
 
@@ -169,31 +176,33 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Reinicio_del_Worker_conserva_condicion_activa_sin_duplicar()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("WR");
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+        var deviceId = UniqueDevice("WR");
+        var deviceIdStorage = deviceId.ToString("D");
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
 
         // Nuevo scope simula reinicio: el estado vive en TimescaleDB, no en memoria.
         _timeProvider.SetUtcNow(T0.AddSeconds(5));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 132));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 132));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == vehicleId && s.AlertType == "overspeed" && s.IsActive));
+            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
     }
 
     [Fact]
     public async Task Procesamiento_concurrente_mismo_VehicleId_AlertType_emite_una()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("CC");
+        var deviceId = UniqueDevice("CC");
+        var deviceIdStorage = deviceId.ToString("D");
         var tasks = Enumerable.Range(0, 20)
             .Select(_ => Task.Run(async () =>
             {
                 await using var scope = _services.CreateAsyncScope();
                 var uow = scope.ServiceProvider.GetRequiredService<ITelemetryProcessingUnitOfWork>();
-                await uow.ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+                await uow.ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
             }))
             .ToArray();
 
@@ -201,14 +210,15 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "overspeed"));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
     }
 
     [Fact]
     public async Task Error_transaccional_no_deja_alerta_ni_estado_huerfanos()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("TX");
+        var deviceId = UniqueDevice("TX");
+        var deviceIdStorage = deviceId.ToString("D");
         var interceptor = new FailAfterAlertEntitiesInterceptor();
 
         var services = new ServiceCollection();
@@ -228,13 +238,13 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         var uow = scope.ServiceProvider.GetRequiredService<ITelemetryProcessingUnitOfWork>();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            uow.ProcessAsync(CreateEvent(vehicleId, speedKmh: 130)));
+            uow.ProcessAsync(CreateEvent(deviceId, speedKmh: 130)));
 
         await using var verifyScope = _services.CreateAsyncScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
-        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == vehicleId));
-        Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.VehicleId == vehicleId));
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage));
+        Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.VehicleId == deviceIdStorage));
         Assert.Equal(0, await db.ProcessedEvents.CountAsync());
     }
 
@@ -275,27 +285,28 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Alerta_reconocida_no_se_interpreta_como_recuperacion()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("AK");
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+        var deviceId = UniqueDevice("AK");
+        var deviceIdStorage = deviceId.ToString("D");
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            var alert = await db.FleetAlerts.SingleAsync(a => a.VehicleId == vehicleId);
+            var alert = await db.FleetAlerts.SingleAsync(a => a.VehicleId == deviceIdStorage);
             alert.IsAcknowledged = true;
             await db.SaveChangesAsync();
         }
 
         _timeProvider.SetUtcNow(T0.AddSeconds(5));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 135));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 135));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
-            Assert.True(await db.FleetAlerts.AnyAsync(a => a.VehicleId == vehicleId && a.IsAcknowledged));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+            Assert.True(await db.FleetAlerts.AnyAsync(a => a.VehicleId == deviceIdStorage && a.IsAcknowledged));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.IsActive));
         }
     }
 
@@ -304,14 +315,15 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     {
         await ResetAsync();
         _publisher.Reset();
-        var vehicleId = UniqueVehicle("RT");
+        var deviceId = UniqueDevice("RT");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130));
         Assert.Single(_publisher.AlertPayloads);
 
         _publisher.Reset();
         _timeProvider.SetUtcNow(T0.AddSeconds(5));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 140));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 140));
         Assert.Empty(_publisher.AlertPayloads);
     }
 
@@ -319,41 +331,42 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Fuel_null_conserva_low_fuel_activo_sin_recordatorio()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("FN");
+        var deviceId = UniqueDevice("FN");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, fuel: 10, timestamp: T0));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, fuel: 10, timestamp: T0));
         _timeProvider.SetUtcNow(T0.AddSeconds(5));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, fuel: null, timestamp: T0.AddSeconds(5)));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, fuel: null, timestamp: T0.AddSeconds(5)));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "low_fuel"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_fuel"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "low_fuel" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
         }
 
         _publisher.Reset();
         _timeProvider.SetUtcNow(T0.AddSeconds(CooldownSeconds));
         await ProcessAsync(CreateEvent(
-            vehicleId, speedKmh: 50, fuel: null, timestamp: T0.AddSeconds(CooldownSeconds)));
+            deviceId, speedKmh: 50, fuel: null, timestamp: T0.AddSeconds(CooldownSeconds)));
         Assert.Empty(_publisher.AlertPayloads);
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "low_fuel"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_fuel"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "low_fuel" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
         }
 
         await ProcessAsync(CreateEvent(
-            vehicleId, speedKmh: 50, fuel: 50, timestamp: T0.AddSeconds(CooldownSeconds + 1)));
+            deviceId, speedKmh: 50, fuel: 50, timestamp: T0.AddSeconds(CooldownSeconds + 1)));
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "low_fuel" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
         }
     }
 
@@ -361,33 +374,34 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     public async Task Battery_null_conserva_low_battery_activo_sin_recordatorio()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("BN");
+        var deviceId = UniqueDevice("BN");
+        var deviceIdStorage = deviceId.ToString("D");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, battery: 10, timestamp: T0));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, battery: 10, timestamp: T0));
         _timeProvider.SetUtcNow(T0.AddSeconds(5));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, battery: null, timestamp: T0.AddSeconds(5)));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, battery: null, timestamp: T0.AddSeconds(5)));
 
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "low_battery"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_battery"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "low_battery" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "low_battery" && s.IsActive));
         }
 
         _publisher.Reset();
         _timeProvider.SetUtcNow(T0.AddSeconds(CooldownSeconds));
         await ProcessAsync(CreateEvent(
-            vehicleId, speedKmh: 50, battery: null, timestamp: T0.AddSeconds(CooldownSeconds)));
+            deviceId, speedKmh: 50, battery: null, timestamp: T0.AddSeconds(CooldownSeconds)));
         Assert.Empty(_publisher.AlertPayloads);
 
         await ProcessAsync(CreateEvent(
-            vehicleId, speedKmh: 50, battery: 50, timestamp: T0.AddSeconds(CooldownSeconds + 1)));
+            deviceId, speedKmh: 50, battery: 50, timestamp: T0.AddSeconds(CooldownSeconds + 1)));
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == vehicleId && s.AlertType == "low_battery" && s.IsActive));
+                s.VehicleId == deviceIdStorage && s.AlertType == "low_battery" && s.IsActive));
         }
     }
 
@@ -396,9 +410,10 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     {
         await ResetAsync();
         _publisher.Reset();
-        var vehicleId = UniqueVehicle("OO");
-        var newer = CreateEvent(vehicleId, speedKmh: 50, timestamp: T0.AddHours(2));
-        var older = CreateEvent(vehicleId, speedKmh: 130, timestamp: T0);
+        var deviceId = UniqueDevice("OO");
+        var deviceIdStorage = deviceId.ToString("D");
+        var newer = CreateEvent(deviceId, speedKmh: 50, timestamp: T0.AddHours(2));
+        var older = CreateEvent(deviceId, speedKmh: 130, timestamp: T0);
 
         await ProcessAsync(newer);
         _publisher.Reset();
@@ -407,65 +422,68 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         Assert.Empty(_publisher.AlertPayloads);
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
-        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == vehicleId));
-        Assert.Equal(newer.EventId, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == vehicleId)).LastEventId);
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage));
+        Assert.Equal(newer.EventId, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
     }
 
     [Fact]
     public async Task Evento_antiguo_normal_conserva_overspeed_activo()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("ON");
-        var newer = CreateEvent(vehicleId, speedKmh: 130, timestamp: T0.AddHours(2));
-        var older = CreateEvent(vehicleId, speedKmh: 40, timestamp: T0);
+        var deviceId = UniqueDevice("ON");
+        var deviceIdStorage = deviceId.ToString("D");
+        var newer = CreateEvent(deviceId, speedKmh: 130, timestamp: T0.AddHours(2));
+        var older = CreateEvent(deviceId, speedKmh: 40, timestamp: T0);
 
         await ProcessAsync(newer);
         await ProcessAsync(older);
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId && a.AlertType == "overspeed"));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == vehicleId && s.AlertType == "overspeed" && s.IsActive));
+            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
     }
 
     [Fact]
     public async Task Mismo_timestamp_EventId_inferior_no_modifica_condicion()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("TI");
+        var deviceId = UniqueDevice("TI");
+        var deviceIdStorage = deviceId.ToString("D");
         var timestamp = T0;
         var higher = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var lower = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130, timestamp: timestamp, eventId: higher));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 40, timestamp: timestamp, eventId: lower));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130, timestamp: timestamp, eventId: higher));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 40, timestamp: timestamp, eventId: lower));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == vehicleId && s.AlertType == "overspeed" && s.IsActive));
-        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == vehicleId)).LastEventId);
+            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
+        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
     }
 
     [Fact]
     public async Task Mismo_timestamp_EventId_superior_aplica_nueva_condicion()
     {
         await ResetAsync();
-        var vehicleId = UniqueVehicle("TS");
+        var deviceId = UniqueDevice("TS");
+        var deviceIdStorage = deviceId.ToString("D");
         var timestamp = T0;
         var lower = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var higher = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 130, timestamp: timestamp, eventId: lower));
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 40, timestamp: timestamp, eventId: higher));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 130, timestamp: timestamp, eventId: lower));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 40, timestamp: timestamp, eventId: higher));
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == vehicleId && s.AlertType == "overspeed" && s.IsActive));
-        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == vehicleId)).LastEventId);
+            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
+        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
     }
 
     [Fact]
@@ -473,10 +491,11 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
     {
         await ResetAsync();
         _publisher.Reset();
-        var vehicleId = UniqueVehicle("NR");
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 50, timestamp: T0.AddHours(1)));
+        var deviceId = UniqueDevice("NR");
+        var deviceIdStorage = deviceId.ToString("D");
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 50, timestamp: T0.AddHours(1)));
         _publisher.Reset();
-        await ProcessAsync(CreateEvent(vehicleId, speedKmh: 140, timestamp: T0));
+        await ProcessAsync(CreateEvent(deviceId, speedKmh: 140, timestamp: T0));
 
         Assert.Empty(_publisher.AlertPayloads);
         Assert.Empty(_publisher.VehicleUpdates);
@@ -496,12 +515,11 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         _publisher.Reset();
     }
 
-    private static string UniqueVehicle(string prefix) =>
-        $"VH{prefix}-{Guid.NewGuid():N}"[..16];
+    private static Guid UniqueDevice(string prefix) =>
+        Guid.NewGuid();
 
     // Por defecto alinea Timestamp con TimeProvider para no descartar por fuera de orden.
-    private TelemetryEvent CreateEvent(
-        string vehicleId,
+    private TelemetryEvent CreateEvent(Guid deviceId,
         double speedKmh,
         double? fuel = 50,
         double? battery = 80,
@@ -509,7 +527,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         DateTimeOffset? timestamp = null) =>
         TelemetryEvent.Create(
             eventId ?? Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-006",
             timestamp ?? _timeProvider.GetUtcNow(),
             4.65,
