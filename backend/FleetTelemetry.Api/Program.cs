@@ -76,9 +76,7 @@ if (rateLimitOptions.Enabled)
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         options.OnRejected = async (context, cancellationToken) =>
         {
-            var path = context.HttpContext.Request.Path.Value ?? string.Empty;
-            var isTelemetryIngest = HttpMethods.IsPost(context.HttpContext.Request.Method)
-                && path.StartsWith("/api/telemetry", StringComparison.OrdinalIgnoreCase);
+            var isTelemetryIngest = IsTelemetryIngestRequest(context.HttpContext);
             var retryAfterSeconds = isTelemetryIngest
                 ? rateLimitOptions.TelemetryWindowSeconds
                 : rateLimitOptions.WindowSeconds;
@@ -97,16 +95,13 @@ if (rateLimitOptions.Enabled)
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
-            var path = httpContext.Request.Path.Value ?? string.Empty;
-
-            if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+            if (httpContext.Request.Path.StartsWithSegments("/health"))
                 return RateLimitPartition.GetNoLimiter("health");
 
-            if (path.StartsWith("/api/events/stream", StringComparison.OrdinalIgnoreCase))
+            if (httpContext.Request.Path.StartsWithSegments("/api/events/stream"))
                 return RateLimitPartition.GetNoLimiter("sse");
 
-            if (HttpMethods.IsPost(httpContext.Request.Method)
-                && path.StartsWith("/api/telemetry", StringComparison.OrdinalIgnoreCase))
+            if (IsTelemetryIngestRequest(httpContext))
             {
                 var partitionKey = ResolveTelemetryPartitionKey(httpContext);
                 return RateLimitPartition.GetFixedWindowLimiter(
@@ -161,24 +156,56 @@ app.MapControllers();
 
 app.Run();
 
-static string ResolveTelemetryPartitionKey(HttpContext httpContext)
+static bool IsTelemetryIngestRequest(HttpContext context)
 {
-    var user = httpContext.User;
-    if (user?.Identity?.IsAuthenticated == true)
+    if (!HttpMethods.IsPost(context.Request.Method))
+        return false;
+
+    var path = context.Request.Path;
+    return path.Equals("/api/telemetry", StringComparison.OrdinalIgnoreCase)
+           || path.StartsWithSegments("/api/telemetry/batch");
+}
+
+static bool TryNormalizeDeviceId(string? raw, out string normalized)
+{
+    normalized = string.Empty;
+    if (string.IsNullOrWhiteSpace(raw))
+        return false;
+
+    var trimmed = raw.Trim();
+    if (trimmed.Length is < 8 or > 128)
+        return false;
+
+    if (trimmed.Contains('\n') || trimmed.Contains('\r'))
+        return false;
+
+    foreach (var ch in trimmed)
     {
-        var sub = user.FindFirstValue("sub")
-            ?? user.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? user.FindFirstValue("device_id");
-        if (!string.IsNullOrWhiteSpace(sub))
-            return $"user:{sub.Trim()}";
+        var allowed = char.IsAsciiLetterOrDigit(ch)
+            || ch is '-' or '_' or '.' or ':';
+        if (!allowed)
+            return false;
     }
 
-    if (httpContext.Request.Headers.TryGetValue("X-Device-Id", out var deviceHeader))
-    {
-        var deviceId = deviceHeader.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(deviceId))
-            return $"device:{deviceId}";
-    }
+    normalized = trimmed;
+    return true;
+}
+
+static string ResolveTelemetryPartitionKey(HttpContext httpContext)
+{
+    var deviceClaim = httpContext.User.FindFirstValue("device_id");
+    if (TryNormalizeDeviceId(deviceClaim, out var normalizedClaim))
+        return $"device:{normalizedClaim}";
+
+    if (httpContext.Request.Headers.TryGetValue("X-Device-Id", out var deviceHeader)
+        && TryNormalizeDeviceId(deviceHeader.ToString(), out var normalizedHeader))
+        return $"device:{normalizedHeader}";
+
+    var subject = httpContext.User.FindFirstValue("sub")
+        ?? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+    if (!string.IsNullOrWhiteSpace(subject))
+        return $"user:{subject.Trim()}";
 
     return $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
 }
