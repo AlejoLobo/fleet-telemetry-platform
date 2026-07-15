@@ -104,7 +104,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Batch_2xx_marca_todos_synced", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockResolvedValue(undefined);
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.synced).toBe(2);
     expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A", "B"]);
   });
@@ -115,7 +115,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
       if (payload.eventId === "BAD") throw apiError(422, "validation");
     });
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.synced).toBe(1);
     expect(result.permanentFailures).toBe(1);
   });
@@ -126,7 +126,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
       if (payload.eventId === "BAD") throw apiError(400, "validation");
     });
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.synced).toBe(2);
     expect(result.permanentFailures).toBe(1);
   });
@@ -134,7 +134,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Batch_401_no_ejecuta_singles_y_libera_todos", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(401, "auth_required"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("auth_required");
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
     expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["A", "B"], expect.any(String));
@@ -143,7 +143,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Batch_403_no_ejecuta_singles_y_libera_todos", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(403, "forbidden"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("forbidden");
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
     expect(mockReleaseClaimedEvents).toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Batch_429_no_ejecuta_singles_y_respeta_Retry_After", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(429, "transient", 12));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
@@ -161,7 +161,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Batch_500_no_ejecuta_singles_y_pasa_todos_a_retry", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Error_404_conserva_eventos_y_devuelve_configuration_error", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(404, "protocol"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("configuration_error");
     expect(mockReleaseClaimedEvents).toHaveBeenCalled();
     expect(mockMarkEventPermanentFailure).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Timeout_no_ejecuta_singles", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(408, "timeout"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
     expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Error_de_red_no_ejecuta_singles", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(0, "network"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
   });
@@ -204,7 +204,7 @@ describe("offline-sync-coordinator batch policy", () => {
       .mockRejectedValueOnce(apiError(413, "payload_too_large"))
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined);
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.synced).toBe(4);
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
     expect(mockSendBatchEvents).toHaveBeenCalledTimes(3);
@@ -216,7 +216,7 @@ describe("offline-sync-coordinator batch policy", () => {
       .mockRejectedValueOnce(apiError(413, "payload_too_large"))
       .mockRejectedValueOnce(apiError(413, "payload_too_large"))
       .mockResolvedValueOnce(undefined);
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.permanentFailures).toBe(1);
     expect(result.synced).toBe(1);
   });
@@ -224,7 +224,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Error_inesperado_libera_todos_los_locks", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(new Error("unexpected programming error"));
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("failed");
     expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["A", "B"], expect.any(String));
     expect(mockSendSingleEvent).not.toHaveBeenCalled();
@@ -233,7 +233,7 @@ describe("offline-sync-coordinator batch policy", () => {
   it("Ningun_camino_normal_deja_eventos_processing", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A"), buildEvent("B")]).mockResolvedValueOnce([]);
     mockSendBatchEvents.mockRejectedValue(apiError(500, "transient"));
-    await syncPendingQueue(true);
+    await syncPendingQueue(true, "test-device-id-001");
     expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
     expect(mockReleaseClaimedEvents).not.toHaveBeenCalled();
   });
@@ -245,7 +245,7 @@ describe("offline-sync-coordinator batch policy", () => {
       if (payload.eventId === "A") return;
       if (payload.eventId === "B") throw apiError(500, "transient");
     });
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A"]);
     expect(mockMarkClaimedBatchRetryAtomic).toHaveBeenCalled();
@@ -258,7 +258,7 @@ describe("offline-sync-coordinator batch policy", () => {
       if (payload.eventId === "A") return;
       if (payload.eventId === "B") throw apiError(401, "auth_required");
     });
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("auth_required");
     expect(mockMarkEventsSynced).toHaveBeenCalledWith(["A"]);
     expect(mockReleaseClaimedEvents).toHaveBeenCalledWith(["B", "C"], expect.any(String));
@@ -271,7 +271,7 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendSingleEvent.mockImplementation(async (payload: QueuedTelemetryEvent) => {
       if (payload.eventId === "BAD") throw apiError(400, "validation");
     });
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.synced).toBe(1);
     expect(result.permanentFailures).toBe(1);
   });
@@ -279,8 +279,8 @@ describe("offline-sync-coordinator batch policy", () => {
   it("El_mutex_continua_evitando_dos_sincronizaciones_simultaneas", async () => {
     mockClaimNextBatch.mockResolvedValueOnce([buildEvent("A")]).mockResolvedValueOnce([]);
     mockSendSingleEvent.mockImplementation(() => new Promise(() => undefined));
-    syncPendingQueue(true);
-    syncPendingQueue(true);
+    syncPendingQueue(true, "test-device-id-001");
+    syncPendingQueue(true, "test-device-id-001");
     await Promise.resolve();
     expect(mockClaimNextBatch).toHaveBeenCalledTimes(1);
     resetSyncCoordinatorForTests();

@@ -30,7 +30,7 @@ describe("telemetry-api auth", () => {
         fuelLevelPercent: 4,
         batteryPercent: 5,
       },
-    ]);
+    ], "stable-device-abc");
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer secret-token");
   });
@@ -53,7 +53,7 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: 4,
       batteryPercent: 5,
-    });
+    }, "stable-device-abc");
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer secret-token");
   });
@@ -71,7 +71,7 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: 4,
       batteryPercent: 5,
-    });
+    }, "stable-device-abc");
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
   });
@@ -88,7 +88,7 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -104,7 +104,7 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -125,7 +125,7 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -153,9 +153,62 @@ describe("telemetry-api auth", () => {
         speedKmh: 3,
         fuelLevelPercent: null,
         batteryPercent: null,
-      });
+      }, "stable-device-abc");
     } catch (error) {
       expect((error as TelemetryApiError).sanitizedMessage).not.toContain("secret-token");
     }
+  });
+
+  it("X-Device-Id contiene el ID estable y no el vehicleId", async () => {
+    setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
+    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
+    await sendSingleEvent({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      vehicleId: "VH-VEHICLE-ONLY",
+      driverId: null,
+      timestamp: "2026-07-12T08:00:00Z",
+      latitude: 1,
+      longitude: 2,
+      speedKmh: 3,
+      fuelLevelPercent: null,
+      batteryPercent: null,
+    }, "phys-device-stable-01");
+    const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["X-Device-Id"]).toBe("phys-device-stable-01");
+    expect(headers["X-Device-Id"]).not.toBe("VH-VEHICLE-ONLY");
+  });
+
+  it("batch utiliza el mismo ID estable", async () => {
+    setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
+    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
+    await sendBatchEvents([{
+      eventId: "11111111-1111-1111-1111-111111111111",
+      vehicleId: "VH-001",
+      driverId: null,
+      timestamp: "2026-07-12T08:00:00Z",
+      latitude: 1,
+      longitude: 2,
+      speedKmh: 3,
+      fuelLevelPercent: null,
+      batteryPercent: null,
+    }], "phys-device-stable-01");
+    const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["X-Device-Id"]).toBe("phys-device-stable-01");
+  });
+
+  it("no envía encabezado vacío", async () => {
+    setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
+    await expect(sendSingleEvent({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      vehicleId: "VH-001",
+      driverId: null,
+      timestamp: "2026-07-12T08:00:00Z",
+      latitude: 1,
+      longitude: 2,
+      speedKmh: 3,
+      fuelLevelPercent: null,
+      batteryPercent: null,
+    }, "   ")).rejects.toBeInstanceOf(TelemetryApiError);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

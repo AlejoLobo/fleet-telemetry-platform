@@ -469,5 +469,49 @@ describe("useFleetData refreshForResync", () => {
 
     expect(result.current.fleetError).toContain("limitó temporalmente");
     expect(result.current.fleetError).not.toContain("No se pudo conectar");
+    expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("loadFromApi_no_consulta_telemetria_si_falla_la_flota", async () => {
+    fetchFleetLive.mockRejectedValue(new ApiError("boom", 503));
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockClear();
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.loadFromApi();
+    });
+
+    expect(result.current.fleetError).toContain("503");
+    expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("error_de_telemetria_conserva_historial_anterior", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [{ eventId: "e1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+      partial: false,
+      truncated: false,
+    });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.telemetry.length).toBe(1));
+
+    fetchTelemetrySnapshot.mockRejectedValueOnce(new ApiError("servicio caído", 503));
+    await act(async () => {
+      await result.current.loadFromApi();
+    });
+    await waitFor(() => expect(result.current.telemetryLoading).toBe(false));
+
+    expect(result.current.telemetry).toHaveLength(1);
+    expect(result.current.telemetryError).toContain("503");
+    expect(result.current.telemetryError).not.toContain("Failed to fetch");
   });
 });

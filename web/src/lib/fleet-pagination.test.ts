@@ -232,14 +232,69 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 500,
+        headers: { get: () => null },
         json: async () => ({ detail: "fallo" }),
       });
 
     const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
     expect(snapshot.partial).toBe(true);
     expect(snapshot.vehicles).toHaveLength(1);
-    expect(snapshot.error).toBeTruthy();
+    expect(snapshot.error).toContain("500");
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("429_en_primera_pagina_de_flota_propaga_ApiError", async () => {
+    const { ApiError } = await import("@/lib/http-error");
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: { get: (name: string) => (name === "Retry-After" ? "30" : null) },
+      json: async () => ({ error: "Demasiadas solicitudes" }),
+    });
+
+    await expect(fetchFleetSnapshot({ pageSize: 1 })).rejects.toMatchObject({
+      name: "ApiError",
+      status: 429,
+      retryAfterSeconds: 30,
+    });
+    expect(ApiError).toBeDefined();
+  });
+
+  it("error_de_red_en_primera_pagina_propaga_y_mensaje_resuelve_Docker", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(fetchFleetSnapshot({ pageSize: 1 })).rejects.toBeInstanceOf(TypeError);
+
+    const { resolveFleetFetchError } = await import("@/lib/fleet-fetch-error");
+    expect(resolveFleetFetchError(new TypeError("Failed to fetch"))).toContain("puerto 5000");
+  });
+
+  it("503_en_primera_pagina_mantiene_codigo_HTTP", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      headers: { get: () => null },
+      json: async () => ({ error: "unavailable" }),
+    });
+
+    await expect(fetchFleetSnapshot()).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("AbortError_en_pagina_posterior_no_es_error_de_red", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [vehicle("VH-001")],
+          nextCursor: "c2",
+          hasMore: true,
+        }),
+      })
+      .mockRejectedValueOnce(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.vehicles).toHaveLength(1);
+    expect(snapshot.error).toBeUndefined();
   });
 
   it("maxEvents_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {

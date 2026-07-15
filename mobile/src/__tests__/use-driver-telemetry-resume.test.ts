@@ -34,7 +34,7 @@ jest.mock("@/utils/id", () => ({
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
 
 function Harness({ canSync }: { canSync: boolean }) {
-  useDriverTelemetry("VH-001", "DRV-001", canSync);
+  useDriverTelemetry("device-stable-001", "VH-001", "DRV-001", canSync);
   return null;
 }
 
@@ -60,7 +60,7 @@ describe("useDriverTelemetry reanudación integrada", () => {
     });
 
     expect(mockSyncPendingQueue).toHaveBeenCalledTimes(1);
-    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true);
+    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true, "device-stable-001");
 
     await act(async () => {
       renderer?.update(React.createElement(Harness, { canSync: true }));
@@ -92,7 +92,7 @@ describe("useDriverTelemetry reanudación integrada", () => {
       await Promise.resolve();
     });
     expect(mockSyncPendingQueue).toHaveBeenCalledTimes(1);
-    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true);
+    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true, "device-stable-001");
     renderer?.unmount();
   });
 
