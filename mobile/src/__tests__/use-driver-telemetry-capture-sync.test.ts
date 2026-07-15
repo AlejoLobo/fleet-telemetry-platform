@@ -17,10 +17,32 @@ jest.mock("@/hooks/use-network-status", () => ({
   }),
 }));
 
-jest.mock("@/services/offline-sync-coordinator", () => ({
-  syncPendingQueue: (...args: unknown[]) => mockSyncPendingQueue(...args),
-  resetSyncCoordinatorForTests: jest.fn(),
-}));
+jest.mock("@/services/offline-sync-coordinator", () => {
+  let inFlight: Promise<unknown> | null = null;
+  let requested = false;
+  return {
+    syncPendingQueue: (...args: unknown[]) => {
+      if (inFlight) {
+        requested = true;
+        return inFlight;
+      }
+      const run = async () => {
+        let last = await mockSyncPendingQueue(...args);
+        while (requested) {
+          requested = false;
+          last = await mockSyncPendingQueue(...args);
+        }
+        return last;
+      };
+      inFlight = run().finally(() => {
+        inFlight = null;
+      });
+      return inFlight;
+    },
+    resetSyncCoordinatorForTests: jest.fn(),
+  };
+});
+
 
 jest.mock("@/db/offline-queue", () => ({
   enqueueEvent: (...args: Parameters<typeof mockEnqueueEvent>) => mockEnqueueEvent(...args),
