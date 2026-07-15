@@ -78,6 +78,35 @@ export function createSqliteMemoryDb() {
       return null;
     }),
     getAllAsync: jest.fn(async (sql: string, nowIso?: string, limit?: number) => {
+      if (sql.includes("PRAGMA table_info")) {
+        return [
+          { name: "local_id" },
+          { name: "event_id" },
+          { name: "vehicle_id" },
+          { name: "device_id" },
+          { name: "driver_id" },
+          { name: "timestamp" },
+          { name: "latitude" },
+          { name: "longitude" },
+          { name: "speed_kmh" },
+          { name: "fuel_level_percent" },
+          { name: "battery_percent" },
+          { name: "source" },
+          { name: "status" },
+          { name: "retry_count" },
+          { name: "next_attempt_at" },
+          { name: "last_attempt_at" },
+          { name: "last_error" },
+          { name: "locked_at" },
+          { name: "synced_at" },
+          { name: "created_at" },
+        ];
+      }
+      if (sql.includes("status IN ('pending','retry','processing')") && sql.includes("local_id")) {
+        return rows
+          .filter((row) => ["pending", "retry", "processing"].includes(row.status))
+          .map((row) => row as unknown as Record<string, unknown>);
+      }
       if (!sql.includes("telemetry_queue")) return [];
       const eligible = rows
         .filter((row) => ["pending", "retry"].includes(row.status))
@@ -86,6 +115,30 @@ export function createSqliteMemoryDb() {
       return (typeof limit === "number" ? eligible.slice(0, limit) : eligible) as unknown as Record<string, unknown>[];
     }),
     runAsync: jest.fn(async (sql: string, ...params: unknown[]) => {
+      if (sql.includes("INSERT OR REPLACE INTO schema_meta")) {
+        return { changes: 1 };
+      }
+      if (sql.includes("SET device_id = NULL WHERE local_id")) {
+        const localId = params[0] as number;
+        const row = findByLocalId(localId);
+        if (row) {
+          row.device_id = "";
+          return { changes: 1 };
+        }
+        return { changes: 0 };
+      }
+      if (sql.includes("SET device_id = ?") && sql.includes("vehicle_id = ?") && sql.includes("local_id = ?")) {
+        const deviceId = params[0] as string;
+        const vehicleId = params[1] as string;
+        const localId = params[2] as number;
+        const row = findByLocalId(localId);
+        if (row) {
+          row.device_id = deviceId;
+          row.vehicle_id = vehicleId;
+          return { changes: 1 };
+        }
+        return { changes: 0 };
+      }
       if (sql.includes("INSERT INTO telemetry_queue")) {
         // event_id, vehicle_id, device_id, driver_id, timestamp, lat, lon, speed, fuel, battery, source, created_at
         const deviceId = params[2] as string;

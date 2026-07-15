@@ -4,6 +4,7 @@ import {
   markClaimedBatchRetryAtomic,
   markEventPermanentFailure,
   markEventsSynced,
+  migratePendingEventsToDeviceId,
   purgeSyncedOlderThan,
   releaseClaimedEvents,
   toPayload,
@@ -121,6 +122,7 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
   await purgeSyncedOlderThan(7);
 
   try {
+    await migratePendingEventsToDeviceId(deviceId);
     await ensureDeviceRegistered(deviceId);
   } catch (error) {
     return toSyncResult(

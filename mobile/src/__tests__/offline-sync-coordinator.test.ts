@@ -23,6 +23,7 @@ jest.mock("@/db/offline-queue", () => ({
   markEventRetry: (...args: unknown[]) => mockMarkEventRetry(...args),
   markClaimedBatchRetryAtomic: (...args: unknown[]) => mockMarkClaimedBatchRetryAtomic(...args),
   releaseClaimedEvents: (...args: unknown[]) => mockReleaseClaimedEvents(...args),
+  migratePendingEventsToDeviceId: jest.fn(async () => 0),
   toPayload: (event: QueuedTelemetryEvent) => event,
 }));
 
