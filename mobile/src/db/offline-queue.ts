@@ -1,7 +1,8 @@
 import * as SQLite from "expo-sqlite";
+import { isValidDeviceId } from "@/services/device-id-store";
 import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/telemetry";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 /** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
@@ -45,6 +46,9 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (currentVersion < 3) {
     await migrateToV3(db);
   }
+  if (currentVersion < 4) {
+    await migrateToV4(db);
+  }
   if (currentVersion < SCHEMA_VERSION) {
     await db.runAsync(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`, String(SCHEMA_VERSION));
   }
@@ -64,25 +68,86 @@ async function migrateToV2(db: SQLite.SQLiteDatabase): Promise<void> {
   await add(`ALTER TABLE telemetry_queue ADD COLUMN synced_at TEXT`, "synced_at");
 }
 
-/** device_id = identidad técnica; vehicle_id se conserva por compatibilidad NOT NULL. */
+/** Agrega columna device_id sin copiar nombres visibles (VH-###) como identidad. */
 async function migrateToV3(db: SQLite.SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
   const names = new Set(columns.map((c) => c.name));
   if (!names.has("device_id")) {
     await db.execAsync(`ALTER TABLE telemetry_queue ADD COLUMN device_id TEXT`);
   }
-  await db.execAsync(
-    `UPDATE telemetry_queue
-     SET device_id = vehicle_id
-     WHERE device_id IS NULL OR TRIM(device_id) = ''`,
+}
+
+/**
+ * Invalida device_id no-UUID en eventos activos.
+ * La reparación al UUID estable ocurre en migratePendingEventsToDeviceId.
+ */
+async function migrateToV4(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
+  const names = new Set(columns.map((c) => c.name));
+  if (!names.has("device_id")) {
+    await db.execAsync(`ALTER TABLE telemetry_queue ADD COLUMN device_id TEXT`);
+  }
+
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT local_id, device_id, vehicle_id, status FROM telemetry_queue
+     WHERE status IN ('pending','retry','processing')`,
   );
+
+  for (const row of rows) {
+    const deviceId = typeof row.device_id === "string" ? row.device_id : "";
+    if (isValidDeviceId(deviceId)) continue;
+    await db.runAsync(
+      `UPDATE telemetry_queue SET device_id = NULL WHERE local_id = ?`,
+      row.local_id as number,
+    );
+  }
+}
+
+/**
+ * Reasigna eventos activos con device_id vacío o inválido al UUID estable del dispositivo.
+ * No modifica synced ni permanent_failure.
+ */
+export async function migratePendingEventsToDeviceId(deviceId: string): Promise<number> {
+  const stableId = deviceId.trim();
+  if (!isValidDeviceId(stableId)) {
+    throw new Error("deviceId inválido para migración de cola");
+  }
+
+  const db = await getDb();
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT local_id, device_id, vehicle_id FROM telemetry_queue
+     WHERE status IN ('pending','retry','processing')`,
+  );
+
+  let updated = 0;
+  for (const row of rows) {
+    const current = typeof row.device_id === "string" ? row.device_id.trim() : "";
+    if (isValidDeviceId(current) && current.toLowerCase() === stableId.toLowerCase()) {
+      continue;
+    }
+
+    await db.runAsync(
+      `UPDATE telemetry_queue SET device_id = ?, vehicle_id = ? WHERE local_id = ?`,
+      stableId,
+      stableId,
+      row.local_id as number,
+    );
+    updated += 1;
+  }
+
+  return updated;
 }
 
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
-  const deviceId =
+  const rawDeviceId =
     (typeof row.device_id === "string" && row.device_id.trim())
       ? row.device_id.trim()
-      : String(row.vehicle_id ?? "");
+      : "";
+  const deviceId = isValidDeviceId(rawDeviceId)
+    ? rawDeviceId
+    : (isValidDeviceId(String(row.vehicle_id ?? ""))
+      ? String(row.vehicle_id).trim()
+      : rawDeviceId || String(row.vehicle_id ?? ""));
 
   return {
     localId: row.local_id as number,
@@ -106,6 +171,7 @@ function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
     createdAt: row.created_at as string,
   };
 }
+
 
 function logQueueStateConflict(operation: string, expected: number, affected: number): void {
   if (expected !== affected) {
