@@ -162,8 +162,9 @@ static bool IsTelemetryIngestRequest(HttpContext context)
         return false;
 
     var path = context.Request.Path;
+    // Coincidencia exacta: no aplicar cuota de ingesta a /api/telemetry/batch/admin ni batch-test.
     return path.Equals("/api/telemetry", StringComparison.OrdinalIgnoreCase)
-           || path.StartsWithSegments("/api/telemetry/batch");
+           || path.Equals("/api/telemetry/batch", StringComparison.OrdinalIgnoreCase);
 }
 
 static bool TryNormalizeDeviceId(string? raw, out string normalized)
@@ -173,10 +174,17 @@ static bool TryNormalizeDeviceId(string? raw, out string normalized)
         return false;
 
     var trimmed = raw.Trim();
-    if (trimmed.Length is < 8 or > 128)
+    if (trimmed.Contains('\n') || trimmed.Contains('\r'))
         return false;
 
-    if (trimmed.Contains('\n') || trimmed.Contains('\r'))
+    // Normaliza UUIDs a formato D para particionar la misma identidad con distintos casing/formatos.
+    if (Guid.TryParse(trimmed, out var deviceGuid) && deviceGuid != Guid.Empty)
+    {
+        normalized = deviceGuid.ToString("D");
+        return true;
+    }
+
+    if (trimmed.Length is < 8 or > 128)
         return false;
 
     foreach (var ch in trimmed)

@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace FleetTelemetry.Api.Identity;
 
 /// <summary>
-/// Valida coherencia entre payload.deviceId, X-Device-Id y claim device_id.
+/// Valida coherencia entre deviceId (payload/ruta), X-Device-Id y claim device_id.
 /// </summary>
 public static class TelemetryDeviceIdentityGuard
 {
@@ -38,14 +38,23 @@ public static class TelemetryDeviceIdentityGuard
         }
 
         var deviceClaim = httpContext.User.FindFirstValue("device_id");
-        if (!string.IsNullOrWhiteSpace(deviceClaim)
-            && TryParseDeviceGuid(deviceClaim, out var claimId)
-            && claimId != payloadDeviceId)
+        if (!string.IsNullOrWhiteSpace(deviceClaim))
         {
-            return new ObjectResult(new { error = "Authenticated device_id does not match payload deviceId." })
+            if (!TryParseDeviceGuid(deviceClaim, out var claimId))
             {
-                StatusCode = StatusCodes.Status403Forbidden
-            };
+                return new ObjectResult(new { error = "Authenticated device_id is invalid." })
+                {
+                    StatusCode = StatusCodes.Status403Forbidden
+                };
+            }
+
+            if (claimId != payloadDeviceId)
+            {
+                return new ObjectResult(new { error = "Authenticated device_id does not match payload deviceId." })
+                {
+                    StatusCode = StatusCodes.Status403Forbidden
+                };
+            }
         }
 
         return null;
