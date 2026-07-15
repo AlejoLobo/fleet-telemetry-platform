@@ -114,33 +114,10 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
             await seed.ExecuteNonQueryAsync();
         }
 
-        await using (var sync = connection.CreateCommand())
-        {
-            sync.CommandText = """
-                SELECT setval(
-                    'fleet_vehicle_name_seq',
-                    COALESCE((
-                        SELECT MAX(substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint)
-                        FROM fleet_devices
-                        WHERE vehicle_name ~ '^VH-[0-9]+$'
-                    ), 0),
-                    true
-                );
-                """;
-            await sync.ExecuteNonQueryAsync();
-        }
+        await SyncSequenceWithProductionLogicAsync(connection);
 
-        var services = new ServiceCollection();
-        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
-        services.AddDbContext<FleetDbContext>(options => options.UseNpgsql(_database.ConnectionString));
-        services.AddSingleton<TimeProvider>(TimeProvider.System);
-        services.AddScoped<IDeviceRegistry, FleetTelemetry.Infrastructure.Repositories.TimescaleDeviceRegistry>();
-        await using var provider = services.BuildServiceProvider();
-
-        using var scope = provider.CreateScope();
-        var registry = scope.ServiceProvider.GetRequiredService<IDeviceRegistry>();
-        var registered = await registry.RegisterDeviceAsync(Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
-
+        var registered = await RegisterWithFreshScopeAsync(
+            Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
         Assert.Equal("VH-101", registered.VehicleName);
     }
 
@@ -154,38 +131,96 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
 
         await using (var truncate = connection.CreateCommand())
         {
-            truncate.CommandText = "TRUNCATE TABLE fleet_devices RESTART IDENTITY CASCADE;";
+            truncate.CommandText = "TRUNCATE TABLE fleet_devices;";
             await truncate.ExecuteNonQueryAsync();
         }
 
-        await using (var sync = connection.CreateCommand())
+        await SyncSequenceWithProductionLogicAsync(connection);
+
+        var registered = await RegisterWithFreshScopeAsync(
+            Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"));
+        Assert.Equal("VH-001", registered.VehicleName);
+    }
+
+    [Fact]
+    public async Task Free_text_names_without_vh_prefix_yield_vh001()
+    {
+        await DatabaseInitializer.InitializeAsync(_services);
+
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var seed = connection.CreateCommand())
         {
-            sync.CommandText = """
-                SELECT setval(
-                    'fleet_vehicle_name_seq',
-                    COALESCE((
-                        SELECT MAX(substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint)
-                        FROM fleet_devices
-                        WHERE vehicle_name ~ '^VH-[0-9]+$'
-                    ), 0),
-                    true
-                );
+            seed.CommandText = """
+                TRUNCATE TABLE fleet_devices;
+                INSERT INTO fleet_devices (device_id, vehicle_name, created_at, updated_at)
+                VALUES
+                    (gen_random_uuid(), 'Camión Norte', NOW(), NOW()),
+                    (gen_random_uuid(), 'Unidad Sur', NOW(), NOW());
                 """;
-            await sync.ExecuteNonQueryAsync();
+            await seed.ExecuteNonQueryAsync();
         }
 
+        await SyncSequenceWithProductionLogicAsync(connection);
+
+        var registered = await RegisterWithFreshScopeAsync(
+            Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"));
+        Assert.Equal("VH-001", registered.VehicleName);
+    }
+
+    [Fact]
+    public async Task Sequence_sync_reentry_preserves_next_allocation()
+    {
+        await DatabaseInitializer.InitializeAsync(_services);
+        await DatabaseInitializer.InitializeAsync(_services);
+
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+        await SyncSequenceWithProductionLogicAsync(connection);
+
+        var first = await RegisterWithFreshScopeAsync(
+            Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+        Assert.Equal("VH-001", first.VehicleName);
+
+        await SyncSequenceWithProductionLogicAsync(connection);
+        var second = await RegisterWithFreshScopeAsync(
+            Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+        Assert.Equal("VH-002", second.VehicleName);
+    }
+
+    private static async Task SyncSequenceWithProductionLogicAsync(NpgsqlConnection connection)
+    {
+        await using var sync = connection.CreateCommand();
+        sync.CommandText = """
+            WITH current_max AS (
+                SELECT MAX(
+                    substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint
+                ) AS value
+                FROM fleet_devices
+                WHERE vehicle_name ~ '^VH-[0-9]+$'
+            )
+            SELECT setval(
+                'fleet_vehicle_name_seq',
+                COALESCE(value, 1),
+                value IS NOT NULL
+            )
+            FROM current_max;
+            """;
+        await sync.ExecuteNonQueryAsync();
+    }
+
+    private async Task<FleetTelemetry.Domain.Entities.FleetDevice> RegisterWithFreshScopeAsync(Guid deviceId)
+    {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
         services.AddDbContext<FleetDbContext>(options => options.UseNpgsql(_database.ConnectionString));
         services.AddSingleton<TimeProvider>(TimeProvider.System);
         services.AddScoped<IDeviceRegistry, FleetTelemetry.Infrastructure.Repositories.TimescaleDeviceRegistry>();
         await using var provider = services.BuildServiceProvider();
-
         using var scope = provider.CreateScope();
         var registry = scope.ServiceProvider.GetRequiredService<IDeviceRegistry>();
-        var registered = await registry.RegisterDeviceAsync(Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"));
-
-        Assert.Equal("VH-001", registered.VehicleName);
+        return await registry.RegisterDeviceAsync(deviceId);
     }
 
     private static async Task<bool> SchemaVersionExistsAsync(NpgsqlConnection connection, int version)
