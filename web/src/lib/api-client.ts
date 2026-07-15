@@ -7,6 +7,9 @@ import {
   type FleetSnapshotResult,
   type TelemetrySnapshotResult,
 } from "@/lib/fleet-pagination";
+import { ApiError, readRetryAfterSeconds } from "@/lib/http-error";
+
+export { ApiError } from "@/lib/http-error";
 
 type LoginResponse = {
   token: string;
@@ -17,31 +20,11 @@ type AuthStatusResponse = {
   enabled: boolean;
 };
 
-/** Error HTTP con código de estado. */
-export class ApiError extends Error {
-  readonly status: number;
-  readonly retryAfterSeconds?: number;
-
-  constructor(message: string, status: number, retryAfterSeconds?: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.retryAfterSeconds = retryAfterSeconds;
-  }
-}
-
 /** Obtiene el token JWT del almacenamiento local. */
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const token = localStorage.getItem("fleet_api_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function readRetryAfterSeconds(response: Response): number | undefined {
-  const raw = response.headers.get("Retry-After");
-  if (!raw) return undefined;
-  const seconds = Number(raw);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 /** Realiza petición GET/POST y parsea JSON. */

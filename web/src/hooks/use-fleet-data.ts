@@ -149,22 +149,13 @@ export function useFleetData(selectedVehicleId: string | null) {
     } catch (error) {
       if (!isCurrentGeneration(generation)) return false;
       const message = resolveFleetFetchError(error);
-      setState((prev) => {
-        if (options?.silent && prev.vehicles.length > 0) {
-          return {
-            ...prev,
-            fleetLoading: false,
-            fleetError: message,
-          };
-        }
-        return {
-          ...prev,
-          fleetLoading: false,
-          fleetError: message,
-          dataSource: "api",
-        };
-      });
-      return true;
+      setState((previous) => ({
+        ...previous,
+        fleetLoading: false,
+        fleetError: message,
+        dataSource: "api",
+      }));
+      return false;
     }
   }, []);
 
@@ -213,10 +204,11 @@ export function useFleetData(selectedVehicleId: string | null) {
       if (requestId !== telemetryRequestIdRef.current) return;
       if (!isCurrentGeneration(generation)) return;
 
+      const message = resolveFleetFetchError(error);
       setState((prev) => ({
         ...prev,
         telemetryLoading: false,
-        telemetryError: error instanceof Error ? error.message : "Error al cargar telemetría",
+        telemetryError: message,
       }));
     }
   }, []);

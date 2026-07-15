@@ -46,6 +46,8 @@ Abre http://localhost:3000
 - **KafkaPush** es el modo predeterminado del backend (eventos canónicos como `vehicle-update`).
 - **Polling** es un modo alternativo configurable en el servidor.
 - El cliente Web cubre replay/`Last-Event-ID`, `stream-reset`, resync por snapshot y protección contra cargas obsoletas.
+- El mapa y el estado de vehículos se actualizan por SSE.
+- La tabla histórica se actualiza mediante carga inicial, selección, actualización manual o resync.
 - Detalle de contrato: [../docs/realtime-sse.md](../docs/realtime-sse.md).
 
 ## Funcionalidades
