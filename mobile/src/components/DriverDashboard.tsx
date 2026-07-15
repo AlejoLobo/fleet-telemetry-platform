@@ -10,17 +10,8 @@ import {
   View,
 } from "react-native";
 import { getDefaultDriverId } from "@/config/env";
-import {
-  DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
-  TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS,
-  type TelemetryCaptureIntervalSeconds,
-} from "@/config/telemetry-capture-rate";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
-import {
-  loadCaptureIntervalSeconds,
-  saveCaptureIntervalSeconds,
-} from "@/services/capture-interval-store";
 import { loadOrCreateDeviceId, DeviceIdentityStorageError } from "@/services/device-id-store";
 import { loadCachedVehicleName } from "@/services/device-profile-store";
 import { ensureDeviceRegistered, updateVehicleDisplayName } from "@/services/device-registry";
@@ -36,26 +27,13 @@ const AUTH_STATUS_LABELS: Record<string, string> = {
   auth_status_error: "Auth status desconocido — sincronización bloqueada",
 };
 
-const CAPTURE_INTERVAL_LABELS: Record<TelemetryCaptureIntervalSeconds, string> = {
-  3: "Cada 3 segundos",
-  5: "Cada 5 segundos",
-  10: "Cada 10 segundos",
-  15: "Cada 15 segundos",
-};
-
 /** Reglas de habilitación del botón de tracking (comprobables en tests). */
 export function isStartTrackingDisabled(options: {
   busy: boolean;
-  intervalReady: boolean;
   deviceIdReady: boolean;
   deviceId: string | null;
 }): boolean {
-  return (
-    options.busy
-    || !options.intervalReady
-    || !options.deviceIdReady
-    || !options.deviceId
-  );
+  return options.busy || !options.deviceIdReady || !options.deviceId;
 }
 
 export function DriverDashboard() {
@@ -67,9 +45,6 @@ export function DriverDashboard() {
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [captureIntervalSeconds, setCaptureIntervalSeconds] =
-    useState<TelemetryCaptureIntervalSeconds>(DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS);
-  const [intervalReady, setIntervalReady] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deviceIdReady, setDeviceIdReady] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
@@ -92,18 +67,11 @@ export function DriverDashboard() {
     deviceId ?? "",
     driverId.trim(),
     auth.canSync,
-    captureIntervalSeconds,
   );
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const loadedInterval = await loadCaptureIntervalSeconds();
-      if (!cancelled) {
-        setCaptureIntervalSeconds(loadedInterval);
-        setIntervalReady(true);
-      }
-
       try {
         const [loadedDeviceId, cachedName] = await Promise.all([
           loadOrCreateDeviceId(),
@@ -159,12 +127,6 @@ export function DriverDashboard() {
     };
   }, [deviceId, identityError, auth.canSync, isOnline]);
 
-  const handleCaptureIntervalChange = async (seconds: TelemetryCaptureIntervalSeconds) => {
-    if (tracking || !intervalReady) return;
-    setCaptureIntervalSeconds(seconds);
-    await saveCaptureIntervalSeconds(seconds);
-  };
-
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     try {
@@ -203,10 +165,9 @@ export function DriverDashboard() {
   };
 
   const syncPausedByAuth = auth.enabled && !auth.canSync;
-  const deviceConfigLoading = !intervalReady || !deviceIdReady;
+  const deviceConfigLoading = !deviceIdReady;
   const startDisabled = isStartTrackingDisabled({
     busy,
-    intervalReady,
     deviceIdReady,
     deviceId,
   });
@@ -217,6 +178,7 @@ export function DriverDashboard() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Fleet Telemetry — Conductor</Text>
       <Text style={styles.subtitle}>Cola offline-first con SQLite y sync batch</Text>
+      <Text style={styles.meta}>Captura fija cada 5 segundos (SQLite → sync).</Text>
 
       <View style={styles.card}>
         <Text style={styles.section}>Autenticación</Text>
@@ -275,43 +237,6 @@ export function DriverDashboard() {
           onChangeText={setDriverId}
           editable={!tracking}
         />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.section}>Frecuencia de registro</Text>
-        <Text style={styles.meta}>
-          Seleccionado: {CAPTURE_INTERVAL_LABELS[captureIntervalSeconds]}
-        </Text>
-        {deviceConfigLoading && (
-          <Text style={styles.meta}>Cargando configuración del dispositivo…</Text>
-        )}
-        <View style={styles.intervalRow}>
-          {TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS.map((seconds) => {
-            const selected = seconds === captureIntervalSeconds;
-            const chipDisabled = tracking || busy || !intervalReady;
-            return (
-              <Pressable
-                key={seconds}
-                disabled={chipDisabled}
-                onPress={() => {
-                  void handleCaptureIntervalChange(seconds);
-                }}
-                style={[
-                  styles.intervalChip,
-                  selected && styles.intervalChipSelected,
-                  chipDisabled && styles.intervalChipDisabled,
-                ]}
-              >
-                <Text style={[styles.intervalChipText, selected && styles.intervalChipTextSelected]}>
-                  {CAPTURE_INTERVAL_LABELS[seconds]}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {tracking && (
-          <Text style={styles.warn}>Detén el tracking para cambiar la frecuencia de registro.</Text>
-        )}
       </View>
 
       <View style={styles.row}>
@@ -428,19 +353,6 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, color: "#64748b", marginBottom: 4 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  intervalRow: { gap: 8 },
-  intervalChip: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#f8fafc",
-  },
-  intervalChipSelected: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
-  intervalChipDisabled: { opacity: 0.5 },
-  intervalChipText: { fontSize: 13, fontWeight: "600", color: "#334155" },
-  intervalChipTextSelected: { color: "#1d4ed8" },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgeText: { fontSize: 12, fontWeight: "600" },
   actions: { gap: 10 },
