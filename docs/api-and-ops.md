@@ -121,3 +121,13 @@ Tools internas + pulido OpenAI opcional si hay `OpenAI__ApiKey`.
 | OpenAI | Timeout 20s + circuit breaker; fallback a respuesta operativa |
 
 Si Kafka está abierto, ingesta → `503` + `Retry-After`.
+
+## Rate limiting
+
+- Default: `RateLimiting__Enabled=false` (monitor y flota móvil sin cuota artificial).
+- Si se activa, quedan **exentos**:
+  - `/health/*`
+  - SSE `/api/events/stream`
+  - **Ingesta** `POST /api/telemetry` y `POST /api/telemetry/batch`
+- Motivo: N dispositivos pueden publicar cada ~3 s (a menudo tras el mismo NAT). La capacidad real la acotan Kafka, Worker y TimescaleDB, no un fixed-window por IP.
+- Carga orientativa: `k6 run -e DEVICES=100 -e INTERVAL_SECONDS=3 load-tests/telemetry-fleet-3s.js`

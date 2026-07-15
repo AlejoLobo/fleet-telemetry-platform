@@ -119,6 +119,14 @@ if (rateLimitOptions.Enabled)
                 return RateLimitPartition.GetNoLimiter("sse");
             }
 
+            // Ingesta de flota (N dispositivos cada ~3 s): nunca aplicar cuota por IP.
+            // La capacidad real la acotan Kafka, el Worker y TimescaleDB.
+            if (HttpMethods.IsPost(httpContext.Request.Method)
+                && path.StartsWith("/api/telemetry", StringComparison.OrdinalIgnoreCase))
+            {
+                return RateLimitPartition.GetNoLimiter("telemetry-ingest");
+            }
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 factory: _ => new FixedWindowRateLimiterOptions

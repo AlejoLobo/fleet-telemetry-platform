@@ -93,6 +93,8 @@ FT-004 (read model + paginación): `FleetVehicleStateIntegrationTests`, `FleetPa
 ```bash
 ./scripts/smoke-test.ps1
 k6 run load-tests/telemetry-ingest.js
+# Flota: 1 VU ≈ 1 dispositivo, 1 POST cada 3 s
+k6 run -e DEVICES=100 -e INTERVAL_SECONDS=3 -e DURATION=60s load-tests/telemetry-fleet-3s.js
 ```
 
 ## CI
