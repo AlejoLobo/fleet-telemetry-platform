@@ -39,6 +39,13 @@ public static class ConfigurationValidator
         if (environment.IsDevelopment())
             return;
 
+        // Production: enrolamiento demo nunca permitido.
+        if (auth.AllowDemoDeviceEnrollment)
+        {
+            throw new InvalidOperationException(
+                "Auth:AllowDemoDeviceEnrollment debe ser false en Production.");
+        }
+
         var timescale = configuration.GetSection(TimescaleDbOptions.SectionName).Get<TimescaleDbOptions>();
         if (timescale?.ConnectionString?.Contains(DefaultDbPassword, StringComparison.OrdinalIgnoreCase) == true)
         {

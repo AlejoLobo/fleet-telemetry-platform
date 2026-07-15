@@ -31,6 +31,22 @@ public class DeviceTokenAuthIntegrationTests
     private static readonly Guid DeviceB = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task Device_token_rejects_when_demo_enrollment_disabled()
+    {
+        using var factory = CreateFactory(authEnabled: true, allowDemoEnrollment: false);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/auth/device-token",
+            new DeviceTokenRequest(DeviceA, factory.DemoUsername, factory.DemoPassword));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("deshabilitado", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(factory.DemoPassword, payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Device_token_endpoint_emits_jwt_with_device_claims()
     {
         using var factory = CreateFactory(authEnabled: true);
@@ -244,14 +260,23 @@ public class DeviceTokenAuthIntegrationTests
             80,
             "gps");
 
-    private static DeviceTokenWebApplicationFactory CreateFactory(bool authEnabled, bool withAdmin = false) =>
-        new() { AuthEnabled = authEnabled, WithAdmin = withAdmin };
+    private static DeviceTokenWebApplicationFactory CreateFactory(
+        bool authEnabled,
+        bool withAdmin = false,
+        bool allowDemoEnrollment = true) =>
+        new()
+        {
+            AuthEnabled = authEnabled,
+            WithAdmin = withAdmin,
+            AllowDemoEnrollment = allowDemoEnrollment,
+        };
 }
 
 public sealed class DeviceTokenWebApplicationFactory : WebApplicationFactory<Program>
 {
     public bool AuthEnabled { get; init; }
     public bool WithAdmin { get; init; }
+    public bool AllowDemoEnrollment { get; init; } = true;
     public string DemoUsername => "admin";
     public string DemoPassword => "admin123";
     public string AdminUsername => "fleet-admin";
@@ -269,6 +294,7 @@ public sealed class DeviceTokenWebApplicationFactory : WebApplicationFactory<Pro
         builder.UseSetting("Auth:DemoPassword", DemoPassword);
         builder.UseSetting("Auth:AdminUsername", WithAdmin ? AdminUsername : "");
         builder.UseSetting("Auth:AdminPassword", WithAdmin ? AdminPassword : "");
+        builder.UseSetting("Auth:AllowDemoDeviceEnrollment", AllowDemoEnrollment.ToString());
         builder.UseSetting("TimescaleDb:ConnectionString", "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet");
         builder.UseSetting("Kafka:BootstrapServers", "localhost:19092");
         builder.UseSetting("RateLimiting:Enabled", "false");
@@ -284,6 +310,7 @@ public sealed class DeviceTokenWebApplicationFactory : WebApplicationFactory<Pro
                 ["Auth:DemoPassword"] = DemoPassword,
                 ["Auth:AdminUsername"] = WithAdmin ? AdminUsername : "",
                 ["Auth:AdminPassword"] = WithAdmin ? AdminPassword : "",
+                ["Auth:AllowDemoDeviceEnrollment"] = AllowDemoEnrollment.ToString(),
                 ["TimescaleDb:ConnectionString"] = "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet",
                 ["Kafka:BootstrapServers"] = "localhost:19092",
                 ["RateLimiting:Enabled"] = "false",
