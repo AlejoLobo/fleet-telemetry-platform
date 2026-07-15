@@ -140,9 +140,9 @@ export function FleetStatusPanel({
                     )}
                   </div>
                   <p className="truncate text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
-                  {vehicle.driverId && (
+                  {vehicle.driverId ? (
                     <p className="truncate text-xs text-slate-500">Conductor: {vehicle.driverId}</p>
-                  )}
+                  ) : null}
                   <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
                     <span className="flex items-center gap-1">
                       <Gauge className="h-3 w-3" />

@@ -126,7 +126,13 @@ export function LeafletFleetMap({
             <Popup>
               <strong>{getVehicleDisplayName(vehicle)}</strong>
               <br />
-              <span className="text-slate-600">ID: {vehicle.vehicleId}</span>
+              <span className="text-slate-500">ID: {vehicle.vehicleId}</span>
+              {vehicle.driverId ? (
+                <>
+                  <br />
+                  <span className="text-slate-500">Conductor: {vehicle.driverId}</span>
+                </>
+              ) : null}
               <br />
               <span className="text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</span>
               <br />

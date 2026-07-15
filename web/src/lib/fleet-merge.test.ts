@@ -23,13 +23,27 @@ function vehicle(
 }
 
 describe("mergeVehicleUpdates", () => {
-  it("Vehicle_update_individual_actualiza_solo_un_vehiculo", () => {
-    const snapshot = [vehicle("VH-001"), vehicle("VH-002", { status: "offline" })];
-    const updates = [vehicle("VH-001", { status: "offline" })];
+  it("SSE_con_Name_igual_a_VehicleId_no_borra_nombre_operativo", () => {
+    const snapshot = [
+      vehicle("device-1", {
+        name: "Camión norte",
+        lastSeenAt: "2026-07-10T10:00:00Z",
+        driverId: "Ana",
+      }),
+    ];
+    const updates = [
+      vehicle("device-1", {
+        name: "device-1",
+        lastSeenAt: "2026-07-10T10:05:00Z",
+        lastSpeedKmh: 60,
+        driverId: null,
+      }),
+    ];
 
     const merged = mergeVehicleUpdates(snapshot, updates);
-    expect(merged.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
-    expect(merged.find((v) => v.vehicleId === "VH-002")?.status).toBe("offline");
+    expect(merged.find((v) => v.vehicleId === "device-1")?.name).toBe("Camión norte");
+    expect(merged.find((v) => v.vehicleId === "device-1")?.driverId).toBe("Ana");
+    expect(merged.find((v) => v.vehicleId === "device-1")?.lastSpeedKmh).toBe(60);
   });
 
   it("Actualizacion_no_elimina_los_demas_vehiculos", () => {

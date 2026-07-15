@@ -114,7 +114,9 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             SET
                 "LastEventId" = EXCLUDED."LastEventId",
                 "DriverId" = EXCLUDED."DriverId",
-                "DisplayName" = COALESCE(EXCLUDED."DisplayName", fleet_vehicle_state."DisplayName"),
+                "DisplayName" = COALESCE(
+                    EXCLUDED."DisplayName",
+                    NULLIF(fleet_vehicle_state."DisplayName", fleet_vehicle_state."VehicleId")),
                 "LastTimestamp" = EXCLUDED."LastTimestamp",
                 "Latitude" = EXCLUDED."Latitude",
                 "Longitude" = EXCLUDED."Longitude",
@@ -252,9 +254,23 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     now,
                     _queryLimits.GetOnlineWindow());
 
+                var publishedName = telemetryEvent.VehicleName;
+                if (string.IsNullOrWhiteSpace(publishedName))
+                {
+                    publishedName = await _dbContext.FleetVehicleStates.AsNoTracking()
+                        .Where(state => state.VehicleId == telemetryEvent.VehicleId)
+                        .Select(state => state.DisplayName)
+                        .FirstOrDefaultAsync(cancellationToken);
+                }
+
+                if (string.Equals(publishedName, telemetryEvent.VehicleId, StringComparison.OrdinalIgnoreCase))
+                {
+                    publishedName = null;
+                }
+
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     telemetryEvent.VehicleId,
-                    telemetryEvent.VehicleName ?? telemetryEvent.VehicleId,
+                    publishedName ?? string.Empty,
                     connectivityStatus,
                     telemetryEvent.Timestamp,
                     telemetryEvent.SpeedKmh,

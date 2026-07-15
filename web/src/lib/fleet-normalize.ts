@@ -20,9 +20,12 @@ type RawVehicle = VehicleStatus & {
 /** Normaliza un vehículo del API (PascalCase → camelCase). */
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   const vehicleId = vehicle.vehicleId ?? vehicle.VehicleId ?? "";
+  const rawName = (vehicle.name ?? vehicle.Name ?? "").trim();
+  // Nunca promover el device/vehicle ID a "name": el título debe ser el nombre operativo.
+  const name = rawName && rawName !== vehicleId ? rawName : "";
   return {
     vehicleId,
-    name: vehicle.name ?? vehicle.Name ?? vehicleId,
+    name,
     driverId: vehicle.driverId ?? vehicle.DriverId ?? null,
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,

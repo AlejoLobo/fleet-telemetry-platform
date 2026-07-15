@@ -170,6 +170,7 @@ describe("FleetStatusPanel vehicle labels", () => {
             lastSpeedKmh: 40,
             lastLatitude: 4.6,
             lastLongitude: -74.0,
+            driverId: "Ana López",
           },
           {
             vehicleId: "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -179,6 +180,7 @@ describe("FleetStatusPanel vehicle labels", () => {
             lastSpeedKmh: 40,
             lastLatitude: 4.6,
             lastLongitude: -74.0,
+            driverId: "Luis",
           },
         ]}
       />,
@@ -188,5 +190,14 @@ describe("FleetStatusPanel vehicle labels", () => {
     expect(screen.getByText("Camión norte")).toBeTruthy();
     expect(screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
     expect(screen.getByText("ID: bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
+    expect(screen.getByText("Conductor: Ana López")).toBeTruthy();
+    expect(screen.getByText("Conductor: Luis")).toBeTruthy();
+
+    // El device ID no debe usarse como título del vehículo.
+    const idLine = screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    expect(idLine.className).toContain("text-xs");
+    expect(idLine.className).toContain("text-slate-500");
+    const driverLine = screen.getByText("Conductor: Ana López");
+    expect(driverLine.className).toBe(idLine.className);
   });
 });

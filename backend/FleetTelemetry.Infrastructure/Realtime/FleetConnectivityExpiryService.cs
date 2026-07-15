@@ -150,10 +150,16 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
     private static VehicleLatestStatusResponse BuildOfflinePayload(
         FleetVehicleStateRecord state,
-        DateTimeOffset evaluatedAt) =>
-        new(
+        DateTimeOffset evaluatedAt)
+    {
+        var name = string.IsNullOrWhiteSpace(state.DisplayName)
+            || string.Equals(state.DisplayName, state.VehicleId, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : state.DisplayName!;
+
+        return new(
             state.VehicleId,
-            string.IsNullOrWhiteSpace(state.DisplayName) ? state.VehicleId : state.DisplayName!,
+            name,
             VehicleConnectivityStatus.Offline,
             state.LastTimestamp,
             state.SpeedKmh,
@@ -164,4 +170,5 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
             state.LastEventId,
             evaluatedAt,
             state.DriverId);
+    }
 }

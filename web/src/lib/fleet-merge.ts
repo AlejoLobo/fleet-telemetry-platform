@@ -1,4 +1,5 @@
 import type { VehicleStatus } from "@/types/fleet";
+import { resolveVehicleName } from "@/lib/vehicle-display";
 
 function parseLastSeenAt(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -55,7 +56,14 @@ function compareVehicleRecency(left: VehicleStatus, right: VehicleStatus): numbe
 }
 
 function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): VehicleStatus {
-  return compareVehicleRecency(incoming, current) >= 0 ? incoming : current;
+  const newer = compareVehicleRecency(incoming, current) >= 0 ? incoming : current;
+  const older = newer === incoming ? current : incoming;
+  // SSE a veces manda Name=VehicleId; no debe borrar el nombre operativo ya conocido.
+  return {
+    ...newer,
+    name: resolveVehicleName(newer.name, older.name, newer.vehicleId),
+    driverId: newer.driverId ?? older.driverId,
+  };
 }
 
 /** Fusiona actualizaciones por VehicleId conservando el registro más reciente. */

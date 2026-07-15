@@ -46,6 +46,12 @@ public sealed class TelemetryEvent
         _batteryLevel = batteryLevel;
         LocationSource = locationSource;
         VehicleName = string.IsNullOrWhiteSpace(vehicleName) ? null : vehicleName.Trim();
+        if (VehicleName is not null
+            && string.Equals(VehicleName, _vehicleId.Value, StringComparison.OrdinalIgnoreCase))
+        {
+            // Evita persistir el ID de dispositivo como nombre visible.
+            VehicleName = null;
+        }
     }
 
     public static bool TryCreate(
