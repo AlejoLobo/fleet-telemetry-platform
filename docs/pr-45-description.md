@@ -62,6 +62,20 @@ dotnet test backend/FleetTelemetry.Application.Tests --configuration Release
 
 ## Base del PR
 
-`feature/device-identity` → **`develop`**
+`feature/device-identity` → **`develop`** (recomendado; evita arrastrar el histórico de `main`).
+
+Estado del token CI de este entorno: **solo lectura** sobre Pull Requests (`pull_requests=read`). Por eso `gh pr edit` / `PATCH /pulls/45` fallan con `403 Resource not accessible by integration`.
+
+Aplicar desde una cuenta con escritura:
+
+```bash
+gh pr edit 45 --base develop --title "feat: identidad DeviceId + correcciones móvil/web (SQLite, sync, tasas 5-20)" --body-file docs/pr-45-description.md
+# o
+gh api --method PATCH repos/AlejoLobo/fleet-telemetry-platform/pulls/45 \
+  -f base=develop \
+  -f title='feat: identidad DeviceId + correcciones móvil/web (SQLite, sync, tasas 5-20)' \
+  -f body="$(cat docs/pr-45-description.md)"
+gh pr view 45 --json baseRefName,title,body
+```
 
 No se realizó merge ni fusión de ramas.
