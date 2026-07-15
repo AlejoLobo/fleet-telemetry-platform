@@ -2,8 +2,8 @@
 
 /** Estado actual de un vehículo en la flota. */
 export type VehicleStatus = {
-  vehicleId: string;
-  name: string;
+  deviceId: string;
+  vehicleName: string;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;
@@ -18,7 +18,7 @@ export type VehicleStatus = {
 /** Alerta operativa de un vehículo. */
 export type FleetAlert = {
   alertId: string;
-  vehicleId: string;
+  deviceId: string;
   alertType: string;
   severity: string;
   message: string;
@@ -29,7 +29,7 @@ export type FleetAlert = {
 /** Evento de telemetría GPS y sensores. */
 export type TelemetryEvent = {
   eventId: string;
-  vehicleId: string;
+  deviceId: string;
   driverId: string | null;
   timestamp: string;
   latitude: number;
@@ -37,6 +37,7 @@ export type TelemetryEvent = {
   speedKmh: number;
   fuelLevelPercent: number | null;
   batteryPercent: number | null;
+  locationSource?: string | null;
 };
 
 /** Respuesta del agente IA a una consulta. */

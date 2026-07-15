@@ -9,6 +9,7 @@ import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
 import { applyLocalConnectivity } from "@/lib/local-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
+import { mockDeviceId } from "@/mocks/fleet-data";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -25,7 +26,7 @@ import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 const CONNECTIVITY_TICK_MS = 5_000;
 
 export default function DashboardPage() {
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("VH-001");
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(mockDeviceId(0));
   const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
@@ -81,7 +82,7 @@ export default function DashboardPage() {
     refreshForResync,
     loadFromApi,
     loadDemoData,
-  } = useFleetData(selectedVehicleId);
+  } = useFleetData(selectedDeviceId);
 
   const { connectionState } = useSseStream({
     enabled: dataSource === "api",
@@ -97,21 +98,21 @@ export default function DashboardPage() {
       setLiveVehiclePatches([]);
       setLiveAlerts([]);
       setAlertsAttention(false);
-      const result = await refreshForResync(selectedVehicleId);
-      setSelectedVehicleId(result.resolvedVehicleId);
+      const result = await refreshForResync(selectedDeviceId);
+      setSelectedDeviceId(result.resolvedDeviceId);
     },
   });
 
   useEffect(() => {
     if (vehicles.length === 0) {
-      if (selectedVehicleId !== null) setSelectedVehicleId(null);
+      if (selectedDeviceId !== null) setSelectedDeviceId(null);
       return;
     }
 
-    if (!selectedVehicleId || !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
-      setSelectedVehicleId(vehicles[0].vehicleId);
+    if (!selectedDeviceId || !vehicles.some((v) => v.deviceId === selectedDeviceId)) {
+      setSelectedDeviceId(vehicles[0].deviceId);
     }
-  }, [vehicles, selectedVehicleId]);
+  }, [vehicles, selectedDeviceId]);
 
   const resetLiveViewState = () => {
     setLiveVehiclePatches([]);
@@ -158,10 +159,10 @@ export default function DashboardPage() {
 
   const criticalAlertCount = displayAlerts.filter((a) => esSeveridadCritica(a.severity)).length;
 
-  const handleFocusVehicle = (vehicleId: string) => {
-    setSelectedVehicleId(vehicleId);
+  const handleFocusVehicle = (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
     setMapAutoFit(false);
-    setMapFocus({ vehicleId, tick: Date.now() });
+    setMapFocus({ deviceId, tick: Date.now() });
   };
 
   const handleAcknowledgeAlert = async (alertId: string) => {
@@ -182,6 +183,8 @@ export default function DashboardPage() {
       setAcknowledgingId(null);
     }
   };
+
+  const selectedVehicle = displayVehicles.find((v) => v.deviceId === selectedDeviceId) ?? null;
 
   return (
     <div className="dashboard-grid-bg min-h-screen">
@@ -204,6 +207,7 @@ export default function DashboardPage() {
       <AlertsModal
         open={alertsOpen}
         alerts={displayAlerts}
+        vehicles={displayVehicles}
         onClose={() => setAlertsOpen(false)}
         onAcknowledge={dataSource === "api" ? handleAcknowledgeAlert : undefined}
         acknowledgingId={acknowledgingId}
@@ -242,7 +246,7 @@ export default function DashboardPage() {
           <div className="xl:col-span-8">
             <FleetMapPanel
               vehicles={displayVehicles}
-              selectedVehicleId={selectedVehicleId}
+              selectedDeviceId={selectedDeviceId}
               focusTarget={mapFocus}
               autoFit={mapAutoFit}
             />
@@ -250,19 +254,19 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-6 xl:col-span-4">
             <FleetStatusPanel
               vehicles={displayVehicles}
-              selectedVehicleId={selectedVehicleId}
+              selectedDeviceId={selectedDeviceId}
               fleetTruncated={fleetTruncated}
               aggregationSource={globalAnalytics.aggregationSource}
               totalVehiclesGlobal={globalAnalytics.totalVehicles}
               activeVehiclesGlobal={globalAnalytics.activeVehicles}
-              onSelectVehicle={setSelectedVehicleId}
+              onSelectVehicle={setSelectedDeviceId}
               onFocusVehicle={handleFocusVehicle}
             />
           </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <TelemetryTable events={telemetry} vehicleId={selectedVehicleId} />
+          <TelemetryTable events={telemetry} vehicle={selectedVehicle} />
           <AiChatPanel useDemoResponses={dataSource === "demo"} />
         </section>
       </main>

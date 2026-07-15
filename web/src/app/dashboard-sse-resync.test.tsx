@@ -32,8 +32,8 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 const vehicle = {
-  vehicleId: "VH-001",
-  name: "VH-001",
+  deviceId: "00000000-0000-4000-8000-000000000001",
+  vehicleName: "00000000-0000-4000-8000-000000000001",
   status: "online",
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 1,
@@ -42,8 +42,8 @@ const vehicle = {
 };
 
 const vehiclePayload = {
-  vehicleId: "VH-LIVE",
-  name: "VH-LIVE",
+  deviceId: "00000000-0000-4000-8000-000000000095",
+  vehicleName: "00000000-0000-4000-8000-000000000095",
   status: "online",
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 40,
@@ -58,13 +58,13 @@ type StreamHandlers = {
 function renderDashboardResyncHook() {
   const onFleetUpdate = vi.fn();
   const hook = renderHook(() => {
-    const fleet = useFleetData("VH-001");
+    const fleet = useFleetData("00000000-0000-4000-8000-000000000001");
     useSseStream({
       enabled: fleet.dataSource === "api",
       authToken: "token",
       onFleetUpdate,
       onStreamReset: async () => {
-        await fleet.refreshForResync("VH-001");
+        await fleet.refreshForResync("00000000-0000-4000-8000-000000000001");
       },
     });
     return { fleet, onFleetUpdate };
@@ -93,7 +93,7 @@ describe("dashboard SSE resync integration", () => {
     });
     fetchAlertsLive.mockResolvedValue([]);
     fetchTelemetrySnapshot.mockResolvedValue({
-      events: [{ eventId: "e1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+      events: [{ eventId: "e1", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
       partial: false,
       truncated: false,
     });

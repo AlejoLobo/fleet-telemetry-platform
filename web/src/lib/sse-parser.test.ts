@@ -6,8 +6,8 @@ import { REALTIME_EVENTS } from "@/lib/realtime-events";
 describe("sse parser canonical contract", () => {
   it("parsea_vehicle_update_individual", () => {
     const payload = JSON.stringify({
-      vehicleId: "VH-001",
-      name: "VH-001",
+      deviceId: "00000000-0000-4000-8000-000000000001",
+      vehicleName: "00000000-0000-4000-8000-000000000001",
       status: "online",
       lastSeenAt: "2026-07-10T10:00:00Z",
       lastSpeedKmh: 45,
@@ -16,14 +16,14 @@ describe("sse parser canonical contract", () => {
     });
 
     const vehicle = parseVehicleUpdatePayload(payload);
-    expect(vehicle?.vehicleId).toBe("VH-001");
+    expect(vehicle?.deviceId).toBe("00000000-0000-4000-8000-000000000001");
     expect(vehicle?.lastSpeedKmh).toBe(45);
   });
 
   it("parsea_fleet_update_array_legacy", () => {
     const payload = JSON.stringify([
-      { vehicleId: "VH-001", status: "online", lastSeenAt: "2026-07-10T10:00:00Z" },
-      { vehicleId: "VH-002", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z" },
+      { deviceId: "00000000-0000-4000-8000-000000000001", status: "online", lastSeenAt: "2026-07-10T10:00:00Z" },
+      { deviceId: "00000000-0000-4000-8000-000000000002", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z" },
     ]);
 
     const vehicles = parseFleetUpdatePayload(payload);

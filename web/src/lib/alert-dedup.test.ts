@@ -4,7 +4,7 @@ import type { FleetAlert } from "@/types/fleet";
 
 const alert = (id: string): FleetAlert => ({
   alertId: id,
-  vehicleId: "VH-001",
+  deviceId: "00000000-0000-4000-8000-000000000001",
   alertType: "speed",
   severity: "high",
   message: "test",

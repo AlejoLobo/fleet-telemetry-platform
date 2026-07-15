@@ -1,4 +1,33 @@
+import type { FleetAlert, VehicleStatus } from "@/types/fleet";
+
 /** Etiquetas en español y utilidades de localización. */
+
+/** Acorta un UUID para mostrar cuando no hay nombre de vehículo. */
+export function shortDeviceId(deviceId: string): string {
+  const trimmed = deviceId.trim();
+  if (!trimmed) return "—";
+  if (trimmed.length <= 8) return trimmed;
+  return trimmed.slice(0, 8);
+}
+
+/** Nombre visible del vehículo (vehicleName o deviceId corto). */
+export function formatVehicleDisplayName(
+  vehicle: Pick<VehicleStatus, "deviceId" | "vehicleName">,
+): string {
+  const name = vehicle.vehicleName?.trim();
+  if (name) return name;
+  return shortDeviceId(vehicle.deviceId);
+}
+
+/** Resuelve etiqueta de alerta desde flota o deviceId. */
+export function resolveAlertDeviceLabel(
+  alert: Pick<FleetAlert, "deviceId">,
+  vehicles?: VehicleStatus[],
+): string {
+  const match = vehicles?.find((v) => v.deviceId === alert.deviceId);
+  if (match) return formatVehicleDisplayName(match);
+  return shortDeviceId(alert.deviceId);
+}
 
 export function etiquetaEstadoVehiculo(status: string): string {
   switch (status.toLowerCase()) {
@@ -68,16 +97,18 @@ export function esSeveridadCritica(severity: string): boolean {
 
 /** Traduce mensajes de alerta del inglés al español. */
 export function traducirMensajeAlerta(alert: {
-  vehicleId: string;
+  deviceId: string;
   alertType: string;
   message: string;
+  displayLabel?: string;
 }): string {
+  const label = alert.displayLabel ?? alert.deviceId;
   const exceso =
     /exceeded speed limit:\s*([\d.,]+)\s*km\/h/i.exec(alert.message) ??
     /superó el límite de velocidad:\s*([\d.,]+)\s*km\/h/i.exec(alert.message);
   if (exceso) {
     const speed = exceso[1].replace(",", ".");
-    return `El vehículo ${alert.vehicleId} superó el límite de velocidad: ${speed} km/h`;
+    return `El vehículo ${label} superó el límite de velocidad: ${speed} km/h`;
   }
 
   const combustible =
@@ -85,7 +116,7 @@ export function traducirMensajeAlerta(alert: {
     /combustible bajo:\s*([\d.,]+)%/i.exec(alert.message);
   if (combustible) {
     const level = combustible[1].replace(",", ".");
-    return `El vehículo ${alert.vehicleId} tiene combustible bajo: ${level}%`;
+    return `El vehículo ${label} tiene combustible bajo: ${level}%`;
   }
 
   const bateria =
@@ -93,7 +124,7 @@ export function traducirMensajeAlerta(alert: {
     /batería baja:\s*([\d.,]+)%/i.exec(alert.message);
   if (bateria) {
     const level = bateria[1].replace(",", ".");
-    return `El vehículo ${alert.vehicleId} tiene batería baja: ${level}%`;
+    return `El vehículo ${label} tiene batería baja: ${level}%`;
   }
 
   return alert.message;

@@ -1,12 +1,21 @@
 /** Tabla de eventos de telemetría del vehículo seleccionado. */
 import { Battery, Fuel, Gauge, MapPin, TableProperties } from "lucide-react";
-import type { TelemetryEvent } from "@/types/fleet";
+import type { TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatVehicleDisplayName } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 /** Muestra historial de velocidad, combustible y ubicación. */
-export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]; vehicleId: string | null }) {
+export function TelemetryTable({
+  events,
+  vehicle,
+}: {
+  events: TelemetryEvent[];
+  vehicle: VehicleStatus | null;
+}) {
+  const displayName = vehicle ? formatVehicleDisplayName(vehicle) : "sin selección";
+
   return (
     <Card className="h-full">
       <CardHeader className="border-b border-border">
@@ -18,7 +27,7 @@ export function TelemetryTable({ events, vehicleId }: { events: TelemetryEvent[]
             </CardTitle>
             <CardDescription className="mt-1">
               Historial de eventos · vehículo{" "}
-              <span className="font-medium text-slate-700">{vehicleId ?? "sin selección"}</span>
+              <span className="font-medium text-slate-700">{displayName}</span>
             </CardDescription>
           </div>
           <Badge variant="outline">{events.length} eventos</Badge>

@@ -4,18 +4,18 @@ import type { AggregationSource } from "@/lib/analytics";
 import type { VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
+import { esVehiculoEnLinea, etiquetaEstadoVehiculo, formatVehicleDisplayName } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string | null;
+  selectedDeviceId?: string | null;
   fleetTruncated?: boolean;
   aggregationSource?: AggregationSource;
   totalVehiclesGlobal?: number;
   activeVehiclesGlobal?: number;
-  onSelectVehicle?: (vehicleId: string) => void;
-  onFocusVehicle?: (vehicleId: string) => void;
+  onSelectVehicle?: (deviceId: string) => void;
+  onFocusVehicle?: (deviceId: string) => void;
 };
 
 function formatCount(value: number): string {
@@ -25,7 +25,7 @@ function formatCount(value: number): string {
 /** Lista interactiva de vehículos con velocidad y estado. */
 export function FleetStatusPanel({
   vehicles,
-  selectedVehicleId,
+  selectedDeviceId,
   fleetTruncated = false,
   aggregationSource = "snapshot",
   totalVehiclesGlobal,
@@ -89,18 +89,19 @@ export function FleetStatusPanel({
             </div>
           )}
           {vehicles.map((vehicle) => {
-            const selected = vehicle.vehicleId === selectedVehicleId;
+            const selected = vehicle.deviceId === selectedDeviceId;
             const online = esVehiculoEnLinea(vehicle.status);
             const speed = vehicle.lastSpeedKmh ?? 0;
+            const displayName = formatVehicleDisplayName(vehicle);
 
             return (
               <button
-                key={vehicle.vehicleId}
+                key={vehicle.deviceId}
                 type="button"
-                onClick={() => onSelectVehicle?.(vehicle.vehicleId)}
+                onClick={() => onSelectVehicle?.(vehicle.deviceId)}
                 onDoubleClick={(event) => {
                   event.preventDefault();
-                  onFocusVehicle?.(vehicle.vehicleId);
+                  onFocusVehicle?.(vehicle.deviceId);
                 }}
                 className={cn(
                   "group flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-all duration-200",
@@ -128,7 +129,7 @@ export function FleetStatusPanel({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="truncate font-semibold text-slate-800">{vehicle.vehicleId}</p>
+                    <p className="truncate font-semibold text-slate-800">{displayName}</p>
                     <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
                       {etiquetaEstadoVehiculo(vehicle.status)}
                     </Badge>
@@ -136,8 +137,8 @@ export function FleetStatusPanel({
                       <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
                     )}
                   </div>
-                  {vehicle.name && (
-                    <p className="truncate text-xs text-slate-500">{vehicle.name}</p>
+                  {vehicle.vehicleName && vehicle.vehicleName !== displayName && (
+                    <p className="truncate text-xs text-slate-500">{vehicle.vehicleName}</p>
                   )}
                   <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
                     <span className="flex items-center gap-1">

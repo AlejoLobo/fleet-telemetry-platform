@@ -8,6 +8,7 @@ import {
   randomTelemetryTimestamp,
   zoneForVehicleIndex,
 } from "@/lib/bogota-zones";
+import { formatVehicleDisplayName } from "@/lib/labels";
 
 /** Datos sintéticos para el modo demostración del dashboard (sin backend). */
 
@@ -21,19 +22,19 @@ const VEHICLE_NAMES = [
 ];
 
 const ALERT_TYPES = [
-  { type: "overspeed", severity: "critical" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} superó el límite de velocidad: ${v.toFixed(1)} km/h` },
-  { type: "low_fuel", severity: "warning" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} tiene combustible bajo: ${v.toFixed(1)}%` },
-  { type: "low_battery", severity: "warning" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} tiene batería baja: ${v.toFixed(1)}%` },
+  { type: "overspeed", severity: "critical" as const, message: (label: string, v: number) =>
+    `El vehículo ${label} superó el límite de velocidad: ${v.toFixed(1)} km/h` },
+  { type: "low_fuel", severity: "warning" as const, message: (label: string, v: number) =>
+    `El vehículo ${label} tiene combustible bajo: ${v.toFixed(1)}%` },
+  { type: "low_battery", severity: "warning" as const, message: (label: string, v: number) =>
+    `El vehículo ${label} tiene batería baja: ${v.toFixed(1)}%` },
 ];
 
 /** Conjunto completo de datos mock (vehículos, alertas, telemetría). */
 export type MockFleetDataset = {
   vehicles: VehicleStatus[];
   alerts: FleetAlert[];
-  telemetryByVehicle: Record<string, TelemetryEvent[]>;
+  telemetryByDevice: Record<string, TelemetryEvent[]>;
 };
 
 let cachedDataset: MockFleetDataset | null = null;
@@ -48,6 +49,11 @@ function randomInt(min: number, max: number): number {
 
 function randomId(): string {
   return crypto.randomUUID();
+}
+
+/** UUID determinístico por índice para mocks reproducibles. */
+export function mockDeviceId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
 }
 
 function randomCoord(): { lat: number; lng: number } {
@@ -98,7 +104,8 @@ function generateVehicleBundle(
   index: number,
   coord: { lat: number; lng: number },
 ): { vehicle: VehicleStatus; events: TelemetryEvent[] } {
-  const id = `VH-${String(index + 1).padStart(3, "0")}`;
+  const deviceId = mockDeviceId(index);
+  const vehicleName = `VH-${String(index + 1).padStart(3, "0")}`;
   const zone = zoneForVehicleIndex(index);
   const online = randomOnlineFlag();
   const travelHeading = randomBetween(0, 360);
@@ -113,8 +120,8 @@ function generateVehicleBundle(
     const eventOnline = isLatest ? online : Math.random() > 0.35;
     events.push({
       eventId: randomId(),
-      vehicleId: id,
-      driverId: `DRV-${id.replace("VH-", "")}`,
+      deviceId,
+      driverId: `DRV-${String(index + 1).padStart(3, "0")}`,
       timestamp: isLatest
         ? randomTelemetryTimestamp(online)
         : randomTelemetryTimestamp(eventOnline),
@@ -140,8 +147,8 @@ function generateVehicleBundle(
       : travelHeading;
 
   const vehicle: VehicleStatus = {
-    vehicleId: id,
-    name: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
+    deviceId,
+    vehicleName: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
     status: online ? "online" : "offline",
     lastSeenAt: latest.timestamp,
     lastSpeedKmh: latest.speedKmh,
@@ -165,13 +172,14 @@ function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
       template.type === "overspeed"
         ? randomBetween(125, 145)
         : randomBetween(5, 18);
+    const displayLabel = formatVehicleDisplayName(vehicle);
 
     alerts.push({
       alertId: randomId(),
-      vehicleId: vehicle.vehicleId,
+      deviceId: vehicle.deviceId,
       alertType: template.type,
       severity: template.severity,
-      message: template.message(vehicle.vehicleId, value),
+      message: template.message(displayLabel, value),
       createdAt: new Date(Date.now() - randomInt(1, 120) * 60_000).toISOString(),
       isAcknowledged: false,
     });
@@ -183,11 +191,11 @@ function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
 function generateTelemetryBundles(
   bundles: { vehicle: VehicleStatus; events: TelemetryEvent[] }[],
 ): Record<string, TelemetryEvent[]> {
-  const byVehicle: Record<string, TelemetryEvent[]> = {};
+  const byDevice: Record<string, TelemetryEvent[]> = {};
   for (const bundle of bundles) {
-    byVehicle[bundle.vehicle.vehicleId] = bundle.events;
+    byDevice[bundle.vehicle.deviceId] = bundle.events;
   }
-  return byVehicle;
+  return byDevice;
 }
 
 /** Genera un dataset completo de flota simulada. */
@@ -197,9 +205,9 @@ export function generateMockFleetDataset(vehicleCount?: number): MockFleetDatase
   const bundles = coords.map((coord, index) => generateVehicleBundle(index, coord));
   const vehicles = bundles.map((b) => b.vehicle);
   const alerts = generateAlerts(vehicles);
-  const telemetryByVehicle = generateTelemetryBundles(bundles);
+  const telemetryByDevice = generateTelemetryBundles(bundles);
 
-  return { vehicles, alerts, telemetryByVehicle };
+  return { vehicles, alerts, telemetryByDevice };
 }
 
 /** Regenera y cachea un nuevo dataset demo. */
@@ -216,8 +224,8 @@ export function getMockDataset(): MockFleetDataset {
   return cachedDataset;
 }
 
-export function getMockTelemetry(vehicleId: string): TelemetryEvent[] {
-  return getMockDataset().telemetryByVehicle[vehicleId] ?? [];
+export function getMockTelemetry(deviceId: string): TelemetryEvent[] {
+  return getMockDataset().telemetryByDevice[deviceId] ?? [];
 }
 
 /** Respuesta simulada del agente IA para modo demo. */
