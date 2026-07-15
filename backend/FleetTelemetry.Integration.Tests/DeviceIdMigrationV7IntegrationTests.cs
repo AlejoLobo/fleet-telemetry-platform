@@ -35,6 +35,8 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
         try
         {
             await isolated.InitializeEmptyAsync();
+            // CI usa DB compartida: hay que vaciar public para poder interrumpir v7.
+            await isolated.ResetPublicSchemaAsync();
 
             var hooks = new TestSchemaMigrationHooks
             {
