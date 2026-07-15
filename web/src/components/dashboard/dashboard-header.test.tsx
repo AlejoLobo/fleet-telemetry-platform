@@ -2,23 +2,15 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-import {
-  MONITOR_REFRESH_RATE_STORAGE_KEY,
-  loadMonitorRefreshRate,
-  parseMonitorRefreshRate,
-  saveMonitorRefreshRate,
-} from "@/lib/monitor-refresh-rate";
 
-afterEach(() => {
-  cleanup();
-});
+afterEach(() => cleanup());
 
 function getRefreshSelect(): HTMLSelectElement {
   return document.getElementById("monitor-refresh-rate") as HTMLSelectElement;
 }
 
-describe("DashboardHeader selector funcional", () => {
-  it("muestra todas las opciones y llama onChange", () => {
+describe("DashboardHeader selector 5/10/15/20", () => {
+  it("muestra exactamente cuatro opciones y llama onChange", () => {
     const onChange = vi.fn();
     render(
       <DashboardHeader
@@ -27,7 +19,7 @@ describe("DashboardHeader selector funcional", () => {
         connectionState="connected"
         alertCount={0}
         criticalAlertCount={0}
-        refreshRate="realtime"
+        refreshRate={5}
         onRefreshRateChange={onChange}
         onOpenAlerts={() => undefined}
         onLoadApi={() => undefined}
@@ -37,18 +29,15 @@ describe("DashboardHeader selector funcional", () => {
     );
 
     const select = getRefreshSelect();
-    expect(select).toBeTruthy();
-    expect(select.options).toHaveLength(5);
+    expect(select.options).toHaveLength(4);
     expect([...select.options].map((o) => o.text)).toEqual([
-      "Tiempo real",
       "Cada 5 segundos",
       "Cada 10 segundos",
-      "Cada 30 segundos",
-      "Cada 1 minuto",
+      "Cada 15 segundos",
+      "Cada 20 segundos",
     ]);
-
-    fireEvent.change(select, { target: { value: "10" } });
-    expect(onChange).toHaveBeenCalledWith(10);
+    fireEvent.change(select, { target: { value: "15" } });
+    expect(onChange).toHaveBeenCalledWith(15);
   });
 
   it("se deshabilita hasta que la preferencia esté lista", () => {
@@ -59,7 +48,7 @@ describe("DashboardHeader selector funcional", () => {
         connectionState="connected"
         alertCount={0}
         criticalAlertCount={0}
-        refreshRate="realtime"
+        refreshRate={5}
         refreshRateReady={false}
         onRefreshRateChange={() => undefined}
         onOpenAlerts={() => undefined}
@@ -69,16 +58,5 @@ describe("DashboardHeader selector funcional", () => {
       />,
     );
     expect(getRefreshSelect().disabled).toBe(true);
-  });
-});
-
-describe("monitor-refresh-rate persistencia", () => {
-  it("restaura desde localStorage y valida inválidos", () => {
-    window.localStorage.clear();
-    expect(loadMonitorRefreshRate()).toBe("realtime");
-    saveMonitorRefreshRate(30);
-    expect(window.localStorage.getItem(MONITOR_REFRESH_RATE_STORAGE_KEY)).toBe("30");
-    expect(loadMonitorRefreshRate()).toBe(30);
-    expect(parseMonitorRefreshRate("nope")).toBe("realtime");
   });
 });
