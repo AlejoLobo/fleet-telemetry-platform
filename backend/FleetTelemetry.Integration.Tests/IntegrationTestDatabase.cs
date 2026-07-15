@@ -40,6 +40,29 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
         await EnsureSchemaInitializedAsync();
     }
 
+    /// <summary>
+    /// Arranca TimescaleDB sin aplicar migraciones (útil para interrumpir v7 a mitad).
+    /// </summary>
+    public async Task InitializeEmptyAsync()
+    {
+        var externalConnection = Environment.GetEnvironmentVariable(ConnectionStringEnvVar);
+        if (!string.IsNullOrWhiteSpace(externalConnection))
+        {
+            ConnectionString = externalConnection.Trim();
+            return;
+        }
+
+        _container = new PostgreSqlBuilder()
+            .WithImage("timescale/timescaledb:2.17.2-pg16")
+            .WithDatabase("fleet")
+            .WithUsername("fleet")
+            .WithPassword("fleet")
+            .Build();
+
+        await _container.StartAsync();
+        ConnectionString = _container.GetConnectionString();
+    }
+
     public async Task DisposeAsync()
     {
         if (_container is not null)
