@@ -26,7 +26,10 @@ const BATCH_SIZE = 25;
 type ActiveSync = {
   deviceId: string;
   promise: Promise<SyncResult>;
-  rerunRequested: boolean;
+  /** Generación de solicitudes acumuladas (incluye la pasada inicial). */
+  requestedGeneration: number;
+  /** Última generación ya procesada por el poseedor. */
+  processedGeneration: number;
 };
 
 /** Autoridad global de exclusión: una sola sync remota a la vez. */
@@ -116,36 +119,54 @@ export async function syncPendingQueue(
   // Adquisición segura: reconsultar el mutex después de cada await.
   while (activeSync) {
     if (activeSync.deviceId === normalizedDeviceId) {
-      activeSync.rerunRequested = true;
+      activeSync.requestedGeneration += 1;
       return activeSync.promise;
     }
     try {
       await activeSync.promise;
     } catch {
-      // Liberación en finally del poseedor.
+      // Liberación la realiza el poseedor.
     }
   }
 
   const holder: ActiveSync = {
     deviceId: normalizedDeviceId,
     promise: null as unknown as Promise<SyncResult>,
-    rerunRequested: false,
+    requestedGeneration: 1,
+    processedGeneration: 0,
   };
 
   const runWithReentry = async (): Promise<SyncResult> => {
-    let last = await runSync(normalizedDeviceId, batchSize);
-    while (holder.rerunRequested) {
-      holder.rerunRequested = false;
-      last = await runSync(normalizedDeviceId, batchSize);
+    let last: SyncResult = toSyncResult(emptyAccumulator(), 0);
+    try {
+      for (;;) {
+        const targetGen = holder.requestedGeneration;
+        holder.processedGeneration = targetGen;
+        last = await runSync(normalizedDeviceId, batchSize);
+        if (holder.requestedGeneration > targetGen) {
+          continue;
+        }
+        // Liberar solo si no entró una solicitud nueva en el mismo turno.
+        if (activeSync === holder && holder.requestedGeneration === targetGen) {
+          activeSync = null;
+        }
+        if (holder.requestedGeneration > targetGen) {
+          if (activeSync === null) {
+            activeSync = holder;
+          }
+          continue;
+        }
+        return last;
+      }
+    } catch (error) {
+      if (activeSync === holder) {
+        activeSync = null;
+      }
+      throw error;
     }
-    return last;
   };
 
-  holder.promise = runWithReentry().finally(() => {
-    if (activeSync === holder) {
-      activeSync = null;
-    }
-  });
+  holder.promise = runWithReentry();
   activeSync = holder;
   return holder.promise;
 }

@@ -429,6 +429,55 @@ describe("offline-sync-coordinator single-flight real (A/B/C)", () => {
     expect(passes).toBe(2);
   });
 
+  it("tres_solicitudes_durante_una_pasada_producen_solo_una_adicional", async () => {
+    let passes = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockClaimNextBatch.mockImplementation(async () => {
+      passes += 1;
+      if (passes === 1) await gate;
+      return [];
+    });
+
+    const first = syncPendingQueue(true, DEVICE_A);
+    await waitFor(() => passes === 1, "pasada inicial");
+    void syncPendingQueue(true, DEVICE_A);
+    void syncPendingQueue(true, DEVICE_A);
+    void syncPendingQueue(true, DEVICE_A);
+    expect(passes).toBe(1);
+    release();
+    await first;
+    expect(passes).toBe(2);
+  });
+
+  it("solicitud_durante_pasada_adicional_produce_tercera", async () => {
+    let passes = 0;
+    const gates: Array<() => void> = [];
+
+    mockClaimNextBatch.mockImplementation(async () => {
+      passes += 1;
+      if (passes <= 2) {
+        await new Promise<void>((resolve) => {
+          gates.push(resolve);
+        });
+      }
+      return [];
+    });
+
+    const shared = syncPendingQueue(true, DEVICE_A);
+    await waitFor(() => gates.length === 1, "gate1");
+    void syncPendingQueue(true, DEVICE_A);
+    gates[0]!();
+    await waitFor(() => gates.length === 2, "gate2");
+    void syncPendingQueue(true, DEVICE_A);
+    gates[1]!();
+    await shared;
+    expect(passes).toBe(3);
+  });
+
   it("error_libera_mutex_y_siguiente_sync_funciona", async () => {
     mockClaimNextBatch
       .mockResolvedValueOnce([buildEvent("A")])
