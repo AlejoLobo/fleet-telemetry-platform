@@ -24,6 +24,14 @@ public static class ConfigurationValidator
                 throw new InvalidOperationException(
                     "Auth:DemoPassword no debe estar vacío cuando Auth está habilitado.");
             }
+
+            // Admin es opcional: si hay usuario admin, la contraseña debe estar definida.
+            if (!string.IsNullOrWhiteSpace(auth.AdminUsername)
+                && string.IsNullOrWhiteSpace(auth.AdminPassword))
+            {
+                throw new InvalidOperationException(
+                    "Auth:AdminPassword no debe estar vacío cuando Auth:AdminUsername está configurado y Auth está habilitado.");
+            }
         }
 
         ValidateKafkaOptions(configuration);

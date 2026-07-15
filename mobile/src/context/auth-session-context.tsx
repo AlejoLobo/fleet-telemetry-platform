@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  canSyncTelemetryForDevice,
+  enrollDevice,
   getAuthSessionSnapshot,
   initializeAuthSession,
   login,
@@ -9,11 +11,20 @@ import {
 } from "@/services/auth-service";
 
 type AuthSessionContextValue = AuthSessionSnapshot & {
+  /** Enrola el DeviceId local y guarda JWT de dispositivo. */
+  enrollDevice: (
+    deviceId: string,
+    username: string,
+    password: string,
+  ) => Promise<AuthSessionSnapshot>;
+  /** Login de operador (portal); no habilita sync de telemetría. */
   login: (username: string, password: string) => Promise<AuthSessionSnapshot>;
   logout: () => Promise<AuthSessionSnapshot>;
   refresh: () => Promise<AuthSessionSnapshot>;
   isAuthenticated: boolean;
+  /** Compat: false si el token no es de dispositivo. Preferir canSyncForDevice. */
   canSync: boolean;
+  canSyncForDevice: (deviceId: string | null) => boolean;
 };
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
@@ -26,14 +37,29 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     return subscribeAuthSession(setSnapshot);
   }, []);
 
-  const value = useMemo<AuthSessionContextValue>(() => ({
-    ...snapshot,
-    login,
-    logout,
-    refresh: initializeAuthSession,
-    isAuthenticated: snapshot.status === "authenticated",
-    canSync: snapshot.status === "authenticated" || snapshot.status === "auth_disabled",
-  }), [snapshot]);
+  const value = useMemo<AuthSessionContextValue>(() => {
+    const canSyncForDevice = (deviceId: string | null) =>
+      canSyncTelemetryForDevice(deviceId);
+
+    return {
+      ...snapshot,
+      enrollDevice,
+      login,
+      logout,
+      refresh: initializeAuthSession,
+      isAuthenticated: snapshot.status === "authenticated",
+      // Sin DeviceId local aún: solo auth_disabled permite sync anónima.
+      canSync:
+        snapshot.status === "auth_disabled"
+        || (
+          snapshot.status === "authenticated"
+          && snapshot.sessionKind === "device"
+          && snapshot.permissions.includes("telemetry:write")
+          && Boolean(snapshot.deviceId)
+        ),
+      canSyncForDevice,
+    };
+  }, [snapshot]);
 
   return <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>;
 }
