@@ -1061,7 +1061,7 @@ public static class DatabaseInitializer
             cancellationToken);
     }
 
-    // Alinea la secuencia VH-###: si el máximo es M, el próximo nextval es M+1; si no hay nombres, el próximo es 1.
+    // Alinea VH-###: sin nombres → setval(1, false) = próximo 1; máx M → setval(M, true) = próximo M+1.
     private static async Task SyncFleetVehicleNameSequenceAsync(
         DbConnection connection,
         DbTransaction transaction,
@@ -1071,15 +1071,19 @@ public static class DatabaseInitializer
             connection,
             transaction,
             """
+            WITH current_max AS (
+                SELECT MAX(
+                    substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint
+                ) AS value
+                FROM fleet_devices
+                WHERE vehicle_name ~ '^VH-[0-9]+$'
+            )
             SELECT setval(
                 'fleet_vehicle_name_seq',
-                COALESCE((
-                    SELECT MAX(substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint)
-                    FROM fleet_devices
-                    WHERE vehicle_name ~ '^VH-[0-9]+$'
-                ), 0),
-                true
-            );
+                COALESCE(value, 1),
+                value IS NOT NULL
+            )
+            FROM current_max;
             """,
             cancellationToken);
     }
