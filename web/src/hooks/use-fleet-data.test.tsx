@@ -9,13 +9,27 @@ const fetchAlertsLive = vi.fn();
 const fetchOpsSummary = vi.fn();
 const fetchTelemetrySnapshot = vi.fn();
 
-vi.mock("@/lib/api-client", () => ({
-  apiClient: {
-    fetchFleetLive: (...args: unknown[]) => fetchFleetLive(...args),
-    fetchAlertsLive: (...args: unknown[]) => fetchAlertsLive(...args),
-    fetchOpsSummary: (...args: unknown[]) => fetchOpsSummary(...args),
-  },
-}));
+vi.mock("@/lib/api-client", () => {
+  class ApiError extends Error {
+    readonly status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+    }
+  }
+
+  return {
+    ApiError,
+    apiClient: {
+      fetchFleetLive: (...args: unknown[]) => fetchFleetLive(...args),
+      fetchAlertsLive: (...args: unknown[]) => fetchAlertsLive(...args),
+      fetchOpsSummary: (...args: unknown[]) => fetchOpsSummary(...args),
+    },
+  };
+});
+
+import { ApiError } from "@/lib/api-client";
 
 vi.mock("@/lib/fleet-pagination", () => ({
   fetchTelemetrySnapshot: (...args: unknown[]) => fetchTelemetrySnapshot(...args),
@@ -498,5 +512,38 @@ describe("useFleetData refreshForResync", () => {
     });
     await waitFor(() => expect(done).toBe(true));
     expect(result.current.vehicles[0]?.lastSpeedKmh).toBe(99);
+  });
+
+  it("refresh_silencioso_con_red_caida_conserva_flota_previa", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    expect(result.current.vehicles).toHaveLength(1);
+
+    fetchFleetLive.mockRejectedValue(new TypeError("Failed to fetch"));
+    await act(async () => {
+      await result.current.refresh({ silent: true });
+    });
+
+    expect(result.current.vehicles).toHaveLength(1);
+    expect(result.current.fleetError).toBeNull();
+  });
+
+  it("carga_inicial_con_ApiError_muestra_status_no_mensaje_de_conexion", async () => {
+    fetchFleetLive.mockRejectedValue(new ApiError("Demasiadas solicitudes", 429));
+    fetchAlertsLive.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    expect(result.current.fleetError).toContain("429");
+    expect(result.current.fleetError).not.toContain("No se pudo conectar");
   });
 });

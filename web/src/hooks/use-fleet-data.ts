@@ -15,7 +15,7 @@ import {
 } from "@/lib/analytics";
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
-import { getApiBaseUrl } from "@/lib/utils";
+import { resolveFleetFetchError } from "@/lib/fleet-fetch-error";
 import {
   ResyncFailedError,
   ResyncSupersededError,
@@ -143,14 +143,27 @@ export function useFleetData(selectedVehicleId: string | null) {
       }));
       dataSourceRef.current = "api";
       return true;
-    } catch {
+    } catch (error) {
       if (!isCurrentGeneration(generation)) return false;
-      setState((prev) => ({
-        ...prev,
-        fleetLoading: false,
-        fleetError: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
-        dataSource: "api",
-      }));
+
+      const message = resolveFleetFetchError(error);
+      setState((prev) => {
+        // Refresco silencioso: conservar datos previos y no pintar fallo de red como caída total.
+        if (options?.silent && prev.vehicles.length > 0) {
+          return {
+            ...prev,
+            fleetLoading: false,
+            fleetError: null,
+          };
+        }
+
+        return {
+          ...prev,
+          fleetLoading: false,
+          fleetError: message,
+          dataSource: "api",
+        };
+      });
       return true;
     }
   }, []);
@@ -223,7 +236,10 @@ export function useFleetData(selectedVehicleId: string | null) {
   }, []);
 
   const loadFromApi = useCallback(async (options?: { liveOnly?: boolean; silent?: boolean }) => {
-    const generation = ++snapshotGenerationRef.current;
+    // Silencioso: no invalidar la captura en curso (evita bucles de generación cada 3–15 s).
+    const generation = options?.silent
+      ? snapshotGenerationRef.current
+      : ++snapshotGenerationRef.current;
     const fleetOk = await loadFleetAndAlerts(generation, options);
     if (!fleetOk || !isCurrentGeneration(generation)) return;
 

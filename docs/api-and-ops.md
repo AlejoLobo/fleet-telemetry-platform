@@ -57,6 +57,11 @@ curl http://localhost:5000/api/ops/summary
 - Con Auth: `JwtSecret` ≥ 32 caracteres y `DemoPassword` no vacío (`ConfigurationValidator`).
 - Login: `POST /api/auth/login` con usuario/password demo.
 
+## CORS
+
+Orígenes locales permitidos: `http://localhost:3000` y `http://127.0.0.1:3000`.  
+Abre el dashboard con el **mismo host** que configures en `NEXT_PUBLIC_API_URL` (no mezclar `localhost` y `127.0.0.1` entre pestaña y API).
+
 ## Ejemplos
 
 ### Ingesta

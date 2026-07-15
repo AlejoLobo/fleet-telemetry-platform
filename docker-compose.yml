@@ -102,6 +102,10 @@ services:
       RateLimiting__Enabled: ${RateLimiting__Enabled:-false}
       RateLimiting__PermitLimit: ${RateLimiting__PermitLimit:-600}
       RateLimiting__WindowSeconds: ${RateLimiting__WindowSeconds:-60}
+      Cors__AllowedOrigins__0: http://localhost:3000
+      Cors__AllowedOrigins__1: http://127.0.0.1:3000
+      Cors__AllowedOrigins__2: http://localhost:5000
+      Cors__AllowedOrigins__3: http://127.0.0.1:5000
     depends_on:
       redpanda:
         condition: service_healthy
