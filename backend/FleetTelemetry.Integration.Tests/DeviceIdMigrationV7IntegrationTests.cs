@@ -333,7 +333,20 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
 
         await using (var restore = connection.CreateCommand())
         {
-            restore.CommandText = "ALTER TABLE telemetry_events ALTER COLUMN device_id SET NOT NULL;";
+            restore.CommandText = """
+                ALTER TABLE telemetry_events ALTER COLUMN device_id SET NOT NULL;
+
+                ALTER TABLE telemetry_events SET (
+                    timescaledb.compress,
+                    timescaledb.compress_segmentby = 'device_id',
+                    timescaledb.compress_orderby = '"Timestamp" DESC'
+                );
+
+                SELECT add_compression_policy(
+                    'telemetry_events',
+                    compress_after => INTERVAL '7 days',
+                    if_not_exists => TRUE);
+                """;
             await restore.ExecuteNonQueryAsync();
         }
     }
