@@ -35,6 +35,11 @@ export function getSqliteRows(): QueueRow[] {
   return rows;
 }
 
+/** Ajusta el autoincremento simulado tras sembrar filas legacy en pruebas. */
+export function setSqliteMemoryNextLocalId(value: number): void {
+  nextLocalId = value;
+}
+
 export function setFailNextBatchRetry(value: boolean): void {
   failNextBatchRetry = value;
 }
