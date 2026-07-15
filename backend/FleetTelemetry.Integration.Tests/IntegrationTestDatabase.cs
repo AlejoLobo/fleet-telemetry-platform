@@ -63,6 +63,25 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
         ConnectionString = _container.GetConnectionString();
     }
 
+    /// <summary>
+    /// Deja public vacío (sin schema_versions). Necesario en CI con DB compartida
+    /// para poder reaplicar migraciones e interrumpir v7.
+    /// </summary>
+    public async Task ResetPublicSchemaAsync()
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DROP SCHEMA IF EXISTS public CASCADE;
+            CREATE SCHEMA public;
+            GRANT ALL ON SCHEMA public TO CURRENT_USER;
+            GRANT ALL ON SCHEMA public TO public;
+            CREATE EXTENSION IF NOT EXISTS timescaledb;
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
     public async Task DisposeAsync()
     {
         if (_container is not null)
