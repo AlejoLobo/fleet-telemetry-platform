@@ -103,11 +103,24 @@ async function migrateToV4(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 }
 
+export type DeviceIdentityConflict = {
+  eventId: string;
+  storedDeviceId: string;
+  currentDeviceId: string;
+};
+
+export type DeviceIdMigrationResult = {
+  migrated: number;
+  unchanged: number;
+  conflicts: DeviceIdentityConflict[];
+};
+
 /**
- * Reasigna eventos activos con device_id vacío o inválido al UUID estable del dispositivo.
+ * Migra eventos activos con device_id nulo/vacío/inválido al UUID estable.
+ * UUIDs válidos distintos no se sobrescriben: se reportan como conflicto.
  * No modifica synced ni permanent_failure.
  */
-export async function migratePendingEventsToDeviceId(deviceId: string): Promise<number> {
+export async function migratePendingEventsToDeviceId(deviceId: string): Promise<DeviceIdMigrationResult> {
   const stableId = deviceId.trim();
   if (!isValidDeviceId(stableId)) {
     throw new Error("deviceId inválido para migración de cola");
@@ -115,27 +128,43 @@ export async function migratePendingEventsToDeviceId(deviceId: string): Promise<
 
   const db = await getDb();
   const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT local_id, device_id, vehicle_id FROM telemetry_queue
+    `SELECT local_id, event_id, device_id, vehicle_id FROM telemetry_queue
      WHERE status IN ('pending','retry','processing')`,
   );
 
-  let updated = 0;
+  let migrated = 0;
+  let unchanged = 0;
+  const conflicts: DeviceIdentityConflict[] = [];
+
   for (const row of rows) {
+    const eventId = String(row.event_id ?? "");
     const current = typeof row.device_id === "string" ? row.device_id.trim() : "";
+
     if (isValidDeviceId(current) && current.toLowerCase() === stableId.toLowerCase()) {
+      unchanged += 1;
       continue;
     }
 
+    if (isValidDeviceId(current) && current.toLowerCase() !== stableId.toLowerCase()) {
+      conflicts.push({
+        eventId,
+        storedDeviceId: current,
+        currentDeviceId: stableId,
+      });
+      continue;
+    }
+
+    // Nulo, vacío o inválido (VH-001, nombre libre, etc.): migrar al UUID actual.
     await db.runAsync(
       `UPDATE telemetry_queue SET device_id = ?, vehicle_id = ? WHERE local_id = ?`,
       stableId,
       stableId,
       row.local_id as number,
     );
-    updated += 1;
+    migrated += 1;
   }
 
-  return updated;
+  return { migrated, unchanged, conflicts };
 }
 
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
@@ -192,19 +221,35 @@ export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" |
   return result.lastInsertRowId;
 }
 
-export async function claimNextBatch(limit: number, nowIso: string): Promise<QueuedTelemetryEvent[]> {
+export async function claimNextBatch(
+  limit: number,
+  nowIso: string,
+  deviceId?: string,
+): Promise<QueuedTelemetryEvent[]> {
   const db = await getDb();
   await recoverStaleLocks(nowIso);
 
   let claimed: QueuedTelemetryEvent[] = [];
+  const stableId = deviceId?.trim() ?? "";
+  const filterByDevice = isValidDeviceId(stableId);
 
   await db.withTransactionAsync(async () => {
-    const rows = await db.getAllAsync<Record<string, unknown>>(
-      `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-       ORDER BY local_id ASC LIMIT ?`,
-      nowIso,
-      limit,
-    );
+    const rows = filterByDevice
+      ? await db.getAllAsync<Record<string, unknown>>(
+          `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry')
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           AND lower(device_id) = lower(?)
+           ORDER BY local_id ASC LIMIT ?`,
+          nowIso,
+          stableId,
+          limit,
+        )
+      : await db.getAllAsync<Record<string, unknown>>(
+          `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           ORDER BY local_id ASC LIMIT ?`,
+          nowIso,
+          limit,
+        );
 
     if (rows.length === 0) {
       claimed = [];

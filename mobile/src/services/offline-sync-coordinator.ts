@@ -121,8 +121,9 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
   const accumulator = emptyAccumulator();
   await purgeSyncedOlderThan(7);
 
+  let migration;
   try {
-    await migratePendingEventsToDeviceId(deviceId);
+    migration = await migratePendingEventsToDeviceId(deviceId);
     await ensureDeviceRegistered(deviceId);
   } catch (error) {
     return toSyncResult(
@@ -132,7 +133,8 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
   }
 
   while (true) {
-    const batch = await claimNextBatch(batchSize, new Date().toISOString());
+    // Solo reclama eventos del DeviceId actual; no mezcla identidades conflictivas.
+    const batch = await claimNextBatch(batchSize, new Date().toISOString(), deviceId);
     if (!batch.length) break;
 
     if (batch.length === 1) {
@@ -143,6 +145,10 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
 
     const outcome = await syncBatch(batch, accumulator, deviceId);
     if (outcome.stop) break;
+  }
+
+  if (migration.conflicts.length > 0 && accumulator.status === "completed") {
+    accumulator.status = "device_identity_conflict";
   }
 
   return toSyncResult(accumulator, await countPendingEvents());

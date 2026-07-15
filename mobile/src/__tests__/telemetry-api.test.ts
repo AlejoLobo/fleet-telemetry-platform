@@ -21,7 +21,7 @@ describe("telemetry-api auth", () => {
     await sendBatchEvents([
       {
         eventId: "11111111-1111-1111-1111-111111111111",
-        deviceId: "11111111-1111-1111-1111-111111111111",
+        deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
         driverId: "DRV-001",
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,
@@ -45,7 +45,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: "DRV-001",
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -63,7 +63,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: "DRV-001",
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -80,7 +80,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -96,7 +96,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -117,7 +117,7 @@ describe("telemetry-api auth", () => {
     });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -145,7 +145,7 @@ describe("telemetry-api auth", () => {
     try {
       await sendSingleEvent({
         eventId: "11111111-1111-1111-1111-111111111111",
-        deviceId: "11111111-1111-1111-1111-111111111111",
+        deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
         driverId: null,
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,
@@ -185,7 +185,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendBatchEvents([{
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -202,7 +202,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,

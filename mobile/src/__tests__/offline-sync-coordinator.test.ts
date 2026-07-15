@@ -23,7 +23,11 @@ jest.mock("@/db/offline-queue", () => ({
   markEventRetry: (...args: unknown[]) => mockMarkEventRetry(...args),
   markClaimedBatchRetryAtomic: (...args: unknown[]) => mockMarkClaimedBatchRetryAtomic(...args),
   releaseClaimedEvents: (...args: unknown[]) => mockReleaseClaimedEvents(...args),
-  migratePendingEventsToDeviceId: jest.fn(async () => 0),
+  migratePendingEventsToDeviceId: jest.fn(async () => ({
+    migrated: 0,
+    unchanged: 0,
+    conflicts: [],
+  })),
   toPayload: (event: QueuedTelemetryEvent) => event,
 }));
 
@@ -64,12 +68,13 @@ jest.mock("@/services/device-registry", () => ({
 }));
 
 import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
+import { migratePendingEventsToDeviceId } from "@/db/offline-queue";
 
 function buildEvent(eventId: string, retryCount = 0): QueuedTelemetryEvent {
   return {
     localId: 1,
     eventId,
-    deviceId: "11111111-1111-1111-1111-111111111111",
+    deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
     driverId: "DRV-001",
     timestamp: "2026-07-10T10:00:00Z",
     latitude: 4.65,
@@ -297,5 +302,27 @@ describe("offline-sync-coordinator batch policy", () => {
     await Promise.resolve();
     expect(mockClaimNextBatch).toHaveBeenCalledTimes(1);
     resetSyncCoordinatorForTests();
+  });
+
+  it("conflicto_de_DeviceId_devuelve_device_identity_conflict", async () => {
+    (migratePendingEventsToDeviceId as jest.Mock).mockResolvedValueOnce({
+      migrated: 1,
+      unchanged: 0,
+      conflicts: [
+        {
+          eventId: "foreign",
+          storedDeviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          currentDeviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
+        },
+      ],
+    });
+    mockClaimNextBatch.mockResolvedValueOnce([]);
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
+    expect(result.status).toBe("device_identity_conflict");
+    expect(mockClaimNextBatch).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.any(String),
+      "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
+    );
   });
 });
