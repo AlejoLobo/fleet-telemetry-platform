@@ -80,7 +80,7 @@ describe("fallback parcial con SQLite real", () => {
       if (payload.eventId === "E2") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("auth_required");
     expect((await getQueueEventByEventId("E1"))?.status).toBe("permanent_failure");
     expect((await getQueueEventByEventId("E2"))?.status).toBe("pending");
@@ -95,7 +95,7 @@ describe("fallback parcial con SQLite real", () => {
       if (payload.eventId === "E2") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect((await getQueueEventByEventId("E1"))?.status).toBe("permanent_failure");
     expect((await getQueueEventByEventId("E2"))?.status).toBe("retry");
@@ -110,7 +110,7 @@ describe("fallback parcial con SQLite real", () => {
       if (payload.eventId === "E3") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("auth_required");
     expect((await getQueueEventByEventId("E1"))?.status).toBe("synced");
     expect((await getQueueEventByEventId("E2"))?.status).toBe("permanent_failure");
@@ -125,7 +125,7 @@ describe("fallback parcial con SQLite real", () => {
       if (payload.eventId === "E3") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true);
+    const result = await syncPendingQueue(true, "test-device-id-001");
     expect(result.status).toBe("deferred");
     expect((await getQueueEventByEventId("E1"))?.status).toBe("synced");
     expect((await getQueueEventByEventId("E2"))?.status).toBe("permanent_failure");
