@@ -223,6 +223,7 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
         try
         {
             await isolated.InitializeEmptyAsync();
+            await isolated.ResetPublicSchemaAsync();
 
             var hooks = new TestSchemaMigrationHooks
             {
