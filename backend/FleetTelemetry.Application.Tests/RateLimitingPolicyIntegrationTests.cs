@@ -137,6 +137,41 @@ public class RateLimitingPolicyIntegrationTests
     }
 
     [Fact]
+    public async Task Telemetry_batch_admin_and_batch_test_do_not_use_ingest_policy()
+    {
+        using var factory = CreateFactory(enabled: true, permitLimit: 2, telemetryLimit: 1000);
+        using var client = factory.CreateClient();
+
+        // Antes StartsWithSegments("/api/telemetry/batch") capturaba estos paths en la cuota de ingesta.
+        using var a = await client.PostAsync("/api/telemetry/batch/admin", null);
+        using var b = await client.PostAsync("/api/telemetry/batch-test", null);
+        using var c = await client.PostAsync("/api/telemetry/batch/admin", null);
+        Assert.Contains(
+            new[] { a.StatusCode, b.StatusCode, c.StatusCode },
+            code => code == HttpStatusCode.TooManyRequests);
+
+        // Con telemetryLimit alto, la cuota de ingesta no se agotó; el 429 viene del limiter global.
+        var deviceId = Guid.Parse("abababab-abab-abab-abab-abababababab");
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceId)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Uuid_device_header_casing_shares_telemetry_partition()
+    {
+        using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 2);
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaee");
+
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceId, deviceId.ToString("D"))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Accepted,
+            (await PostTelemetryAsync(client, deviceId, deviceId.ToString("D").ToUpperInvariant())).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.TooManyRequests,
+            (await PostTelemetryAsync(client, deviceId, deviceId.ToString("N"))).StatusCode);
+    }
+
+    [Fact]
     public async Task Distinct_device_headers_use_separate_telemetry_partitions()
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 2);

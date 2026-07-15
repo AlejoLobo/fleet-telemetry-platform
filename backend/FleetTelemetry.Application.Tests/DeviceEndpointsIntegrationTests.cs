@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Domain.ValueObjects;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -162,7 +164,134 @@ public class DeviceEndpointsIntegrationTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    private static DeviceApiWebApplicationFactory CreateFactory() => new();
+    [Fact]
+    public async Task Register_claim_and_payload_match_returns_ok()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa01");
+        using var factory = CreateFactory(claims: [new Claim("device_id", deviceId.ToString("D"))]);
+        using var client = factory.CreateClient();
+
+        using var response = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_claim_differs_from_payload_returns_403()
+    {
+        var payload = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa02");
+        var claim = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02");
+        using var factory = CreateFactory(claims: [new Claim("device_id", claim.ToString("D"))]);
+        using var client = factory.CreateClient();
+
+        using var response = await PostRegisterAsync(client, payload, payload.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_invalid_claim_returns_403()
+    {
+        var payload = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa03");
+        using var factory = CreateFactory(claims: [new Claim("device_id", "not-a-guid")]);
+        using var client = factory.CreateClient();
+
+        using var response = await PostRegisterAsync(client, payload, payload.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_header_differs_from_payload_returns_400()
+    {
+        var payload = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa04");
+        var header = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb04");
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await PostRegisterAsync(client, payload, header.ToString("D"));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rename_route_differs_from_header_returns_400()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa05");
+        var other = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb05");
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/devices/{deviceId}/name")
+        {
+            Content = JsonContent.Create(new RenameDeviceRequest("Camión Sur"))
+        };
+        request.Headers.TryAddWithoutValidation("X-Device-Id", other.ToString("D"));
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rename_claim_for_another_device_returns_403()
+    {
+        var deviceA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa06");
+        var deviceB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb06");
+        using var factory = CreateFactory(claims: [new Claim("device_id", deviceA.ToString("D"))]);
+        using var client = factory.CreateClient();
+
+        // Registro previo sin claim conflictivo: el claim se aplica a todas las requests;
+        // registramos B con un cliente sin claim usando registry compartido fuera del HTTP.
+        await factory.Registry.RegisterDeviceAsync(deviceA);
+        await factory.Registry.RegisterDeviceAsync(deviceB);
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/devices/{deviceB}/name")
+        {
+            Content = JsonContent.Create(new RenameDeviceRequest("Nombre Ajeno"))
+        };
+        request.Headers.TryAddWithoutValidation("X-Device-Id", deviceB.ToString("D"));
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_disabled_register_and_rename_still_work_with_matching_header()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa07");
+        using var factory = CreateFactory(authEnabled: false);
+        using var client = factory.CreateClient();
+
+        using var register = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.OK, register.StatusCode);
+
+        using var renameRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/devices/{deviceId}/name")
+        {
+            Content = JsonContent.Create(new RenameDeviceRequest("Unidad Libre"))
+        };
+        renameRequest.Headers.TryAddWithoutValidation("X-Device-Id", deviceId.ToString("D"));
+        using var rename = await client.SendAsync(renameRequest);
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+    }
+
+    private static DeviceApiWebApplicationFactory CreateFactory(
+        bool authEnabled = false,
+        Claim[]? claims = null) =>
+        new()
+        {
+            AuthEnabled = authEnabled,
+            TestClaims = claims,
+        };
+
+    private static async Task<HttpResponseMessage> PostRegisterAsync(
+        HttpClient client,
+        Guid deviceId,
+        string? headerDeviceId)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/devices/register")
+        {
+            Content = JsonContent.Create(new RegisterDeviceRequest(deviceId))
+        };
+        if (!string.IsNullOrWhiteSpace(headerDeviceId))
+            request.Headers.TryAddWithoutValidation("X-Device-Id", headerDeviceId);
+        return await client.SendAsync(request);
+    }
 }
 
 public sealed class InMemoryDeviceRegistry : IDeviceRegistry
@@ -230,11 +359,13 @@ public sealed class InMemoryDeviceRegistry : IDeviceRegistry
 public sealed class DeviceApiWebApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryDeviceRegistry Registry { get; } = new();
+    public bool AuthEnabled { get; init; }
+    public Claim[]? TestClaims { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        builder.UseSetting("Auth:Enabled", "false");
+        builder.UseSetting("Auth:Enabled", AuthEnabled.ToString());
         builder.UseSetting("TimescaleDb:ConnectionString", "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet");
         builder.UseSetting("Kafka:BootstrapServers", "localhost:19092");
         builder.UseSetting("RateLimiting:Enabled", "false");
@@ -242,7 +373,7 @@ public sealed class DeviceApiWebApplicationFactory : WebApplicationFactory<Progr
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Auth:Enabled"] = "false",
+                ["Auth:Enabled"] = AuthEnabled.ToString(),
                 ["TimescaleDb:ConnectionString"] = "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet",
                 ["Kafka:BootstrapServers"] = "localhost:19092",
                 ["RateLimiting:Enabled"] = "false",
@@ -256,6 +387,35 @@ public sealed class DeviceApiWebApplicationFactory : WebApplicationFactory<Progr
 
             services.RemoveAll<IDeviceRegistry>();
             services.AddSingleton<IDeviceRegistry>(Registry);
+            services.AddSingleton(new DeviceEndpointClaimBag { Claims = TestClaims ?? [] });
+            services.AddSingleton<IStartupFilter, DeviceEndpointClaimsStartupFilter>();
         });
+    }
+}
+
+public sealed class DeviceEndpointClaimBag
+{
+    public Claim[] Claims { get; init; } = [];
+}
+
+public sealed class DeviceEndpointClaimsStartupFilter : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+    {
+        return app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                var bag = context.RequestServices.GetService<DeviceEndpointClaimBag>();
+                if (bag?.Claims is { Length: > 0 })
+                {
+                    context.User = new ClaimsPrincipal(
+                        new ClaimsIdentity(bag.Claims, authenticationType: "Test"));
+                }
+
+                await nextMiddleware();
+            });
+            next(app);
+        };
     }
 }

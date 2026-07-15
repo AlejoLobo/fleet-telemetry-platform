@@ -2,6 +2,7 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Api.Identity;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
@@ -25,10 +26,14 @@ public sealed class DevicesController : ControllerBase
 
     [HttpPost("register")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
-    public async Task<ActionResult<DeviceResponse>> Register(
+    public async Task<IActionResult> Register(
         [FromBody] RegisterDeviceRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, request.DeviceId);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             var device = await _registerDeviceUseCase.ExecuteAsync(request, cancellationToken);
@@ -42,11 +47,15 @@ public sealed class DevicesController : ControllerBase
 
     [HttpPatch("{deviceId:guid}/name")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
-    public async Task<ActionResult<DeviceResponse>> Rename(
+    public async Task<IActionResult> Rename(
         Guid deviceId,
         [FromBody] RenameDeviceRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, deviceId);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             var device = await _renameDeviceUseCase.ExecuteAsync(deviceId, request, cancellationToken);
