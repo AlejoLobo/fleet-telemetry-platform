@@ -1216,6 +1216,9 @@ public static class DatabaseInitializer
             unmappedCount,
             tableName);
 
+        // Identidad de fila huérfana: PK estable por tabla (nunca ctid solo en hypertable).
+        var (orphanSelectSql, orphanUpdateWhereSql) = ResolveOrphanRowIdentitySql(tableName);
+
         await ExecuteSqlAsync(
             connection,
             transaction,
@@ -1241,7 +1244,7 @@ public static class DatabaseInitializer
                     LIMIT 1;
 
                     IF assigned IS NULL
-                       AND r.legacy ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+                       AND r.legacy ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$' THEN
                         assigned := r.legacy::uuid;
                     END IF;
 
@@ -1283,11 +1286,9 @@ public static class DatabaseInitializer
                       AND "VehicleId" = r.legacy;
                 END LOOP;
 
-                -- Filas con VehicleId nulo/vacío: conservar con UUID nuevo anónimo.
+                -- Filas restantes (VehicleId nulo/vacío): actualizar por clave estable de la tabla.
                 FOR r IN
-                    SELECT ctid AS row_ctid
-                    FROM {tableName}
-                    WHERE device_id IS NULL
+                    {orphanSelectSql}
                 LOOP
                     assigned := gen_random_uuid();
                     candidate := 'orphan-' || substr(assigned::text, 1, 8);
@@ -1309,11 +1310,45 @@ public static class DatabaseInitializer
 
                     UPDATE {tableName}
                     SET device_id = assigned
-                    WHERE ctid = r.row_ctid;
+                    WHERE device_id IS NULL
+                      AND {orphanUpdateWhereSql};
                 END LOOP;
             END $$;
             """,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Claves estables para actualizar huérfanos. En hypertables (telemetry_events) no usar ctid.
+    /// tableoid+ctid solo como último recurso documentado en tablas heap normales.
+    /// </summary>
+    private static (string SelectSql, string UpdateWhereSql) ResolveOrphanRowIdentitySql(string tableName)
+    {
+        return tableName switch
+        {
+            "telemetry_events" => (
+                """
+                SELECT "EventId" AS k_event_id, "Timestamp" AS k_timestamp
+                FROM telemetry_events
+                WHERE device_id IS NULL
+                """,
+                """"EventId" = r.k_event_id AND "Timestamp" = r.k_timestamp"""),
+            "fleet_alerts" => (
+                """
+                SELECT "AlertId" AS k_alert_id
+                FROM fleet_alerts
+                WHERE device_id IS NULL
+                """,
+                """"AlertId" = r.k_alert_id"""),
+            // Último recurso documentado: tableoid + ctid en tablas heap (nunca ctid solo; no usar en hypertables).
+            _ => (
+                $"""
+                SELECT tableoid AS k_tableoid, ctid AS k_ctid
+                FROM {tableName}
+                WHERE device_id IS NULL
+                """,
+                "tableoid = r.k_tableoid AND ctid = r.k_ctid"),
+        };
     }
 
     private static async Task ConvertTelemetryEventsToDeviceIdAsync(
