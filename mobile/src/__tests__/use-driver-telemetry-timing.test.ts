@@ -5,7 +5,14 @@ const mockSyncPendingQueue = jest.fn();
 const mockEnqueueEvent = jest.fn();
 const mockCountPendingEvents = jest.fn(async () => 0);
 const mockGetCurrentReading = jest.fn();
-const mockRunCaptureLoop = jest.fn(async () => undefined);
+const mockRunCaptureLoop = jest.fn(
+  async (
+    _onReading: (reading: unknown) => void | Promise<void>,
+    _intervalMs: number,
+    _shouldContinue: () => boolean,
+  ) => undefined,
+);
+
 let mockIsOnline = true;
 let syncInFlightCount = 0;
 let syncMaxInFlight = 0;
