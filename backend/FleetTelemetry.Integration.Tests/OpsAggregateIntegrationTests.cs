@@ -39,9 +39,9 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         await SeedFleetStatesAsync(
-            ("VH-AGG-1", now.AddMinutes(-2)),
-            ("VH-AGG-2", now.AddMinutes(-4)),
-            ("VH-AGG-3", now.AddMinutes(-20)));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-AGG-1"), now.AddMinutes(-2)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-AGG-2"), now.AddMinutes(-4)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-AGG-3"), now.AddMinutes(-20)));
 
         using var scope = _services.CreateScope();
         var aggregateRepository = scope.ServiceProvider.GetRequiredService<IFleetStateAggregateRepository>();
@@ -59,10 +59,10 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
         await SeedAlertsAsync(
-            (Guid.Parse("11111111-1111-1111-1111-111111111111"), "VH-1", "critical", false),
-            (Guid.Parse("22222222-2222-2222-2222-222222222222"), "VH-2", "critical", true),
-            (Guid.Parse("33333333-3333-3333-3333-333333333333"), "VH-3", "warning", false),
-            (Guid.Parse("44444444-4444-4444-4444-444444444444"), "VH-4", "CRITICAL", false));
+            (Guid.Parse("11111111-1111-1111-1111-111111111111"), DeviceIdTestHelper.CreateDeterministicGuid("VH-1"), "critical", false),
+            (Guid.Parse("22222222-2222-2222-2222-222222222222"), DeviceIdTestHelper.CreateDeterministicGuid("VH-2"), "critical", true),
+            (Guid.Parse("33333333-3333-3333-3333-333333333333"), DeviceIdTestHelper.CreateDeterministicGuid("VH-3"), "warning", false),
+            (Guid.Parse("44444444-4444-4444-4444-444444444444"), DeviceIdTestHelper.CreateDeterministicGuid("VH-4"), "CRITICAL", false));
 
         using var scope = _services.CreateScope();
         var aggregateRepository = scope.ServiceProvider.GetRequiredService<IFleetStateAggregateRepository>();
@@ -81,10 +81,10 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         await SeedFleetStatesAsync(
-            ("VH-OPS-1", now.AddMinutes(-1)),
-            ("VH-OPS-2", now.AddMinutes(-30)));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-OPS-1"), now.AddMinutes(-1)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-OPS-2"), now.AddMinutes(-30)));
         await SeedAlertsAsync(
-            (Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), "VH-OPS-1", "critical", false));
+            (Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), DeviceIdTestHelper.CreateDeterministicGuid("VH-OPS-1"), "critical", false));
 
         using var scope = _services.CreateScope();
         var opsQuery = scope.ServiceProvider.GetRequiredService<IOpsQueryService>();
@@ -124,7 +124,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         Assert.Equal("kafka-push", kafkaSummary.SseMode);
     }
 
-    private async Task SeedFleetStatesAsync(params (string VehicleId, DateTimeOffset LastTimestamp)[] states)
+    private async Task SeedFleetStatesAsync(params (Guid DeviceId, DateTimeOffset LastTimestamp)[] states)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -133,7 +133,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.VehicleId,
+                VehicleId = item.DeviceId.ToString("D"),
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,
@@ -147,7 +147,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
-    private async Task SeedAlertsAsync(params (Guid AlertId, string VehicleId, string Severity, bool Acknowledged)[] alerts)
+    private async Task SeedAlertsAsync(params (Guid AlertId, Guid DeviceId, string Severity, bool Acknowledged)[] alerts)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -158,7 +158,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
             db.FleetAlerts.Add(new FleetAlertRecord
             {
                 AlertId = alert.AlertId,
-                VehicleId = alert.VehicleId,
+                VehicleId = alert.DeviceId.ToString("D"),
                 AlertType = "test",
                 Severity = alert.Severity,
                 Message = "test alert",

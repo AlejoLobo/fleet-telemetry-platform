@@ -41,7 +41,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-EXP-ON", now.AddMinutes(-2), 0, 4.65, -74.08);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-ON"), now.AddMinutes(-2), 0, 4.65, -74.08);
         await ProcessAsync(telemetryEvent);
 
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
@@ -61,7 +61,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-EXP-OFF", now.AddMinutes(-2), 0, 4.65, -74.08);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-OFF"), now.AddMinutes(-2), 0, 4.65, -74.08);
         await ProcessAsync(telemetryEvent);
         _publisher.Reset();
 
@@ -89,7 +89,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 15, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-EXP-NOREP", now.AddMinutes(-2), 10, 4.66, -74.07);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-NOREP"), now.AddMinutes(-2), 10, 4.66, -74.07);
         await ProcessAsync(telemetryEvent);
         _publisher.Reset();
 
@@ -114,7 +114,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 16, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var firstEvent = CreateEvent("VH-EXP-BACK", now.AddMinutes(-2), 0, 4.67, -74.06);
+        var firstEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-BACK"), now.AddMinutes(-2), 0, 4.67, -74.06);
         await ProcessAsync(firstEvent);
         _publisher.Reset();
 
@@ -126,7 +126,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         _publisher.Reset();
 
         var secondEvent = CreateEvent(
-            "VH-EXP-BACK",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-BACK"),
             now.AddMinutes(5),
             45,
             4.68,
@@ -151,7 +151,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 17, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-EXP-PARITY", now.AddMinutes(-2), 5, 4.69, -74.04);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-EXP-PARITY"), now.AddMinutes(-2), 5, 4.69, -74.04);
         await ProcessAsync(telemetryEvent);
         _publisher.Reset();
 
@@ -163,7 +163,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
-        var restStatus = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var restStatus = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var realtimePayload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -199,8 +199,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         return await watermarkRepository.GetPreviousOnlineThresholdAsync();
     }
 
-    private static TelemetryEvent CreateEvent(
-        string vehicleId,
+    private static TelemetryEvent CreateEvent(Guid deviceId,
         DateTimeOffset timestamp,
         double speedKmh,
         double latitude,
@@ -208,7 +207,7 @@ public class ConnectivityExpiryIntegrationTests : IAsyncLifetime
         Guid? eventId = null) =>
         TelemetryEvent.Create(
             eventId ?? Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-INT-001",
             timestamp,
             latitude,
@@ -255,7 +254,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         for (var index = 1; index <= 5; index++)
         {
             await ProcessAsync(CreateEvent(
-                $"VH-PAGE-{index:D3}",
+                DeviceIdTestHelper.CreateDeterministicGuid($"VH-PAGE-{index:D3}"),
                 now.AddMinutes(-2),
                 index * 10,
                 4.60 + index * 0.01,
@@ -270,7 +269,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         Assert.Equal(5, published);
         Assert.Equal(5, _publisher.VehicleUpdates.Count);
         Assert.Equal(
-            new[] { "VH-PAGE-001", "VH-PAGE-002", "VH-PAGE-003", "VH-PAGE-004", "VH-PAGE-005" },
+            new[] { DeviceIdTestHelper.ToStorage("VH-PAGE-001"), DeviceIdTestHelper.ToStorage("VH-PAGE-002"), DeviceIdTestHelper.ToStorage("VH-PAGE-003"), DeviceIdTestHelper.ToStorage("VH-PAGE-004"), DeviceIdTestHelper.ToStorage("VH-PAGE-005") }.OrderBy(id => id).ToArray(),
             _publisher.VehicleUpdates.Select(update => update.VehicleId).OrderBy(id => id).ToArray());
     }
 
@@ -283,9 +282,9 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var sharedTimestamp = now.AddMinutes(-2);
         _timeProvider.SetUtcNow(now);
 
-        await ProcessAsync(CreateEvent("VH-SAME-C", sharedTimestamp, 10, 4.61, -74.08));
-        await ProcessAsync(CreateEvent("VH-SAME-A", sharedTimestamp, 20, 4.62, -74.07));
-        await ProcessAsync(CreateEvent("VH-SAME-B", sharedTimestamp, 30, 4.63, -74.06));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-SAME-C"), sharedTimestamp, 10, 4.61, -74.08));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-SAME-A"), sharedTimestamp, 20, 4.62, -74.07));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-SAME-B"), sharedTimestamp, 30, 4.63, -74.06));
 
         _publisher.Reset();
         _timeProvider.SetUtcNow(now.AddMinutes(6));
@@ -294,7 +293,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
 
         Assert.Equal(3, published);
         Assert.Equal(
-            new[] { "VH-SAME-A", "VH-SAME-B", "VH-SAME-C" },
+            new[] { DeviceIdTestHelper.ToStorage("VH-SAME-A"), DeviceIdTestHelper.ToStorage("VH-SAME-B"), DeviceIdTestHelper.ToStorage("VH-SAME-C") }.OrderBy(id => id).ToArray(),
             _publisher.VehicleUpdates.Select(update => update.VehicleId).OrderBy(id => id).ToArray());
     }
 
@@ -306,7 +305,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 20, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        await ProcessAsync(CreateEvent("VH-FAIL-WM", now.AddMinutes(-2), 0, 4.64, -74.05));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-FAIL-WM"), now.AddMinutes(-2), 0, 4.64, -74.05));
         _publisher.Reset();
         _timeProvider.SetUtcNow(now.AddMinutes(6));
 
@@ -329,16 +328,16 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 21, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        await ProcessAsync(CreateEvent("VH-RETRY-A", now.AddMinutes(-2), 10, 4.65, -74.04));
-        await ProcessAsync(CreateEvent("VH-RETRY-B", now.AddMinutes(-2), 20, 4.66, -74.03));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-RETRY-A"), now.AddMinutes(-2), 10, 4.65, -74.04));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-RETRY-B"), now.AddMinutes(-2), 20, 4.66, -74.03));
 
         _publisher.Reset();
         _timeProvider.SetUtcNow(now.AddMinutes(6));
-        _publisher.FailOnVehicleId = "VH-RETRY-B";
+        _publisher.FailOnVehicleId = DeviceIdTestHelper.ToStorage("VH-RETRY-B");
 
         await Assert.ThrowsAsync<InvalidOperationException>(PublishExpiryAsync);
         Assert.Single(_publisher.VehicleUpdates);
-        Assert.Equal("VH-RETRY-A", _publisher.VehicleUpdates[0].VehicleId);
+        Assert.Equal(DeviceIdTestHelper.ToStorage("VH-RETRY-A"), _publisher.VehicleUpdates[0].VehicleId);
         Assert.Null(await GetWatermarkAsync());
 
         _publisher.FailOnVehicleId = null;
@@ -346,8 +345,8 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
 
         Assert.Equal(1, published);
         Assert.Equal(2, _publisher.VehicleUpdates.Count);
-        Assert.Equal(1, _publisher.VehicleUpdates.Count(update => update.VehicleId == "VH-RETRY-A"));
-        Assert.Equal(1, _publisher.VehicleUpdates.Count(update => update.VehicleId == "VH-RETRY-B"));
+        Assert.Equal(1, _publisher.VehicleUpdates.Count(update => update.VehicleId == DeviceIdTestHelper.ToStorage("VH-RETRY-A")));
+        Assert.Equal(1, _publisher.VehicleUpdates.Count(update => update.VehicleId == DeviceIdTestHelper.ToStorage("VH-RETRY-B")));
     }
 
     [Fact]
@@ -358,7 +357,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 22, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        await ProcessAsync(CreateEvent("VH-RESTART", now.AddMinutes(-2), 15, 4.67, -74.02));
+        await ProcessAsync(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-RESTART"), now.AddMinutes(-2), 15, 4.67, -74.02));
         _publisher.Reset();
 
         // Más allá del lookback de 90s; el watermark durable debe seguir cubriendo la ventana.
@@ -370,7 +369,7 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
         Assert.Equal(VehicleConnectivityStatus.Offline, payload?.Status);
-        Assert.Equal("VH-RESTART", _publisher.VehicleUpdates[0].VehicleId);
+        Assert.Equal(DeviceIdTestHelper.ToStorage("VH-RESTART"), _publisher.VehicleUpdates[0].VehicleId);
     }
 
     [Fact]
@@ -381,10 +380,10 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 23, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var vehicleIds = new[] { "VH-NO-STALE-1", "VH-NO-STALE-2", "VH-NO-STALE-3" };
-        foreach (var vehicleId in vehicleIds)
+        var deviceIds = new[] { DeviceIdTestHelper.CreateDeterministicGuid("VH-NO-STALE-1"), DeviceIdTestHelper.CreateDeterministicGuid("VH-NO-STALE-2"), DeviceIdTestHelper.CreateDeterministicGuid("VH-NO-STALE-3") };
+        foreach (var deviceId in deviceIds)
         {
-            await ProcessAsync(CreateEvent(vehicleId, now.AddMinutes(-2), 25, 4.68, -74.01));
+            await ProcessAsync(CreateEvent(deviceId, now.AddMinutes(-2), 25, 4.68, -74.01));
         }
 
         _publisher.Reset();
@@ -394,9 +393,9 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
-        foreach (var vehicleId in vehicleIds)
+        foreach (var deviceId in deviceIds)
         {
-            var status = await fleetQuery.GetVehicleStatusAsync(vehicleId);
+            var status = await fleetQuery.GetVehicleStatusAsync(deviceId);
             Assert.Equal(VehicleConnectivityStatus.Offline, status?.Status);
         }
 
@@ -433,15 +432,14 @@ public class ConnectivityExpiryPagingIntegrationTests : IAsyncLifetime
         return await watermarkRepository.GetPreviousOnlineThresholdAsync();
     }
 
-    private static TelemetryEvent CreateEvent(
-        string vehicleId,
+    private static TelemetryEvent CreateEvent(Guid deviceId,
         DateTimeOffset timestamp,
         double speedKmh,
         double latitude,
         double longitude) =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-INT-001",
             timestamp,
             latitude,

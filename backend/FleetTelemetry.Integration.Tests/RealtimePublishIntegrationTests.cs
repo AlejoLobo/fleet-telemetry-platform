@@ -40,7 +40,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         _publisher.Reset();
 
         var telemetryEvent = CreateEvent(
-            "VH-RT-001",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-001"),
             new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero),
             speedKmh: 55,
             latitude: 4.65,
@@ -49,7 +49,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await ProcessAsync(telemetryEvent);
 
         Assert.Single(_publisher.VehicleUpdates);
-        Assert.Equal(telemetryEvent.VehicleId, _publisher.VehicleUpdates[0].VehicleId);
+        Assert.Equal(telemetryEvent.DeviceIdStorage, _publisher.VehicleUpdates[0].VehicleId);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         _publisher.Reset();
 
         var timestamp = new DateTimeOffset(2026, 7, 10, 11, 30, 0, TimeSpan.Zero);
-        var telemetryEvent = CreateEvent("VH-RT-002", timestamp, 40, 4.61, -74.09);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-002"), timestamp, 40, 4.61, -74.09);
 
         await ProcessAsync(telemetryEvent);
 
@@ -76,9 +76,10 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await ResetAsync();
         _publisher.Reset();
 
-        var vehicleId = "VH-RT-OOO";
-        var newer = CreateEvent(vehicleId, new DateTimeOffset(2026, 7, 10, 11, 0, 0, TimeSpan.Zero), 70, 4.71, -74.04);
-        var older = CreateEvent(vehicleId, new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), 20, 4.59, -74.11);
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-OOO");
+        var deviceIdStorage = deviceId.ToString("D");
+        var newer = CreateEvent(deviceId, new DateTimeOffset(2026, 7, 10, 11, 0, 0, TimeSpan.Zero), 70, 4.71, -74.04);
+        var older = CreateEvent(deviceId, new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), 20, 4.59, -74.11);
 
         await ProcessAsync(newer);
         _publisher.Reset();
@@ -93,13 +94,14 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await ResetAsync();
         _publisher.Reset();
 
-        var vehicleId = "VH-RT-TIE-LOW";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-TIE-LOW");
+        var deviceIdStorage = deviceId.ToString("D");
         var timestamp = new DateTimeOffset(2026, 7, 10, 10, 30, 0, TimeSpan.Zero);
         var higherEventId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var lowerEventId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-        var first = CreateEvent(vehicleId, timestamp, 40, 4.61, -74.09, higherEventId);
-        var second = CreateEvent(vehicleId, timestamp, 35, 4.60, -74.10, lowerEventId);
+        var first = CreateEvent(deviceId, timestamp, 40, 4.61, -74.09, higherEventId);
+        var second = CreateEvent(deviceId, timestamp, 35, 4.60, -74.10, lowerEventId);
 
         await ProcessAsync(first);
         _publisher.Reset();
@@ -114,13 +116,14 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await ResetAsync();
         _publisher.Reset();
 
-        var vehicleId = "VH-RT-TIE-HIGH";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-TIE-HIGH");
+        var deviceIdStorage = deviceId.ToString("D");
         var timestamp = new DateTimeOffset(2026, 7, 10, 10, 30, 0, TimeSpan.Zero);
         var lowerEventId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var higherEventId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
-        var first = CreateEvent(vehicleId, timestamp, 40, 4.61, -74.09, lowerEventId);
-        var second = CreateEvent(vehicleId, timestamp, 42, 4.62, -74.08, higherEventId);
+        var first = CreateEvent(deviceId, timestamp, 40, 4.61, -74.09, lowerEventId);
+        var second = CreateEvent(deviceId, timestamp, 42, 4.62, -74.08, higherEventId);
 
         await ProcessAsync(first);
         _publisher.Reset();
@@ -140,7 +143,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         _publisher.Reset();
 
         var telemetryEvent = CreateEvent(
-            "VH-RT-MATCH",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-MATCH"),
             new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero),
             speedKmh: 88,
             latitude: 4.67,
@@ -150,7 +153,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.VehicleId);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
 
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
@@ -169,9 +172,10 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await ResetAsync();
         _publisher.Reset();
 
-        var vehicleId = "VH-RT-ALERT";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-ALERT");
+        var deviceIdStorage = deviceId.ToString("D");
         var newer = CreateEvent(
-            vehicleId,
+            deviceId,
             new DateTimeOffset(2026, 7, 10, 11, 0, 0, TimeSpan.Zero),
             speedKmh: 50,
             latitude: 4.70,
@@ -179,7 +183,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
             fuelLevelPercent: 70,
             batteryPercent: 85);
         var olderWithAlert = CreateEvent(
-            vehicleId,
+            deviceId,
             new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero),
             speedKmh: 130,
             latitude: 4.59,
@@ -197,11 +201,11 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == vehicleId);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage);
         Assert.Equal(newer.EventId, state.LastEventId);
         Assert.Equal(newer.Timestamp, state.LastTimestamp);
         Assert.Equal(newer.SpeedKmh, state.SpeedKmh);
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == vehicleId));
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
     }
 
     private async Task ResetAsync()
@@ -217,8 +221,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(telemetryEvent);
     }
 
-    private static TelemetryEvent CreateEvent(
-        string vehicleId,
+    private static TelemetryEvent CreateEvent(Guid deviceId,
         DateTimeOffset timestamp,
         double speedKmh,
         double latitude,
@@ -228,7 +231,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
         double batteryPercent = 85) =>
         TelemetryEvent.Create(
             eventId ?? Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-INT-001",
             timestamp,
             latitude,

@@ -25,16 +25,18 @@ public class TelemetryConsumerWorkerIntegrationTests
             "worker-order",
             "worker-order-group");
 
-        var eventA = CreateEvent("A");
-        var eventB = CreateEvent("B");
+        var deviceA = DeviceIdTestHelper.CreateDeterministicGuid("A");
+        var deviceB = DeviceIdTestHelper.CreateDeterministicGuid("B");
+        var eventA = CreateEvent(deviceA);
+        var eventB = CreateEvent(deviceB);
         var attemptsByVehicle = new ConcurrentQueue<string>();
-        var attemptCounts = new ConcurrentDictionary<string, int>();
+        var attemptCounts = new ConcurrentDictionary<Guid, int>();
 
         host.Processing!.Handler = async (evt, _) =>
         {
-            var attempt = attemptCounts.AddOrUpdate(evt.VehicleId, 1, (_, current) => current + 1);
-            attemptsByVehicle.Enqueue($"{evt.VehicleId}:{attempt}");
-            if (evt.VehicleId == "A" && attempt == 1)
+            var attempt = attemptCounts.AddOrUpdate(evt.DeviceId, 1, (_, current) => current + 1);
+            attemptsByVehicle.Enqueue($"{evt.DeviceId:D}:{attempt}");
+            if (evt.DeviceId == deviceA && attempt == 1)
                 throw new TimeoutException("transient A");
             return ProcessTelemetryOutcome.Processed;
         };
@@ -45,7 +47,7 @@ public class TelemetryConsumerWorkerIntegrationTests
 
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, expectedOffset: 2, TimeSpan.FromSeconds(60));
 
-        Assert.Equal(["A:1", "A:2", "B:1"], attemptsByVehicle.ToArray());
+        Assert.Equal([$"{deviceA:D}:1", $"{deviceA:D}:2", $"{deviceB:D}:1"], attemptsByVehicle.ToArray());
 
         await host.StopAsync();
 
@@ -179,7 +181,7 @@ public class TelemetryConsumerWorkerIntegrationTests
         host.Processing!.Handler = (_, _) => throw new NullReferenceException("unexpected");
 
         await host.StartAsync();
-        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent("U")));
+        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("U"))));
 
         await WaitUntilAsync(() => host.Processing!.CallCount > 0, TimeSpan.FromSeconds(30));
         await Task.Delay(TimeSpan.FromSeconds(2));
@@ -247,7 +249,7 @@ public class TelemetryConsumerWorkerIntegrationTests
         host.Processing!.Handler = (_, _) => throw new TimeoutException("transient");
 
         await host.StartAsync();
-        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent("C")));
+        Produce(host.Topic, TelemetryEventJsonSerializer.Serialize(CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("C"))));
         await WaitUntilAsync(() => host.Processing!.CallCount > 0, TimeSpan.FromSeconds(30));
         await host.StopAsync();
 
@@ -272,7 +274,7 @@ public class TelemetryConsumerWorkerIntegrationTests
             });
 
         var eventId = Guid.NewGuid();
-        var payload = TelemetryEventJsonSerializer.Serialize(CreateEventWithId("VH-DUP", eventId));
+        var payload = TelemetryEventJsonSerializer.Serialize(CreateEventWithId(DeviceIdTestHelper.CreateDeterministicGuid("VH-DUP"), eventId));
 
         await host.StartAsync();
         Produce(host.Topic, payload);
@@ -426,10 +428,10 @@ public class TelemetryConsumerWorkerIntegrationTests
         }
     }
 
-    private static TelemetryEvent CreateEvent(string vehicleId) =>
+    private static TelemetryEvent CreateEvent(Guid deviceId) =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-1",
             DateTimeOffset.UtcNow,
             4.65,
@@ -438,10 +440,10 @@ public class TelemetryConsumerWorkerIntegrationTests
             50,
             80);
 
-    private static TelemetryEvent CreateEventWithId(string vehicleId, Guid eventId) =>
+    private static TelemetryEvent CreateEventWithId(Guid deviceId, Guid eventId) =>
         TelemetryEvent.Create(
             eventId,
-            vehicleId,
+            deviceId,
             "DRV-1",
             DateTimeOffset.UtcNow,
             4.65,
