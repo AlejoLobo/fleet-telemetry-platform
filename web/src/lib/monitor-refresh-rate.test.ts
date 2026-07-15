@@ -58,6 +58,16 @@ describe("monitor-refresh-rate 5/10/15/20", () => {
     expect(parseMonitorRefreshRate("30")).toBe(5);
   });
 
+  it("al restaurar reescribe localStorage normalizado", () => {
+    for (const legacy of ["realtime", "30", "60", "bogus"]) {
+      window.localStorage.setItem(MONITOR_REFRESH_RATE_STORAGE_KEY, legacy);
+      const restored = loadMonitorRefreshRate();
+      expect(restored).toBe(5);
+      saveMonitorRefreshRate(restored);
+      expect(window.localStorage.getItem(MONITOR_REFRESH_RATE_STORAGE_KEY)).toBe("5");
+    }
+  });
+
   it("restaura 5/10/15/20", () => {
     for (const rate of [5, 10, 15, 20] as const) {
       saveMonitorRefreshRate(rate);
@@ -83,6 +93,7 @@ describe("page.tsx hidratación y buffer", () => {
     expect(source).toContain("DEFAULT_MONITOR_REFRESH_RATE");
     expect(source).toContain("setRefreshRateReady(true)");
     expect(source).toContain("if (!refreshRateReady) return");
+    expect(source).toContain("saveMonitorRefreshRate(restored)");
     expect(source).not.toContain('"realtime"');
   });
 
