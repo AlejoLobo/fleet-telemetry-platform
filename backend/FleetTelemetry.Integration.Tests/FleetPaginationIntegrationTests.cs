@@ -325,7 +325,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var states = Enumerable.Range(1, count)
             .Select(i => new FleetVehicleStateRecord
             {
-                VehicleId = Guid.Parse($"00000000-0000-0000-0000-{i:D12}").ToString("D"),
+                DeviceId = Guid.Parse($"00000000-0000-0000-0000-{i:D12}"),
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = lastTimestamp,
                 Latitude = 4.60 + i * 0.0001,
@@ -355,7 +355,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,
@@ -379,7 +379,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,

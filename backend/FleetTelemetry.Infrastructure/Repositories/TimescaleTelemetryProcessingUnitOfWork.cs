@@ -25,6 +25,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     private readonly FleetDbContext _dbContext;
     private readonly IFleetRealtimePublisher _realtimePublisher;
     private readonly IFleetOfflinePublishMarkerRepository _markerRepository;
+    private readonly IDeviceRegistry _deviceRegistry;
     private readonly TimeProvider _timeProvider;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly AlertingOptions _alerting;
@@ -34,6 +35,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         FleetDbContext dbContext,
         IFleetRealtimePublisher realtimePublisher,
         IFleetOfflinePublishMarkerRepository markerRepository,
+        IDeviceRegistry deviceRegistry,
         TimeProvider timeProvider,
         IOptions<QueryLimitsOptions> queryLimits,
         IOptions<AlertingOptions> alerting,
@@ -42,6 +44,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         _dbContext = dbContext;
         _realtimePublisher = realtimePublisher;
         _markerRepository = markerRepository;
+        _deviceRegistry = deviceRegistry;
         _timeProvider = timeProvider;
         _queryLimits = queryLimits.Value;
         _alerting = alerting.Value;
@@ -71,12 +74,12 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             return ProcessTelemetryOutcome.Duplicate;
         }
 
-        var deviceIdStorage = telemetryEvent.DeviceIdStorage;
+        var deviceId = telemetryEvent.DeviceId;
 
         _dbContext.TelemetryEvents.Add(new TelemetryEventRecord
         {
             EventId = telemetryEvent.EventId,
-            VehicleId = deviceIdStorage,
+            DeviceId = deviceId,
             DriverId = telemetryEvent.DriverId,
             Timestamp = telemetryEvent.Timestamp,
             Latitude = telemetryEvent.Latitude,
@@ -88,18 +91,19 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             CapturedAt = processedAt
         });
 
+        var deviceIdKey = deviceId.ToString("D");
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtext({deviceIdStorage}));",
+            $"SELECT pg_advisory_xact_lock(hashtext({deviceIdKey}));",
             cancellationToken);
 
         var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (
-                "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
+                device_id, "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
                 "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource", "UpdatedAt"
             )
             VALUES (
-                {deviceIdStorage},
+                {deviceId},
                 {telemetryEvent.EventId},
                 {telemetryEvent.DriverId},
                 {telemetryEvent.Timestamp},
@@ -111,7 +115,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 {telemetryEvent.LocationSource},
                 {processedAt}
             )
-            ON CONFLICT ("VehicleId") DO UPDATE
+            ON CONFLICT (device_id) DO UPDATE
             SET
                 "LastEventId" = EXCLUDED."LastEventId",
                 "DriverId" = EXCLUDED."DriverId",
@@ -134,7 +138,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         IReadOnlyList<FleetAlert> emittedAlerts = Array.Empty<FleetAlert>();
         if (stateRowsAffected > 0)
         {
-            var locked = await LockAlertStatesAsync(deviceIdStorage, cancellationToken);
+            var locked = await LockAlertStatesAsync(deviceId, cancellationToken);
             var evaluation = TelemetryAlertEvaluator.Evaluate(
                 telemetryEvent,
                 locked.StatesByType,
@@ -149,7 +153,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 _dbContext.FleetAlerts.Add(new FleetAlertRecord
                 {
                     AlertId = alert.AlertId,
-                    VehicleId = alert.DeviceIdStorage,
+                    DeviceId = alert.DeviceId,
                     AlertType = alert.AlertType,
                     Severity = alert.Severity,
                     Message = alert.Message,
@@ -181,15 +185,15 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
     private async Task<(
         Dictionary<string, FleetAlertConditionState> StatesByType,
         Dictionary<string, FleetAlertConditionStateRecord> TrackedByType)> LockAlertStatesAsync(
-        string deviceIdStorage,
+        Guid deviceId,
         CancellationToken cancellationToken)
     {
         var records = await _dbContext.FleetAlertStates
             .FromSqlInterpolated(
                 $"""
-                SELECT "VehicleId", "AlertType", "IsActive", "LastConditionAt", "LastAlertAt", "UpdatedAt"
+                SELECT device_id, "AlertType", "IsActive", "LastConditionAt", "LastAlertAt", "UpdatedAt"
                 FROM fleet_alert_states
-                WHERE "VehicleId" = {deviceIdStorage}
+                WHERE device_id = {deviceId}
                 FOR UPDATE
                 """)
             .ToListAsync(cancellationToken);
@@ -198,7 +202,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         var states = records.ToDictionary(
             r => r.AlertType,
             r => FleetAlertConditionState.FromPersistence(
-                r.VehicleId,
+                r.DeviceId,
                 r.AlertType,
                 r.IsActive,
                 r.LastConditionAt,
@@ -226,7 +230,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
             _dbContext.FleetAlertStates.Add(new FleetAlertConditionStateRecord
             {
-                VehicleId = state.DeviceIdStorage,
+                DeviceId = state.DeviceId,
                 AlertType = state.AlertType,
                 IsActive = state.IsActive,
                 LastConditionAt = state.LastConditionAt,
@@ -253,9 +257,12 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     _queryLimits.OnlineThresholdMinutes);
 
                 var deviceId = telemetryEvent.DeviceId;
+                var device = await _deviceRegistry.GetDeviceAsync(deviceId, cancellationToken);
+                var vehicleName = device?.VehicleName ?? deviceId.ToString("D");
+
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     deviceId,
-                    deviceId.ToString("D"),
+                    vehicleName,
                     connectivityStatus,
                     telemetryEvent.Timestamp,
                     telemetryEvent.SpeedKmh,

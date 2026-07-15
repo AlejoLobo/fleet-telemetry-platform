@@ -23,7 +23,8 @@ public class FleetDbContext : DbContext
         modelBuilder.Entity<TelemetryEventRecord>(entity =>
         {
             entity.HasKey(e => new { e.EventId, e.Timestamp });
-            entity.HasIndex(e => new { e.VehicleId, e.Timestamp, e.EventId });
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
+            entity.HasIndex(e => new { e.DeviceId, e.Timestamp, e.EventId });
         });
 
         modelBuilder.Entity<ProcessedEventRecord>(entity =>
@@ -33,21 +34,29 @@ public class FleetDbContext : DbContext
 
         modelBuilder.Entity<FleetAlertRecord>(entity =>
         {
-            entity.HasIndex(e => new { e.VehicleId, e.CreatedAt });
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
+            entity.HasIndex(e => new { e.DeviceId, e.CreatedAt });
             entity.HasIndex(e => e.IsAcknowledged);
         });
 
         modelBuilder.Entity<FleetAlertConditionStateRecord>(entity =>
         {
-            entity.HasKey(e => new { e.VehicleId, e.AlertType });
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
+            entity.HasKey(e => new { e.DeviceId, e.AlertType });
             entity.HasIndex(e => new { e.IsActive, e.LastConditionAt });
         });
 
         modelBuilder.Entity<FleetVehicleStateRecord>(entity =>
         {
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
             entity.HasIndex(e => e.LastTimestamp);
             entity.HasIndex(e => new { e.LocationSource, e.LastTimestamp });
-            entity.HasIndex(e => new { e.LastTimestamp, e.VehicleId });
+            entity.HasIndex(e => new { e.LastTimestamp, e.DeviceId });
+        });
+
+        modelBuilder.Entity<FleetOfflinePublishMarkerRecord>(entity =>
+        {
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
         });
 
         modelBuilder.Entity<FleetConnectivityWatermarkRecord>(entity =>

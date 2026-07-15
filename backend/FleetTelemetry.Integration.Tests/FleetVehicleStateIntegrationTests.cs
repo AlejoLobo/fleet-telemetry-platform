@@ -49,7 +49,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
 
         Assert.Equal(ProcessTelemetryOutcome.Processed, outcome);
 
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
         Assert.Equal(telemetryEvent.EventId, state.LastEventId);
         Assert.Equal(telemetryEvent.Timestamp, state.LastTimestamp);
         Assert.Equal(telemetryEvent.SpeedKmh, state.SpeedKmh);
@@ -85,7 +85,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(first);
         await uow.ProcessAsync(second);
 
-        var states = await db.FleetVehicleStates.Where(s => s.VehicleId == deviceIdStorage).ToListAsync();
+        var states = await db.FleetVehicleStates.Where(s => s.DeviceId == deviceId).ToListAsync();
         Assert.Single(states);
 
         var state = states[0];
@@ -122,7 +122,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(newer);
         await uow.ProcessAsync(older);
 
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId);
         Assert.Equal(newer.EventId, state.LastEventId);
         Assert.Equal(newer.Timestamp, state.LastTimestamp);
         Assert.Equal(newer.SpeedKmh, state.SpeedKmh);
@@ -149,7 +149,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(first);
         await uow.ProcessAsync(second);
 
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId);
         Assert.Equal(higherEventId, state.LastEventId);
         Assert.Equal(42, state.SpeedKmh);
     }
@@ -179,12 +179,12 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         using var verifyScope = _services.CreateScope();
         var verifyDb = verifyScope.ServiceProvider.GetRequiredService<FleetDbContext>();
 
-        var state1 = await verifyDb.FleetVehicleStates.SingleAsync(s => s.VehicleId == "VH-BF-001");
+        var state1 = await verifyDb.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-BF-001"));
         Assert.Equal(Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), state1.LastEventId);
         Assert.Equal(baseTime.AddMinutes(30), state1.LastTimestamp);
         Assert.Equal(50, state1.SpeedKmh);
 
-        var state2 = await verifyDb.FleetVehicleStates.SingleAsync(s => s.VehicleId == "VH-BF-002");
+        var state2 = await verifyDb.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-BF-002"));
         Assert.Equal(Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), state2.LastEventId);
     }
 
@@ -207,7 +207,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(telemetryEvent);
 
         var stateBefore = await db.FleetVehicleStates.AsNoTracking()
-            .SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
+            .SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
         var telemetryBefore = await db.TelemetryEvents.CountAsync();
         var processedBefore = await db.ProcessedEvents.CountAsync();
         var alertsBefore = await db.FleetAlerts.CountAsync();
@@ -217,7 +217,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
         Assert.Equal(ProcessTelemetryOutcome.Duplicate, duplicateOutcome);
 
         var stateAfter = await db.FleetVehicleStates.AsNoTracking()
-            .SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
+            .SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
         Assert.Equal(stateBefore.LastEventId, stateAfter.LastEventId);
         Assert.Equal(stateBefore.LastTimestamp, stateAfter.LastTimestamp);
         Assert.Equal(stateBefore.SpeedKmh, stateAfter.SpeedKmh);
@@ -320,7 +320,7 @@ public class FleetVehicleStateIntegrationTests : IAsyncLifetime
             db.TelemetryEvents.Add(new Infrastructure.Persistence.Entities.TelemetryEventRecord
             {
                 EventId = item.EventId,
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 Timestamp = item.Timestamp,
                 CapturedAt = item.Timestamp,
                 Latitude = item.Lat,

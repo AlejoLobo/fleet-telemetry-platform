@@ -56,8 +56,8 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
-        var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == deviceIdStorage && s.AlertType == "overspeed");
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "overspeed"));
+        var state = await db.FleetAlertStates.SingleAsync(s => s.DeviceId == deviceId && s.AlertType == "overspeed");
         Assert.True(state.IsActive);
     }
 
@@ -74,7 +74,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
+        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "overspeed"));
     }
 
     [Fact]
@@ -91,9 +91,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            var state = await db.FleetAlertStates.SingleAsync(s => s.VehicleId == deviceIdStorage && s.AlertType == "overspeed");
+            var state = await db.FleetAlertStates.SingleAsync(s => s.DeviceId == deviceId && s.AlertType == "overspeed");
             Assert.False(state.IsActive);
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
         }
 
         _timeProvider.SetUtcNow(T0.AddSeconds(20));
@@ -102,9 +102,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "overspeed" && s.IsActive));
         }
 
         _timeProvider.SetUtcNow(T0.AddSeconds(CooldownSeconds));
@@ -113,7 +113,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+            Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
         }
     }
 
@@ -128,10 +128,10 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
-        Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage && s.IsActive));
-        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == deviceIdStorage).Select(a => a.AlertType).ToListAsync(), t => t == "low_fuel");
-        Assert.Contains(await db.FleetAlerts.Where(a => a.VehicleId == deviceIdStorage).Select(a => a.AlertType).ToListAsync(), t => t == "low_battery");
+        Assert.Equal(2, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
+        Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.DeviceId == deviceId && s.IsActive));
+        Assert.Contains(await db.FleetAlerts.Where(a => a.DeviceId == deviceId).Select(a => a.AlertType).ToListAsync(), t => t == "low_fuel");
+        Assert.Contains(await db.FleetAlerts.Where(a => a.DeviceId == deviceId).Select(a => a.AlertType).ToListAsync(), t => t == "low_battery");
     }
 
     [Fact]
@@ -150,8 +150,8 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == deviceAStorage));
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.VehicleId == deviceBStorage));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.DeviceId == deviceA));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(x => x.DeviceId == deviceB));
         Assert.Equal(2, await db.FleetAlertStates.CountAsync(s => s.IsActive));
     }
 
@@ -168,7 +168,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
         Assert.Equal(1, await db.TelemetryEvents.CountAsync(e => e.EventId == evt.EventId));
     }
 
@@ -186,9 +186,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
+            s.DeviceId == deviceId && s.AlertType == "overspeed" && s.IsActive));
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "overspeed"));
     }
 
     [Fact]
@@ -242,9 +242,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var verifyScope = _services.CreateAsyncScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
-        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage));
-        Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.VehicleId == deviceIdStorage));
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
+        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.DeviceId == deviceId));
+        Assert.Equal(0, await db.TelemetryEvents.CountAsync(e => e.DeviceId == deviceId));
         Assert.Equal(0, await db.ProcessedEvents.CountAsync());
     }
 
@@ -292,7 +292,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            var alert = await db.FleetAlerts.SingleAsync(a => a.VehicleId == deviceIdStorage);
+            var alert = await db.FleetAlerts.SingleAsync(a => a.DeviceId == deviceId);
             alert.IsAcknowledged = true;
             await db.SaveChangesAsync();
         }
@@ -303,10 +303,10 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
-            Assert.True(await db.FleetAlerts.AnyAsync(a => a.VehicleId == deviceIdStorage && a.IsAcknowledged));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
+            Assert.True(await db.FleetAlerts.AnyAsync(a => a.DeviceId == deviceId && a.IsAcknowledged));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.IsActive));
+                s.DeviceId == deviceId && s.IsActive));
         }
     }
 
@@ -341,9 +341,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_fuel"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "low_fuel"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "low_fuel" && s.IsActive));
         }
 
         _publisher.Reset();
@@ -355,9 +355,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_fuel"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "low_fuel"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "low_fuel" && s.IsActive));
         }
 
         await ProcessAsync(CreateEvent(
@@ -366,7 +366,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "low_fuel" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "low_fuel" && s.IsActive));
         }
     }
 
@@ -384,9 +384,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using (var scope = _services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "low_battery"));
+            Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "low_battery"));
             Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "low_battery" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "low_battery" && s.IsActive));
         }
 
         _publisher.Reset();
@@ -401,7 +401,7 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-                s.VehicleId == deviceIdStorage && s.AlertType == "low_battery" && s.IsActive));
+                s.DeviceId == deviceId && s.AlertType == "low_battery" && s.IsActive));
         }
     }
 
@@ -422,9 +422,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         Assert.Empty(_publisher.AlertPayloads);
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
-        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.VehicleId == deviceIdStorage));
-        Assert.Equal(newer.EventId, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
+        Assert.Equal(0, await db.FleetAlertStates.CountAsync(s => s.DeviceId == deviceId));
+        Assert.Equal(newer.EventId, (await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId)).LastEventId);
     }
 
     [Fact]
@@ -441,9 +441,9 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
 
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage && a.AlertType == "overspeed"));
+        Assert.Equal(1, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId && a.AlertType == "overspeed"));
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
+            s.DeviceId == deviceId && s.AlertType == "overspeed" && s.IsActive));
     }
 
     [Fact]
@@ -462,8 +462,8 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         Assert.True(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
-        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
+            s.DeviceId == deviceId && s.AlertType == "overspeed" && s.IsActive));
+        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId)).LastEventId);
     }
 
     [Fact]
@@ -482,8 +482,8 @@ public class AlertDedupCooldownIntegrationTests : IAsyncLifetime
         await using var scope = _services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         Assert.False(await db.FleetAlertStates.AnyAsync(s =>
-            s.VehicleId == deviceIdStorage && s.AlertType == "overspeed" && s.IsActive));
-        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage)).LastEventId);
+            s.DeviceId == deviceId && s.AlertType == "overspeed" && s.IsActive));
+        Assert.Equal(higher, (await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId)).LastEventId);
     }
 
     [Fact]

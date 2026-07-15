@@ -43,9 +43,9 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
         var id3 = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
         await SeedAlertsAsync(
-            (id2, baseTime, "VH-002"),
-            (id1, baseTime, "VH-001"),
-            (id3, baseTime.AddMinutes(1), "VH-003"));
+            (id2, baseTime, DeviceIdTestHelper.CreateDeterministicGuid("VH-002")),
+            (id1, baseTime, DeviceIdTestHelper.CreateDeterministicGuid("VH-001")),
+            (id3, baseTime.AddMinutes(1), DeviceIdTestHelper.CreateDeterministicGuid("VH-003")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
@@ -73,7 +73,7 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
 
         for (var i = 0; i < ids.Length; i++)
         {
-            await SeedAlertsAsync((ids[i], baseTime.AddMinutes(i), $"VH-{i}"));
+            await SeedAlertsAsync((ids[i], baseTime.AddMinutes(i), DeviceIdTestHelper.CreateDeterministicGuid($"VH-{i}")));
         }
 
         using var scope = _services.CreateScope();
@@ -108,13 +108,13 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
         var earlyId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         var lateId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-        await SeedAlertsAsync((earlyId, baseTime, "VH-EARLY"));
+        await SeedAlertsAsync((earlyId, baseTime, DeviceIdTestHelper.CreateDeterministicGuid("VH-EARLY")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
         var upperBound = baseTime.AddSeconds(30);
 
-        await SeedAlertsAsync((lateId, baseTime.AddMinutes(1), "VH-LATE"));
+        await SeedAlertsAsync((lateId, baseTime.AddMinutes(1), DeviceIdTestHelper.CreateDeterministicGuid("VH-LATE")));
 
         var batch = await repository.GetOpenAlertsAfterCursorAsync(
             AlertStreamCursor.Origin,
@@ -134,8 +134,8 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
         var id2 = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
         await SeedAlertsAsync(
-            (id1, baseTime, "VH-001"),
-            (id2, baseTime.AddMinutes(1), "VH-002"));
+            (id1, baseTime, DeviceIdTestHelper.CreateDeterministicGuid("VH-001")),
+            (id2, baseTime.AddMinutes(1), DeviceIdTestHelper.CreateDeterministicGuid("VH-002")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
@@ -155,7 +155,7 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
         await db.Database.ExecuteSqlRawAsync("TRUNCATE TABLE fleet_alerts");
     }
 
-    private async Task SeedAlertsAsync(params (Guid AlertId, DateTimeOffset CreatedAt, string VehicleId)[] alerts)
+    private async Task SeedAlertsAsync(params (Guid AlertId, DateTimeOffset CreatedAt, Guid DeviceId)[] alerts)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -165,7 +165,7 @@ public class AlertStreamCursorIntegrationTests : IAsyncLifetime
             db.FleetAlerts.Add(new FleetAlertRecord
             {
                 AlertId = alert.AlertId,
-                VehicleId = alert.VehicleId,
+                DeviceId = alert.DeviceId,
                 AlertType = "test",
                 Severity = "warning",
                 Message = "test",

@@ -73,7 +73,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             var marker = await db.FleetOfflinePublishMarkers
-                .SingleOrDefaultAsync(marker => marker.VehicleId == telemetryEvent.DeviceIdStorage);
+                .SingleOrDefaultAsync(marker => marker.DeviceId == telemetryEvent.DeviceId);
             Assert.NotNull(marker);
             Assert.Equal(telemetryEvent.EventId, marker.LastEventId);
         }
@@ -85,7 +85,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             var marker = await db.FleetOfflinePublishMarkers
-                .SingleOrDefaultAsync(marker => marker.VehicleId == telemetryEvent.DeviceIdStorage);
+                .SingleOrDefaultAsync(marker => marker.DeviceId == telemetryEvent.DeviceId);
             Assert.NotNull(marker);
             Assert.Equal(telemetryEvent.EventId, marker.LastEventId);
         }
@@ -106,7 +106,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.NotEmpty(await db.FleetOfflinePublishMarkers
-                .Where(marker => marker.VehicleId == offlineEvent.DeviceIdStorage)
+                .Where(marker => marker.DeviceId == offlineEvent.DeviceId)
                 .ToListAsync());
         }
 
@@ -124,7 +124,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.Empty(await db.FleetOfflinePublishMarkers
-                .Where(marker => marker.VehicleId == offlineEvent.DeviceIdStorage)
+                .Where(marker => marker.DeviceId == offlineEvent.DeviceId)
                 .ToListAsync());
         }
 

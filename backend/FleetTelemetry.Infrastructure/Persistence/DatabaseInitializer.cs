@@ -14,6 +14,7 @@ public static class DatabaseInitializer
     private const int AlertStateSchemaVersion = 4;
     private const int TimescaleMaintenanceSchemaVersion = 5;
     private const int FleetDevicesSchemaVersion = 6;
+    private const int DeviceIdPersistenceSchemaVersion = 7;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -66,10 +67,18 @@ public static class DatabaseInitializer
                     logger,
                     migrationHooks,
                     cancellationToken);
+                await ApplyDeviceIdPersistenceMigrationV7Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
                 await using var ensureTransaction = await connection.BeginTransactionAsync(cancellationToken);
                 await EnsureFleetVehicleStateSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await EnsureFleetAlertStatesSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await EnsureFleetOfflinePublishMarkersSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await EnsureFleetDevicesSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await EnsureTelemetryEventsDeviceIdSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await EnsureFleetAlertsDeviceIdSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await ensureTransaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
@@ -365,26 +374,63 @@ public static class DatabaseInitializer
         DbTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await ExecuteSqlAsync(
-            connection,
-            transaction,
-            """
-            CREATE TABLE IF NOT EXISTS fleet_vehicle_state (
-                "VehicleId" character varying(64) NOT NULL,
-                "LastEventId" uuid NOT NULL,
-                "DriverId" character varying(64),
-                "LastTimestamp" timestamp with time zone NOT NULL,
-                "Latitude" double precision NOT NULL,
-                "Longitude" double precision NOT NULL,
-                "SpeedKmh" double precision NOT NULL,
-                "FuelLevelPercent" double precision,
-                "BatteryPercent" double precision,
-                "LocationSource" character varying(16) NOT NULL DEFAULT 'gps',
-                "UpdatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_fleet_vehicle_state" PRIMARY KEY ("VehicleId")
-            );
-            """,
-            cancellationToken);
+        var tableExists = await TableExistsAsync(connection, transaction, "fleet_vehicle_state", cancellationToken);
+        var hasDeviceId = tableExists
+            && await ColumnExistsAsync(connection, transaction, "fleet_vehicle_state", "device_id", cancellationToken);
+        var hasLegacyVehicleId = tableExists
+            && await ColumnExistsAsync(connection, transaction, "fleet_vehicle_state", "VehicleId", cancellationToken);
+
+        if (!tableExists)
+        {
+            if (await SchemaVersionExistsAsync(connection, DeviceIdPersistenceSchemaVersion, cancellationToken))
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    """
+                    CREATE TABLE fleet_vehicle_state (
+                        device_id UUID NOT NULL,
+                        "LastEventId" uuid NOT NULL,
+                        "DriverId" character varying(64),
+                        "LastTimestamp" timestamp with time zone NOT NULL,
+                        "Latitude" double precision NOT NULL,
+                        "Longitude" double precision NOT NULL,
+                        "SpeedKmh" double precision NOT NULL,
+                        "FuelLevelPercent" double precision,
+                        "BatteryPercent" double precision,
+                        "LocationSource" character varying(16) NOT NULL DEFAULT 'gps',
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "PK_fleet_vehicle_state" PRIMARY KEY (device_id)
+                    );
+                    """,
+                    cancellationToken);
+                hasDeviceId = true;
+            }
+            else
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    """
+                    CREATE TABLE fleet_vehicle_state (
+                        "VehicleId" character varying(64) NOT NULL,
+                        "LastEventId" uuid NOT NULL,
+                        "DriverId" character varying(64),
+                        "LastTimestamp" timestamp with time zone NOT NULL,
+                        "Latitude" double precision NOT NULL,
+                        "Longitude" double precision NOT NULL,
+                        "SpeedKmh" double precision NOT NULL,
+                        "FuelLevelPercent" double precision,
+                        "BatteryPercent" double precision,
+                        "LocationSource" character varying(16) NOT NULL DEFAULT 'gps',
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "PK_fleet_vehicle_state" PRIMARY KEY ("VehicleId")
+                    );
+                    """,
+                    cancellationToken);
+                hasLegacyVehicleId = true;
+            }
+        }
 
         await ExecuteSqlAsync(
             connection,
@@ -404,14 +450,28 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await ExecuteSqlAsync(
-            connection,
-            transaction,
-            """
-            CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
-            ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
-            """,
-            cancellationToken);
+        if (hasDeviceId)
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_device
+                ON fleet_vehicle_state ("LastTimestamp" ASC, device_id ASC);
+                """,
+                cancellationToken);
+        }
+        else if (hasLegacyVehicleId)
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_vehicle
+                ON fleet_vehicle_state ("LastTimestamp" ASC, "VehicleId" ASC);
+                """,
+                cancellationToken);
+        }
     }
 
     private static async Task ApplyAlertStateMigrationV4Async(
@@ -459,21 +519,49 @@ public static class DatabaseInitializer
         DbTransaction transaction,
         CancellationToken cancellationToken)
     {
-        await ExecuteSqlAsync(
-            connection,
-            transaction,
-            """
-            CREATE TABLE IF NOT EXISTS fleet_alert_states (
-                "VehicleId" character varying(64) NOT NULL,
-                "AlertType" character varying(64) NOT NULL,
-                "IsActive" boolean NOT NULL,
-                "LastConditionAt" timestamp with time zone NOT NULL,
-                "LastAlertAt" timestamp with time zone,
-                "UpdatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_fleet_alert_states" PRIMARY KEY ("VehicleId", "AlertType")
-            );
-            """,
-            cancellationToken);
+        var tableExists = await TableExistsAsync(connection, transaction, "fleet_alert_states", cancellationToken);
+        var hasDeviceId = tableExists
+            && await ColumnExistsAsync(connection, transaction, "fleet_alert_states", "device_id", cancellationToken);
+
+        if (!tableExists)
+        {
+            if (await SchemaVersionExistsAsync(connection, DeviceIdPersistenceSchemaVersion, cancellationToken))
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    """
+                    CREATE TABLE fleet_alert_states (
+                        device_id UUID NOT NULL,
+                        "AlertType" character varying(64) NOT NULL,
+                        "IsActive" boolean NOT NULL,
+                        "LastConditionAt" timestamp with time zone NOT NULL,
+                        "LastAlertAt" timestamp with time zone,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "PK_fleet_alert_states" PRIMARY KEY (device_id, "AlertType")
+                    );
+                    """,
+                    cancellationToken);
+            }
+            else
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    """
+                    CREATE TABLE fleet_alert_states (
+                        "VehicleId" character varying(64) NOT NULL,
+                        "AlertType" character varying(64) NOT NULL,
+                        "IsActive" boolean NOT NULL,
+                        "LastConditionAt" timestamp with time zone NOT NULL,
+                        "LastAlertAt" timestamp with time zone,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "PK_fleet_alert_states" PRIMARY KEY ("VehicleId", "AlertType")
+                    );
+                    """,
+                    cancellationToken);
+            }
+        }
 
         await ExecuteSqlAsync(
             connection,
@@ -748,6 +836,587 @@ public static class DatabaseInitializer
             cancellationToken);
     }
 
+    // Relaciona telemetría y estado operativo por DeviceId UUID; conserva VehicleId legado como vehicle_name.
+    private static async Task ApplyDeviceIdPersistenceMigrationV7Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, DeviceIdPersistenceSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "DeviceId persistence migration v{Version} already applied; preserving device_id schema.",
+                DeviceIdPersistenceSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetDevicesSchemaAsync(connection, transaction, cancellationToken);
+            await BuildDeviceIdMigrationMapAsync(connection, transaction, cancellationToken);
+            await InsertMigratedDevicesAsync(connection, transaction, cancellationToken);
+
+            await ConvertOperationalTableToDeviceIdAsync(
+                connection,
+                transaction,
+                "fleet_vehicle_state",
+                primaryKeyColumns: ["device_id"],
+                primaryKeyName: "PK_fleet_vehicle_state",
+                dropIndexes: ["ix_fleet_vehicle_state_last_timestamp_vehicle"],
+                createIndexesSql: """
+                    CREATE INDEX IF NOT EXISTS ix_fleet_vehicle_state_last_timestamp_device
+                    ON fleet_vehicle_state ("LastTimestamp" ASC, device_id ASC);
+                    """,
+                cancellationToken);
+
+            await ConvertOperationalTableToDeviceIdAsync(
+                connection,
+                transaction,
+                "fleet_alerts",
+                primaryKeyColumns: null,
+                primaryKeyName: null,
+                dropIndexes: ["ix_fleet_alerts_vehicle_created"],
+                createIndexesSql: """
+                    CREATE INDEX IF NOT EXISTS ix_fleet_alerts_device_created
+                    ON fleet_alerts (device_id, "CreatedAt" DESC);
+                    """,
+                cancellationToken);
+
+            await ConvertOperationalTableToDeviceIdAsync(
+                connection,
+                transaction,
+                "fleet_alert_states",
+                primaryKeyColumns: ["device_id", "\"AlertType\""],
+                primaryKeyName: "PK_fleet_alert_states",
+                dropIndexes: null,
+                createIndexesSql: null,
+                cancellationToken);
+
+            await ConvertOperationalTableToDeviceIdAsync(
+                connection,
+                transaction,
+                "fleet_offline_publish_markers",
+                primaryKeyColumns: ["device_id"],
+                primaryKeyName: "PK_fleet_offline_publish_markers",
+                dropIndexes: null,
+                createIndexesSql: null,
+                cancellationToken);
+
+            await ConvertTelemetryEventsToDeviceIdAsync(connection, transaction, cancellationToken);
+            await RecreateTelemetryHourlyAggregateAsync(connection, transaction, cancellationToken);
+
+            await migrationHooks.OnBeforeRegisterVersionAsync(
+                DeviceIdPersistenceSchemaVersion,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (
+                    7,
+                    NOW(),
+                    'DeviceId UUID persistence: operational tables + telemetry keyed by device_id; legacy VehicleId kept as vehicle_name');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation(
+                "DeviceId persistence migration v{Version} applied successfully.",
+                DeviceIdPersistenceSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task BuildDeviceIdMigrationMapAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE TEMP TABLE _device_id_migration_map (
+                legacy_vehicle_id text PRIMARY KEY,
+                device_id uuid NOT NULL,
+                vehicle_name varchar(100) NOT NULL
+            ) ON COMMIT DROP;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            INSERT INTO _device_id_migration_map (legacy_vehicle_id, device_id, vehicle_name)
+            SELECT
+                legacy,
+                CASE
+                    WHEN legacy ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        THEN legacy::uuid
+                    ELSE gen_random_uuid()
+                END,
+                CASE
+                    WHEN char_length(legacy) < 2 THEN left(legacy || '-legacy', 100)
+                    ELSE left(legacy, 100)
+                END
+            FROM (
+                SELECT DISTINCT "VehicleId" AS legacy FROM telemetry_events
+                WHERE "VehicleId" IS NOT NULL AND btrim("VehicleId") <> ''
+                UNION
+                SELECT DISTINCT "VehicleId" FROM fleet_vehicle_state
+                WHERE "VehicleId" IS NOT NULL AND btrim("VehicleId") <> ''
+                UNION
+                SELECT DISTINCT "VehicleId" FROM fleet_alerts
+                WHERE "VehicleId" IS NOT NULL AND btrim("VehicleId") <> ''
+                UNION
+                SELECT DISTINCT "VehicleId" FROM fleet_alert_states
+                WHERE "VehicleId" IS NOT NULL AND btrim("VehicleId") <> ''
+                UNION
+                SELECT DISTINCT "VehicleId" FROM fleet_offline_publish_markers
+                WHERE "VehicleId" IS NOT NULL AND btrim("VehicleId") <> ''
+            ) identities;
+            """,
+            cancellationToken);
+    }
+
+    private static async Task InsertMigratedDevicesAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        // Primero los que no chocan por nombre; luego reintentos con sufijo ante UNIQUE(vehicle_name).
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DO $$
+            DECLARE
+                r RECORD;
+                candidate text;
+                suffix int;
+            BEGIN
+                FOR r IN
+                    SELECT legacy_vehicle_id, device_id, vehicle_name
+                    FROM _device_id_migration_map
+                    ORDER BY legacy_vehicle_id
+                LOOP
+                    IF EXISTS (SELECT 1 FROM fleet_devices d WHERE d.device_id = r.device_id) THEN
+                        CONTINUE;
+                    END IF;
+
+                    candidate := r.vehicle_name;
+                    suffix := 0;
+
+                    LOOP
+                        BEGIN
+                            INSERT INTO fleet_devices (device_id, vehicle_name, created_at, updated_at)
+                            VALUES (r.device_id, candidate, NOW(), NOW());
+                            EXIT;
+                        EXCEPTION WHEN unique_violation THEN
+                            IF EXISTS (SELECT 1 FROM fleet_devices d WHERE d.device_id = r.device_id) THEN
+                                EXIT;
+                            END IF;
+                            suffix := suffix + 1;
+                            candidate := left(r.vehicle_name, greatest(1, 100 - length('-' || suffix::text)))
+                                || '-' || suffix::text;
+                        END;
+                    END LOOP;
+                END LOOP;
+            END $$;
+            """,
+            cancellationToken);
+    }
+
+    private static async Task ConvertOperationalTableToDeviceIdAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string tableName,
+        string[]? primaryKeyColumns,
+        string? primaryKeyName,
+        string[]? dropIndexes,
+        string? createIndexesSql,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, transaction, tableName, cancellationToken))
+            return;
+
+        if (await ColumnExistsAsync(connection, transaction, tableName, "device_id", cancellationToken)
+            && !await ColumnExistsAsync(connection, transaction, tableName, "VehicleId", cancellationToken))
+            return;
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            $"ALTER TABLE {tableName} ADD COLUMN IF NOT EXISTS device_id UUID;",
+            cancellationToken);
+
+        if (await ColumnExistsAsync(connection, transaction, tableName, "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                $"""
+                UPDATE {tableName} t
+                SET device_id = m.device_id
+                FROM _device_id_migration_map m
+                WHERE t."VehicleId" = m.legacy_vehicle_id
+                  AND t.device_id IS NULL;
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                $"""
+                DELETE FROM {tableName}
+                WHERE device_id IS NULL;
+                """,
+                cancellationToken);
+        }
+
+        if (dropIndexes is not null)
+        {
+            foreach (var indexName in dropIndexes)
+            {
+                await ExecuteSqlAsync(
+                    connection,
+                    transaction,
+                    $"DROP INDEX IF EXISTS {indexName};",
+                    cancellationToken);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(primaryKeyName))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                $"""
+                ALTER TABLE {tableName} DROP CONSTRAINT IF EXISTS "{primaryKeyName}";
+                """,
+                cancellationToken);
+        }
+
+        if (await ColumnExistsAsync(connection, transaction, tableName, "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                $"""
+                ALTER TABLE {tableName} DROP COLUMN "VehicleId";
+                """,
+                cancellationToken);
+        }
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            $"""
+            ALTER TABLE {tableName} ALTER COLUMN device_id SET NOT NULL;
+            """,
+            cancellationToken);
+
+        if (primaryKeyColumns is { Length: > 0 } && !string.IsNullOrWhiteSpace(primaryKeyName))
+        {
+            var pkCols = string.Join(", ", primaryKeyColumns);
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                $"""
+                ALTER TABLE {tableName} ADD CONSTRAINT "{primaryKeyName}" PRIMARY KEY ({pkCols});
+                """,
+                cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(createIndexesSql))
+            await ExecuteSqlAsync(connection, transaction, createIndexesSql, cancellationToken);
+    }
+
+    private static async Task ConvertTelemetryEventsToDeviceIdAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, transaction, "telemetry_events", cancellationToken))
+            return;
+
+        if (await ContinuousAggregateExistsAsync(connection, transaction, "telemetry_hourly", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                SELECT remove_continuous_aggregate_policy('telemetry_hourly', if_exists => TRUE);
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                DROP MATERIALIZED VIEW IF EXISTS telemetry_hourly CASCADE;
+                """,
+                cancellationToken);
+        }
+
+        // Necesario para poder alterar segmentby / columnas en hypertables con compresión.
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DO $$
+            BEGIN
+                BEGIN
+                    PERFORM remove_compression_policy('telemetry_events', if_exists => TRUE);
+                EXCEPTION WHEN OTHERS THEN
+                    NULL;
+                END;
+
+                BEGIN
+                    ALTER TABLE telemetry_events SET (timescaledb.compress = false);
+                EXCEPTION WHEN OTHERS THEN
+                    NULL;
+                END;
+            END $$;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS device_id UUID;
+            """,
+            cancellationToken);
+
+        if (await ColumnExistsAsync(connection, transaction, "telemetry_events", "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                UPDATE telemetry_events t
+                SET device_id = m.device_id
+                FROM _device_id_migration_map m
+                WHERE t."VehicleId" = m.legacy_vehicle_id
+                  AND t.device_id IS NULL;
+                """,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                UPDATE telemetry_events
+                SET device_id = "VehicleId"::uuid
+                WHERE device_id IS NULL
+                  AND "VehicleId" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+                """,
+                cancellationToken);
+        }
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE INDEX IF NOT EXISTS ix_telemetry_events_device_timestamp_event
+            ON telemetry_events (device_id, "Timestamp" DESC, "EventId" DESC);
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DROP INDEX IF EXISTS ix_telemetry_events_vehicle_timestamp;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DROP INDEX IF EXISTS ix_telemetry_events_vehicle_timestamp_event;
+            """,
+            cancellationToken);
+
+        // SAVEPOINT implícito vía bloque EXCEPTION: evita abortar la transacción si Timescale bloquea DROP.
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'telemetry_events'
+                      AND column_name = 'VehicleId'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE telemetry_events DROP COLUMN "VehicleId";
+                    EXCEPTION WHEN OTHERS THEN
+                        ALTER TABLE telemetry_events ALTER COLUMN "VehicleId" DROP NOT NULL;
+                        COMMENT ON COLUMN telemetry_events."VehicleId" IS
+                            'LEGACY unused after v7; identity is device_id. Kept only if Timescale blocked DROP.';
+                    END;
+                END IF;
+            END $$;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            ALTER TABLE telemetry_events ALTER COLUMN device_id SET NOT NULL;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            ALTER TABLE telemetry_events SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'device_id',
+                timescaledb.compress_orderby = '"Timestamp" DESC'
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            SELECT add_compression_policy(
+                'telemetry_events',
+                compress_after => INTERVAL '7 days',
+                if_not_exists => TRUE);
+            """,
+            cancellationToken);
+    }
+
+    private static async Task RecreateTelemetryHourlyAggregateAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        if (await ContinuousAggregateExistsAsync(connection, transaction, "telemetry_hourly", cancellationToken))
+            return;
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE MATERIALIZED VIEW telemetry_hourly
+            WITH (timescaledb.continuous) AS
+            SELECT
+                time_bucket(INTERVAL '1 hour', "Timestamp") AS "Bucket",
+                device_id,
+                COUNT(*)::bigint AS "SampleCount",
+                AVG("SpeedKmh") AS "AverageSpeedKmh",
+                MAX("SpeedKmh") AS "MaxSpeedKmh",
+                MIN("FuelLevelPercent") AS "MinFuelLevelPercent",
+                MIN("BatteryPercent") AS "MinBatteryPercent"
+            FROM telemetry_events
+            GROUP BY 1, 2
+            WITH NO DATA;
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            SELECT add_continuous_aggregate_policy(
+                'telemetry_hourly',
+                start_offset => INTERVAL '30 days',
+                end_offset => INTERVAL '10 minutes',
+                schedule_interval => INTERVAL '15 minutes',
+                if_not_exists => TRUE);
+            """,
+            cancellationToken);
+    }
+
+    private static async Task EnsureFleetOfflinePublishMarkersSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var tableExists = await TableExistsAsync(connection, transaction, "fleet_offline_publish_markers", cancellationToken);
+        if (!tableExists)
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                CREATE TABLE fleet_offline_publish_markers (
+                    device_id UUID NOT NULL,
+                    "LastEventId" uuid NOT NULL,
+                    "StatusEvaluatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_fleet_offline_publish_markers" PRIMARY KEY (device_id)
+                );
+                """,
+                cancellationToken);
+            return;
+        }
+
+        if (!await ColumnExistsAsync(connection, transaction, "fleet_offline_publish_markers", "device_id", cancellationToken)
+            && await ColumnExistsAsync(connection, transaction, "fleet_offline_publish_markers", "VehicleId", cancellationToken))
+        {
+            // v7 aún no aplicada en este camino; el DDL base deja VehicleId.
+            return;
+        }
+    }
+
+    private static async Task EnsureTelemetryEventsDeviceIdSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, transaction, "telemetry_events", "device_id", cancellationToken))
+            return;
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE INDEX IF NOT EXISTS ix_telemetry_events_device_timestamp_event
+            ON telemetry_events (device_id, "Timestamp" DESC, "EventId" DESC);
+            """,
+            cancellationToken);
+    }
+
+    private static async Task EnsureFleetAlertsDeviceIdSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, transaction, "fleet_alerts", "device_id", cancellationToken))
+            return;
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE INDEX IF NOT EXISTS ix_fleet_alerts_device_created
+            ON fleet_alerts (device_id, "CreatedAt" DESC);
+            """,
+            cancellationToken);
+    }
+
     private static async Task<bool> ContinuousAggregateExistsAsync(
         DbConnection connection,
         DbTransaction transaction,
@@ -777,6 +1446,62 @@ public static class DatabaseInitializer
         DbTransaction transaction,
         CancellationToken cancellationToken)
     {
+        var stateHasDeviceId = await ColumnExistsAsync(
+            connection, transaction, "fleet_vehicle_state", "device_id", cancellationToken);
+        var telemetryHasDeviceId = await ColumnExistsAsync(
+            connection, transaction, "telemetry_events", "device_id", cancellationToken);
+
+        if (stateHasDeviceId && telemetryHasDeviceId)
+        {
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO fleet_vehicle_state (
+                    device_id, "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
+                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource", "UpdatedAt"
+                )
+                SELECT
+                    latest.device_id,
+                    latest."EventId",
+                    latest."DriverId",
+                    latest."Timestamp",
+                    latest."Latitude",
+                    latest."Longitude",
+                    latest."SpeedKmh",
+                    latest."FuelLevelPercent",
+                    latest."BatteryPercent",
+                    latest."LocationSource",
+                    NOW()
+                FROM (
+                    SELECT DISTINCT ON (device_id)
+                        "EventId", device_id, "DriverId", "Timestamp", "Latitude", "Longitude",
+                        "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource"
+                    FROM telemetry_events
+                    ORDER BY device_id, "Timestamp" DESC, "EventId" DESC
+                ) AS latest
+                ON CONFLICT (device_id) DO UPDATE
+                SET
+                    "LastEventId" = EXCLUDED."LastEventId",
+                    "DriverId" = EXCLUDED."DriverId",
+                    "LastTimestamp" = EXCLUDED."LastTimestamp",
+                    "Latitude" = EXCLUDED."Latitude",
+                    "Longitude" = EXCLUDED."Longitude",
+                    "SpeedKmh" = EXCLUDED."SpeedKmh",
+                    "FuelLevelPercent" = EXCLUDED."FuelLevelPercent",
+                    "BatteryPercent" = EXCLUDED."BatteryPercent",
+                    "LocationSource" = EXCLUDED."LocationSource",
+                    "UpdatedAt" = EXCLUDED."UpdatedAt"
+                WHERE EXCLUDED."LastTimestamp" > fleet_vehicle_state."LastTimestamp"
+                   OR (
+                       EXCLUDED."LastTimestamp" = fleet_vehicle_state."LastTimestamp"
+                       AND EXCLUDED."LastEventId" > fleet_vehicle_state."LastEventId"
+                   );
+                """,
+                cancellationToken);
+            return;
+        }
+
         await ExecuteSqlAsync(
             connection,
             transaction,
@@ -823,6 +1548,61 @@ public static class DatabaseInitializer
                );
             """,
             cancellationToken);
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = @tableName
+            );
+            """;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "tableName";
+        parameter.Value = tableName;
+        command.Parameters.Add(parameter);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = @tableName
+                  AND column_name = @columnName
+            );
+            """;
+        var tableParam = command.CreateParameter();
+        tableParam.ParameterName = "tableName";
+        tableParam.Value = tableName;
+        command.Parameters.Add(tableParam);
+
+        var columnParam = command.CreateParameter();
+        columnParam.ParameterName = "columnName";
+        columnParam.Value = columnName;
+        command.Parameters.Add(columnParam);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static async Task<bool> SchemaVersionExistsAsync(

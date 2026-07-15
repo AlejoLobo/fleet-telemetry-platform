@@ -64,7 +64,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == DeviceIdTestHelper.ToStorage("VH-V3-001"));
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-001"));
         Assert.Equal(50, state.SpeedKmh);
         Assert.Equal(1, _migrationHooks.BackfillCount);
     }
@@ -106,7 +106,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == DeviceIdTestHelper.ToStorage("VH-V3-NO-REG"));
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-NO-REG"));
         Assert.Equal(newerTimestamp, state.LastTimestamp);
         Assert.Equal(70, state.SpeedKmh);
     }
@@ -191,7 +191,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
             db.TelemetryEvents.Add(new TelemetryEventRecord
             {
                 EventId = item.EventId,
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 Timestamp = item.Timestamp,
                 CapturedAt = item.Timestamp,
                 Latitude = item.Lat,
@@ -214,7 +214,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 LastEventId = item.EventId,
                 LastTimestamp = item.Timestamp,
                 Latitude = item.Lat,

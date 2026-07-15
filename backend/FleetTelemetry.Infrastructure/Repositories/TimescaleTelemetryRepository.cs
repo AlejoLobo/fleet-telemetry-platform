@@ -31,7 +31,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         var record = new TelemetryEventRecord
         {
             EventId = telemetryEvent.EventId,
-            VehicleId = telemetryEvent.DeviceIdStorage,
+            DeviceId = telemetryEvent.DeviceId,
             DriverId = telemetryEvent.DriverId,
             Timestamp = telemetryEvent.Timestamp,
             Latitude = telemetryEvent.Latitude,
@@ -56,7 +56,6 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         CancellationToken cancellationToken = default)
     {
         ValidateHistoryQuery(deviceId, from, to, pageSize);
-        var deviceIdStorage = deviceId.ToString("D");
 
         TelemetryHistoryCursorPayload? cursorPayload = null;
         if (!string.IsNullOrWhiteSpace(cursor))
@@ -73,7 +72,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         var take = pageSize + 1;
         var query = _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp >= from && e.Timestamp <= to);
+            .Where(e => e.DeviceId == deviceId && e.Timestamp >= from && e.Timestamp <= to);
 
         if (cursorPayload?.LastTimestamp is DateTimeOffset cursorTimestamp
             && cursorPayload.LastEventId is Guid cursorEventId)
@@ -128,7 +127,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
     private static TelemetryEvent MapToDomain(TelemetryEventRecord record) =>
         TelemetryEvent.FromPersistence(
             record.EventId,
-            record.VehicleId,
+            record.DeviceId,
             record.DriverId,
             record.Timestamp,
             record.Latitude,

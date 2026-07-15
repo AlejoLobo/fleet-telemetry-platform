@@ -19,10 +19,9 @@ public sealed class TimescaleFleetOfflinePublishMarkerRepository : IFleetOffline
         Guid lastEventId,
         CancellationToken cancellationToken = default)
     {
-        var deviceIdStorage = deviceId.ToString("D");
         var marker = await _dbContext.FleetOfflinePublishMarkers
             .AsNoTracking()
-            .SingleOrDefaultAsync(m => m.VehicleId == deviceIdStorage, cancellationToken);
+            .SingleOrDefaultAsync(m => m.DeviceId == deviceId, cancellationToken);
 
         return marker is null || marker.LastEventId != lastEventId;
     }
@@ -33,12 +32,11 @@ public sealed class TimescaleFleetOfflinePublishMarkerRepository : IFleetOffline
         DateTimeOffset statusEvaluatedAt,
         CancellationToken cancellationToken = default)
     {
-        var deviceIdStorage = deviceId.ToString("D");
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
-            INSERT INTO fleet_offline_publish_markers ("VehicleId", "LastEventId", "StatusEvaluatedAt")
-            VALUES ({deviceIdStorage}, {lastEventId}, {statusEvaluatedAt})
-            ON CONFLICT ("VehicleId") DO UPDATE
+            INSERT INTO fleet_offline_publish_markers (device_id, "LastEventId", "StatusEvaluatedAt")
+            VALUES ({deviceId}, {lastEventId}, {statusEvaluatedAt})
+            ON CONFLICT (device_id) DO UPDATE
             SET "LastEventId" = EXCLUDED."LastEventId",
                 "StatusEvaluatedAt" = EXCLUDED."StatusEvaluatedAt"
             """,
@@ -47,9 +45,8 @@ public sealed class TimescaleFleetOfflinePublishMarkerRepository : IFleetOffline
 
     public async Task MarkOnlineAsync(Guid deviceId, CancellationToken cancellationToken = default)
     {
-        var deviceIdStorage = deviceId.ToString("D");
         await _dbContext.FleetOfflinePublishMarkers
-            .Where(m => m.VehicleId == deviceIdStorage)
+            .Where(m => m.DeviceId == deviceId)
             .ExecuteDeleteAsync(cancellationToken);
     }
 }

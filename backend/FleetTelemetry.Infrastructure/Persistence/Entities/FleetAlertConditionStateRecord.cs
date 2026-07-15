@@ -6,8 +6,8 @@ namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 [Table("fleet_alert_states")]
 public class FleetAlertConditionStateRecord
 {
-    [MaxLength(64)]
-    public string VehicleId { get; set; } = string.Empty;
+    [Column("device_id")]
+    public Guid DeviceId { get; set; }
 
     [MaxLength(64)]
     public string AlertType { get; set; } = string.Empty;
