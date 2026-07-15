@@ -189,6 +189,94 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
         Assert.Equal("VH-002", second.VehicleName);
     }
 
+    [Fact]
+    public async Task Orphan_telemetry_across_two_chunks_gets_stable_event_keys()
+    {
+        _migrationHooks.ThrowOnVersionRegister = true;
+        _migrationHooks.ThrowOnVersion = 7;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => DatabaseInitializer.InitializeAsync(_services));
+        _migrationHooks.ThrowOnVersionRegister = false;
+
+        var eventA = Guid.Parse("11111111-1111-4111-8111-111111111111");
+        var eventB = Guid.Parse("22222222-2222-4222-8222-222222222222");
+        var tsA = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        // Intervalo de chunk = 6h → fuerza segundo chunk.
+        var tsB = tsA.AddHours(12);
+
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var seed = connection.CreateCommand())
+        {
+            seed.CommandText = """
+                INSERT INTO telemetry_events (
+                    "EventId", "VehicleId", "DriverId", "Timestamp",
+                    "Latitude", "Longitude", "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt")
+                VALUES
+                    (@e1, '', NULL, @t1, 1, 1, 10, NULL, NULL, NOW()),
+                    (@e2, '', NULL, @t2, 2, 2, 20, NULL, NULL, NOW());
+                """;
+            seed.Parameters.AddWithValue("e1", eventA);
+            seed.Parameters.AddWithValue("e2", eventB);
+            seed.Parameters.AddWithValue("t1", tsA);
+            seed.Parameters.AddWithValue("t2", tsB);
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        long beforeCount;
+        await using (var count = connection.CreateCommand())
+        {
+            count.CommandText = "SELECT COUNT(*) FROM telemetry_events;";
+            beforeCount = Convert.ToInt64(await count.ExecuteScalarAsync());
+        }
+
+        await DatabaseInitializer.InitializeAsync(_services);
+
+        await using (var verify = connection.CreateCommand())
+        {
+            verify.CommandText = """
+                SELECT "EventId", device_id
+                FROM telemetry_events
+                WHERE "EventId" IN (@e1, @e2)
+                ORDER BY "EventId";
+                """;
+            verify.Parameters.AddWithValue("e1", eventA);
+            verify.Parameters.AddWithValue("e2", eventB);
+            await using var reader = await verify.ExecuteReaderAsync();
+            var ids = new List<(Guid EventId, Guid DeviceId)>();
+            while (await reader.ReadAsync())
+            {
+                Assert.False(reader.IsDBNull(1));
+                ids.Add((reader.GetGuid(0), reader.GetGuid(1)));
+            }
+
+            Assert.Equal(2, ids.Count);
+            Assert.NotEqual(ids[0].DeviceId, ids[1].DeviceId);
+            Assert.All(ids, row => Assert.NotEqual(Guid.Empty, row.DeviceId));
+        }
+
+        await using (var count = connection.CreateCommand())
+        {
+            count.CommandText = "SELECT COUNT(*) FROM telemetry_events;";
+            Assert.Equal(beforeCount, Convert.ToInt64(await count.ExecuteScalarAsync()));
+        }
+
+        await using (var nulls = connection.CreateCommand())
+        {
+            nulls.CommandText = "SELECT COUNT(*) FROM telemetry_events WHERE device_id IS NULL;";
+            Assert.Equal(0, Convert.ToInt32(await nulls.ExecuteScalarAsync()));
+        }
+
+        // Reentrada segura: no deja null ni duplica filas.
+        await DatabaseInitializer.InitializeAsync(_services);
+        await using (var count = connection.CreateCommand())
+        {
+            count.CommandText = "SELECT COUNT(*) FROM telemetry_events;";
+            Assert.Equal(beforeCount, Convert.ToInt64(await count.ExecuteScalarAsync()));
+        }
+    }
+
     private static async Task SyncSequenceWithProductionLogicAsync(NpgsqlConnection connection)
     {
         await using var sync = connection.CreateCommand();
