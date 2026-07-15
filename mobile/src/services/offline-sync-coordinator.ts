@@ -22,10 +22,15 @@ import {
 import type { QueuedTelemetryEvent, SyncResult, SyncStatus } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
+
+type ActiveSync = {
+  deviceId: string;
+  promise: Promise<SyncResult>;
+  rerunRequested: boolean;
+};
+
 /** Autoridad global de exclusión: una sola sync remota a la vez. */
-let syncInFlight: Promise<SyncResult> | null = null;
-let syncInFlightDeviceId: string | null = null;
-let syncRequestedWhileInFlight = false;
+let activeSync: ActiveSync | null = null;
 
 type SyncAccumulator = {
   synced: number;
@@ -108,43 +113,46 @@ export async function syncPendingQueue(
     };
   }
 
-  // Misma DeviceId: compartir promesa y marcar trabajo pendiente.
-  if (syncInFlight) {
-    if (syncInFlightDeviceId === normalizedDeviceId) {
-      syncRequestedWhileInFlight = true;
-      return syncInFlight;
+  // Adquisición segura: reconsultar el mutex después de cada await.
+  while (activeSync) {
+    if (activeSync.deviceId === normalizedDeviceId) {
+      activeSync.rerunRequested = true;
+      return activeSync.promise;
     }
-    // DeviceId distinto: esperar a que termine la sync ajena antes de continuar.
     try {
-      await syncInFlight;
+      await activeSync.promise;
     } catch {
-      // Liberar mutex aunque la pasada anterior falle.
+      // Liberación en finally del poseedor.
     }
   }
 
+  const holder: ActiveSync = {
+    deviceId: normalizedDeviceId,
+    promise: null as unknown as Promise<SyncResult>,
+    rerunRequested: false,
+  };
+
   const runWithReentry = async (): Promise<SyncResult> => {
     let last = await runSync(normalizedDeviceId, batchSize);
-    while (syncRequestedWhileInFlight) {
-      syncRequestedWhileInFlight = false;
+    while (holder.rerunRequested) {
+      holder.rerunRequested = false;
       last = await runSync(normalizedDeviceId, batchSize);
     }
     return last;
   };
 
-  syncInFlightDeviceId = normalizedDeviceId;
-  syncRequestedWhileInFlight = false;
-  syncInFlight = runWithReentry().finally(() => {
-    syncInFlight = null;
-    syncInFlightDeviceId = null;
+  holder.promise = runWithReentry().finally(() => {
+    if (activeSync === holder) {
+      activeSync = null;
+    }
   });
-  return syncInFlight;
+  activeSync = holder;
+  return holder.promise;
 }
 
 /** Libera el mutex de sincronización; solo para pruebas automatizadas. */
 export function resetSyncCoordinatorForTests(): void {
-  syncInFlight = null;
-  syncInFlightDeviceId = null;
-  syncRequestedWhileInFlight = false;
+  activeSync = null;
 }
 
 async function runSync(deviceId: string, batchSize: number): Promise<SyncResult> {

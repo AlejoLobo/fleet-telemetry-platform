@@ -326,3 +326,129 @@ describe("offline-sync-coordinator batch policy", () => {
     );
   });
 });
+
+describe("offline-sync-coordinator single-flight real (A/B/C)", () => {
+  const DEVICE_A = "aaaaaaaa-bbbb-4ccc-8ddd-000000000001";
+  const DEVICE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const DEVICE_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  beforeEach(() => {
+    resetSyncCoordinatorForTests();
+    jest.clearAllMocks();
+    mockClaimNextBatch.mockReset().mockResolvedValue([]);
+    mockCountPendingEvents.mockReset().mockResolvedValue(0);
+    mockPurgeSyncedOlderThan.mockReset().mockResolvedValue(0);
+    mockMarkEventsSynced.mockReset();
+    mockMarkEventPermanentFailure.mockReset();
+    mockMarkEventRetry.mockReset();
+    mockMarkClaimedBatchRetryAtomic.mockReset();
+    mockReleaseClaimedEvents.mockReset();
+    mockSendSingleEvent.mockReset();
+    mockSendBatchEvents.mockReset();
+    mockHandleUnauthorized.mockReset();
+    mockMarkForbidden.mockReset();
+    (migratePendingEventsToDeviceId as jest.Mock).mockResolvedValue({
+      migrated: 0,
+      unchanged: 0,
+      conflicts: [],
+    });
+  });
+
+  async function waitFor(predicate: () => boolean, label: string, maxTurns = 80) {
+    for (let i = 0; i < maxTurns; i += 1) {
+      if (predicate()) return;
+      await Promise.resolve();
+    }
+    throw new Error(`Timeout esperando: ${label}`);
+  }
+
+  it("A_B_C_concurrentes_maxInFlight_1_sin_solapamiento", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const barriers: Array<{ resolve: () => void; deviceId: string }> = [];
+
+    mockClaimNextBatch.mockImplementation(async (_size: number, _iso: string, deviceId: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((resolve) => {
+        barriers.push({ resolve, deviceId });
+      });
+      inFlight -= 1;
+      return [];
+    });
+
+    const pA = syncPendingQueue(true, DEVICE_A);
+    await waitFor(() => barriers.length === 1, "A en claim");
+    expect(inFlight).toBe(1);
+
+    const pB = syncPendingQueue(true, DEVICE_B);
+    const pC = syncPendingQueue(true, DEVICE_C);
+    await Promise.resolve();
+    expect(inFlight).toBe(1);
+    expect(maxInFlight).toBe(1);
+    expect(barriers).toHaveLength(1);
+
+    barriers[0]!.resolve();
+    await waitFor(() => barriers.length === 2, "segundo claim tras liberar A");
+    expect(inFlight).toBe(1);
+    expect(maxInFlight).toBe(1);
+
+    barriers[1]!.resolve();
+    await waitFor(() => barriers.length === 3, "tercer claim");
+    expect(inFlight).toBe(1);
+    expect(maxInFlight).toBe(1);
+
+    barriers[2]!.resolve();
+    const results = await Promise.all([pA, pB, pC]);
+    expect(maxInFlight).toBe(1);
+    expect(results).toHaveLength(3);
+    expect(new Set(barriers.map((b) => b.deviceId)).size).toBe(3);
+  });
+
+  it("mismo_DeviceId_comparte_resultado_y_una_reentrada", async () => {
+    let passes = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockClaimNextBatch.mockImplementation(async () => {
+      passes += 1;
+      if (passes === 1) await gate;
+      return [];
+    });
+
+    const first = syncPendingQueue(true, DEVICE_A);
+    await waitFor(() => passes === 1, "primera pasada en claim");
+    const second = syncPendingQueue(true, DEVICE_A);
+    // Segunda llamada no inicia otra pasada mientras la primera está en vuelo.
+    expect(passes).toBe(1);
+    release();
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1).toEqual(r2);
+    expect(passes).toBe(2);
+  });
+
+  it("error_libera_mutex_y_siguiente_sync_funciona", async () => {
+    mockClaimNextBatch
+      .mockResolvedValueOnce([buildEvent("A")])
+      .mockResolvedValueOnce([]);
+    mockSendSingleEvent.mockRejectedValueOnce(new Error("boom"));
+    const failed = await syncPendingQueue(true, DEVICE_A);
+    expect(failed.status).toBe("failed");
+
+    const ok = await syncPendingQueue(true, DEVICE_B);
+    expect(ok.status).toBe("completed");
+    expect(mockClaimNextBatch.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("resetSyncCoordinatorForTests_no_deja_promesas_colgantes", async () => {
+    mockClaimNextBatch.mockImplementation(() => new Promise(() => undefined));
+    void syncPendingQueue(true, DEVICE_A);
+    await waitFor(() => mockClaimNextBatch.mock.calls.length >= 1, "claim colgante");
+    resetSyncCoordinatorForTests();
+    mockClaimNextBatch.mockResolvedValueOnce([]);
+    const result = await syncPendingQueue(true, DEVICE_B);
+    expect(result.status).toBe("completed");
+  });
+});
