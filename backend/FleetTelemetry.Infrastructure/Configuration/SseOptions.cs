@@ -32,7 +32,7 @@ public class SseOptions
     public int AlertBatchSize { get; set; } = 100;
 
     // Intervalo del servicio de expiración de conectividad (KafkaPush).
-    public int ConnectivityExpiryIntervalSeconds { get; set; } = 30;
+    public int ConnectivityExpiryIntervalSeconds { get; set; } = 5;
 
     // Ventana incremental consultada sobre LastTimestamp al cruzar el umbral.
     public int ConnectivityExpiryLookbackSeconds { get; set; } = 90;

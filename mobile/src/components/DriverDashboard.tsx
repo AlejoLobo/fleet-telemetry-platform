@@ -25,8 +25,9 @@ const AUTH_STATUS_LABELS: Record<string, string> = {
 };
 
 export function DriverDashboard() {
-  const [vehicleId, setVehicleId] = useState(getDefaultVehicleId());
-  const [driverId, setDriverId] = useState(getDefaultDriverId());
+  // Identidad fija desde parámetros (.env). Solo cambia al reiniciar Expo Go.
+  const vehicleId = getDefaultVehicleId().trim();
+  const driverId = getDefaultDriverId().trim();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ export function DriverDashboard() {
     stopTracking,
     captureOnce,
     syncNow,
-  } = useDriverTelemetry(vehicleId.trim(), driverId.trim(), auth.canSync);
+  } = useDriverTelemetry(vehicleId, driverId, auth.canSync);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -71,6 +72,12 @@ export function DriverDashboard() {
   };
 
   const syncPausedByAuth = auth.enabled && !auth.canSync;
+  const locationBadge =
+    lastReading?.source === "gps"
+      ? { label: "GPS", tone: "ok" as const }
+      : lastReading?.source === "simulated"
+        ? { label: "Simulado", tone: "neutral" as const }
+        : { label: "Sin lectura", tone: "neutral" as const };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -100,19 +107,20 @@ export function DriverDashboard() {
       </View>
 
       <View style={styles.card}>
+        <Text style={styles.section}>Identidad (parámetros)</Text>
         <Text style={styles.label}>Vehículo</Text>
-        <TextInput style={styles.input} value={vehicleId} onChangeText={setVehicleId} autoCapitalize="characters" />
+        <TextInput style={[styles.input, styles.inputLocked]} value={vehicleId} editable={false} />
         <Text style={styles.label}>Conductor</Text>
-        <TextInput style={styles.input} value={driverId} onChangeText={setDriverId} />
+        <TextInput style={[styles.input, styles.inputLocked]} value={driverId} editable={false} />
+        <Text style={styles.hint}>
+          Fijos en EXPO_PUBLIC_VEHICLE_ID / EXPO_PUBLIC_DRIVER_ID. Para cambiarlos: cierra Expo Go, edita mobile/.env y vuelve a abrir con npx expo start -c.
+        </Text>
       </View>
 
       <View style={styles.row}>
         <Badge label={`Red: ${networkStatus}`} tone={isOnline ? "ok" : "warn"} />
         <Badge label={`Pendientes: ${pendingCount}`} tone={pendingCount > 0 ? "warn" : "ok"} />
-        <Badge
-          label={lastReading?.source === "gps" ? "GPS" : "Simulado"}
-          tone={lastReading?.source === "gps" ? "ok" : "neutral"}
-        />
+        <Badge label={locationBadge.label} tone={locationBadge.tone} />
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -204,7 +212,9 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, color: "#64748b", marginBottom: 4 },
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#e2e8f0", gap: 8 },
   label: { fontSize: 13, fontWeight: "600", color: "#334155" },
-  input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8, backgroundColor: "#fff" },
+  input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8, backgroundColor: "#fff", color: "#0f172a" },
+  inputLocked: { backgroundColor: "#f1f5f9", color: "#475569" },
+  hint: { fontSize: 12, color: "#64748b", lineHeight: 18 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgeText: { fontSize: 12, fontWeight: "600" },

@@ -18,6 +18,12 @@ public sealed class QueryLimitsOptionsValidator : IValidateOptions<QueryLimitsOp
         if (options.OnlineThresholdMinutes < 1)
             return ValidateOptionsResult.Fail("OnlineThresholdMinutes must be at least 1.");
 
+        if (options.OnlineThresholdSeconds < 0)
+            return ValidateOptionsResult.Fail("OnlineThresholdSeconds must be zero or positive.");
+
+        if (options.OnlineThresholdSeconds > 0 && options.OnlineThresholdSeconds < 15)
+            return ValidateOptionsResult.Fail("OnlineThresholdSeconds must be at least 15 when enabled.");
+
         return ValidateOptionsResult.Success;
     }
 }

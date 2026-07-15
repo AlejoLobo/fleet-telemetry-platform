@@ -36,4 +36,19 @@ public class VehicleConnectivityStatusTests
 
         Assert.Equal(VehicleConnectivityStatus.Offline, status);
     }
+
+    [Theory]
+    [InlineData(30, true)]
+    [InlineData(46, false)]
+    public void Resolve_con_ventana_en_segundos_respeta_umbral(int ageSeconds, bool expectOnline)
+    {
+        var now = DateTimeOffset.Parse("2026-07-15T12:00:00Z");
+        var lastSeen = now.AddSeconds(-ageSeconds);
+
+        var status = VehicleConnectivityStatus.Resolve(lastSeen, now, TimeSpan.FromSeconds(45));
+
+        Assert.Equal(
+            expectOnline ? VehicleConnectivityStatus.Online : VehicleConnectivityStatus.Offline,
+            status);
+    }
 }

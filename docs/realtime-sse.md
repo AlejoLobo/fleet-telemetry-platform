@@ -38,11 +38,15 @@ Intervalos (`Sse` en `appsettings.json`):
 La conectividad se calcula con `VehicleConnectivityStatus.Resolve`:
 
 ```
-LastTimestamp >= now - OnlineThresholdMinutes  →  online
-en caso contrario                              →  offline
+LastTimestamp >= now - OnlineWindow  →  online
+en caso contrario                     →  offline
 ```
 
-`OnlineThresholdMinutes` está en `QueryLimits` (default 5).
+`OnlineWindow` sale de `QueryLimits`:
+- `OnlineThresholdSeconds` si es > 0 (demo local: **45**);
+- si no, `OnlineThresholdMinutes` (default **1**).
+
+El dashboard reevalúa el estado cada 5 s con el mismo umbral (`NEXT_PUBLIC_ONLINE_THRESHOLD_SECONDS`).
 
 ### Transición a offline sin telemetría nueva (KafkaPush)
 
@@ -57,7 +61,7 @@ Configuración (`Sse`):
 
 | Opción | Default | Descripción |
 |--------|---------|-------------|
-| `ConnectivityExpiryIntervalSeconds` | 30 | Intervalo del ciclo |
+| `ConnectivityExpiryIntervalSeconds` | 5 | Intervalo del ciclo |
 | `ConnectivityExpiryLookbackSeconds` | 90 | Ventana inicial si no hay umbral previo |
 | `ConnectivityExpiryBatchSize` | 200 | Tope por ciclo |
 

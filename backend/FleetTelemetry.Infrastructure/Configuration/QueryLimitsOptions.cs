@@ -14,5 +14,15 @@ public class QueryLimitsOptions
 
     public int HistoryMaxRangeDays { get; set; } = 7;
 
-    public int OnlineThresholdMinutes { get; set; } = 5;
+    public int OnlineThresholdMinutes { get; set; } = 1;
+
+    /// <summary>
+    /// Si es mayor que 0, reemplaza OnlineThresholdMinutes (útil en demos locales).
+    /// </summary>
+    public int OnlineThresholdSeconds { get; set; } = 0;
+
+    public TimeSpan GetOnlineWindow() =>
+        OnlineThresholdSeconds > 0
+            ? TimeSpan.FromSeconds(OnlineThresholdSeconds)
+            : TimeSpan.FromMinutes(OnlineThresholdMinutes);
 }

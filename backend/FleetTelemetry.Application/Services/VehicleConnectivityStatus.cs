@@ -8,9 +8,15 @@ public static class VehicleConnectivityStatus
     public static string Resolve(
         DateTimeOffset lastTimestamp,
         DateTimeOffset now,
-        int onlineThresholdMinutes)
+        int onlineThresholdMinutes) =>
+        Resolve(lastTimestamp, now, TimeSpan.FromMinutes(onlineThresholdMinutes));
+
+    public static string Resolve(
+        DateTimeOffset lastTimestamp,
+        DateTimeOffset now,
+        TimeSpan onlineWindow)
     {
-        var onlineThreshold = now.AddMinutes(-onlineThresholdMinutes);
+        var onlineThreshold = now - onlineWindow;
         return lastTimestamp >= onlineThreshold ? Online : Offline;
     }
 }

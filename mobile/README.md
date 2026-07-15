@@ -49,8 +49,11 @@ cp .env.example .env
 | Variable | Descripción |
 |----------|-------------|
 | `EXPO_PUBLIC_API_URL` | Backend .NET |
-| `EXPO_PUBLIC_VEHICLE_ID` | Vehículo por defecto |
-| `EXPO_PUBLIC_DRIVER_ID` | Conductor por defecto |
+| `EXPO_PUBLIC_VEHICLE_ID` | Vehículo fijo de la sesión (solo cambia al reiniciar Expo Go) |
+| `EXPO_PUBLIC_DRIVER_ID` | Conductor fijo de la sesión (solo cambia al reiniciar Expo Go) |
+| `EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION` | `true` para permitir GPS simulado en desarrollo |
+
+Vehículo y conductor se leen solo desde estos parámetros: la UI los muestra en solo lectura. Para cambiarlos, cierra Expo Go, edita `mobile/.env` y vuelve a abrir con `npx expo start -c`.
 
 No usar `EXPO_PUBLIC_JWT` ni credenciales en variables públicas.
 

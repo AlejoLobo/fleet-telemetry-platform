@@ -92,6 +92,8 @@ services:
       Kafka__BootstrapServers: redpanda:9092
       TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
+      QueryLimits__OnlineThresholdMinutes: ${QueryLimits__OnlineThresholdMinutes:-1}
+      QueryLimits__OnlineThresholdSeconds: ${QueryLimits__OnlineThresholdSeconds:-45}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -122,6 +124,9 @@ services:
       Kafka__RetryMaxDelayMilliseconds: ${Kafka__RetryMaxDelayMilliseconds:-5000}
       Kafka__MaxDeadLetterPublishAttempts: ${Kafka__MaxDeadLetterPublishAttempts:-5}
       Kafka__MaxPollIntervalMilliseconds: ${Kafka__MaxPollIntervalMilliseconds:-300000}
+      QueryLimits__OnlineThresholdMinutes: ${QueryLimits__OnlineThresholdMinutes:-1}
+      QueryLimits__OnlineThresholdSeconds: ${QueryLimits__OnlineThresholdSeconds:-45}
+      Sse__ConnectivityExpiryIntervalSeconds: ${Sse__ConnectivityExpiryIntervalSeconds:-5}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -138,6 +143,7 @@ services:
       args:
         # En AWS ALB (FT-009) se inyecta vía .env; localmente localhost.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+        NEXT_PUBLIC_ONLINE_THRESHOLD_SECONDS: ${NEXT_PUBLIC_ONLINE_THRESHOLD_SECONDS:-45}
     container_name: fleet-web
     restart: unless-stopped
     ports:

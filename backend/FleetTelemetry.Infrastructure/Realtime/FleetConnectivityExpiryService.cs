@@ -50,7 +50,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
     public async Task<int> PublishOfflineTransitionsAsync(CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow();
-        var currentThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
+        var currentThreshold = now - _queryLimits.GetOnlineWindow();
         var previousThreshold = await _watermarkRepository.GetPreviousOnlineThresholdAsync(cancellationToken)
             ?? DateTimeOffset.MinValue;
 

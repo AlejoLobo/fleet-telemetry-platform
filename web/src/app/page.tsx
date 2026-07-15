@@ -6,6 +6,7 @@ import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
+import { applyConnectivityFreshness } from "@/lib/vehicle-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
 
@@ -34,6 +35,12 @@ export default function DashboardPage() {
   const [alertsAttention, setAlertsAttention] = useState(false);
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
+  const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setConnectivityNowMs(Date.now()), 5_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const refreshAuthState = async () => {
     try {
@@ -123,10 +130,16 @@ export default function DashboardPage() {
   }, [vehicles]);
 
   const displayVehicles = useMemo(() => {
-    if (dataSource === "demo") return vehicles;
-    if (liveVehiclePatches.length === 0) return vehicles;
-    return mergeVehicleUpdates(vehicles, liveVehiclePatches);
-  }, [dataSource, liveVehiclePatches, vehicles]);
+    const merged =
+      dataSource === "demo"
+        ? vehicles
+        : liveVehiclePatches.length === 0
+          ? vehicles
+          : mergeVehicleUpdates(vehicles, liveVehiclePatches);
+
+    if (dataSource === "demo") return merged;
+    return applyConnectivityFreshness(merged, connectivityNowMs);
+  }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
 
   const displayAlerts = useMemo(() => {
     if (dataSource === "demo") return alerts;

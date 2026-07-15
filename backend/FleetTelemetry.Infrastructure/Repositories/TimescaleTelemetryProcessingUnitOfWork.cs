@@ -248,7 +248,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 var connectivityStatus = VehicleConnectivityStatus.Resolve(
                     telemetryEvent.Timestamp,
                     now,
-                    _queryLimits.OnlineThresholdMinutes);
+                    _queryLimits.GetOnlineWindow());
 
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     telemetryEvent.VehicleId,

@@ -25,7 +25,7 @@ public class TimescaleFleetStateAggregateRepository : IFleetStateAggregateReposi
 
     public async Task<FleetAggregateSnapshot> GetFleetAggregateSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var threshold = _timeProvider.GetUtcNow().AddMinutes(-_queryLimits.OnlineThresholdMinutes);
+        var threshold = _timeProvider.GetUtcNow() - _queryLimits.GetOnlineWindow();
 
         var row = await _dbContext.Database
             .SqlQuery<FleetAggregateRow>($"""

@@ -47,7 +47,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         }
 
         var now = _timeProvider.GetUtcNow();
-        var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
+        var onlineThreshold = now - _queryLimits.GetOnlineWindow();
         var lastVehicleId = cursorPayload?.LastVehicleId;
         var take = pageSize + 1;
 
@@ -143,7 +143,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         var connectivityStatus = VehicleConnectivityStatus.Resolve(
             record.LastTimestamp,
             now,
-            _queryLimits.OnlineThresholdMinutes);
+            _queryLimits.GetOnlineWindow());
 
         return new VehicleLatestStatusResponse(
             VehicleId: record.VehicleId,
