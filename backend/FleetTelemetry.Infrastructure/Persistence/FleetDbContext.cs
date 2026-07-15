@@ -16,6 +16,7 @@ public class FleetDbContext : DbContext
     public DbSet<FleetVehicleStateRecord> FleetVehicleStates => Set<FleetVehicleStateRecord>();
     public DbSet<FleetConnectivityWatermarkRecord> FleetConnectivityWatermarks => Set<FleetConnectivityWatermarkRecord>();
     public DbSet<FleetOfflinePublishMarkerRecord> FleetOfflinePublishMarkers => Set<FleetOfflinePublishMarkerRecord>();
+    public DbSet<FleetDeviceRecord> FleetDevices => Set<FleetDeviceRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,6 +53,17 @@ public class FleetDbContext : DbContext
         modelBuilder.Entity<FleetConnectivityWatermarkRecord>(entity =>
         {
             entity.Property(e => e.Id).ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<FleetDeviceRecord>(entity =>
+        {
+            entity.ToTable("fleet_devices");
+            entity.HasKey(e => e.DeviceId);
+            entity.HasIndex(e => e.VehicleName).IsUnique();
+            entity.Property(e => e.DeviceId).HasColumnName("device_id");
+            entity.Property(e => e.VehicleName).HasColumnName("vehicle_name").HasMaxLength(100).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
         });
     }
 }
