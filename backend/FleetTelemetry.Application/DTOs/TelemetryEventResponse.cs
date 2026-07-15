@@ -2,11 +2,12 @@ namespace FleetTelemetry.Application.DTOs;
 
 public record TelemetryEventResponse(
     Guid EventId,
-    string VehicleId,
+    Guid DeviceId,
     string? DriverId,
     DateTimeOffset Timestamp,
     double Latitude,
     double Longitude,
     double SpeedKmh,
     double? FuelLevelPercent,
-    double? BatteryPercent);
+    double? BatteryPercent,
+    string LocationSource);

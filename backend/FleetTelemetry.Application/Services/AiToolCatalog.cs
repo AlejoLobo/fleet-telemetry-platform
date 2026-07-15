@@ -62,7 +62,7 @@ public static class AiToolCatalog
                 GetLatestVehicleStatus,
                 "Estado reciente de un vehículo específico.",
                 [
-                    new("vehicleId", "string", "Identificador del vehículo (ej. VH-001).", Required: true)
+                    new("deviceId", "string", "Identificador del dispositivo (GUID).", Required: true)
                 ],
                 MaxResultLines: 10,
                 Timeout: TimeSpan.FromSeconds(10)),
@@ -80,7 +80,7 @@ public static class AiToolCatalog
                 GetAnalyticsSummary,
                 "Resumen analítico de las últimas 24 horas para un vehículo.",
                 [
-                    new("vehicleId", "string", "Identificador del vehículo; si se omite se usa el primero disponible.")
+                    new("deviceId", "string", "Identificador del dispositivo (GUID); si se omite se usa el primero disponible.")
                 ],
                 MaxResultLines: 10,
                 Timeout: TimeSpan.FromSeconds(15)),

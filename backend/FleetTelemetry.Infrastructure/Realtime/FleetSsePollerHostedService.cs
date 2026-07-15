@@ -82,7 +82,7 @@ public class FleetSsePollerHostedService : BackgroundService
             excludeSimulated: true,
             cancellationToken);
         var hash = string.Join('|', vehicles.Select(v =>
-            $"{v.VehicleId}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}:{v.LastLatitude}:{v.LastLongitude}"));
+            $"{v.DeviceId:D}:{v.Status}:{v.LastSeenAt:o}:{v.LastSpeedKmh}:{v.LastLatitude}:{v.LastLongitude}"));
 
         _fleetChangedLastPoll = hash != _lastFleetHash;
         if (!_fleetChangedLastPoll)
@@ -117,7 +117,7 @@ public class FleetSsePollerHostedService : BackgroundService
                     FleetRealtimeEventTypes.Alert,
                     new FleetAlertResponse(
                         alert.AlertId,
-                        alert.VehicleId,
+                        alert.DeviceId,
                         alert.AlertType,
                         alert.Severity,
                         alert.Message,

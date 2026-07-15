@@ -1,7 +1,7 @@
 namespace FleetTelemetry.Application.DTOs;
 
 public record StoppedVehicleStatusDto(
-    string VehicleId,
+    Guid DeviceId,
     DateTimeOffset LastSeenAt,
     DateTimeOffset StoppedSince,
     TimeSpan StoppedDuration,

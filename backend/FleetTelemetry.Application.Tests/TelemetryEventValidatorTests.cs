@@ -25,5 +25,5 @@ public class TelemetryEventValidatorTests
     }
 
     private static TelemetryEventRequest ValidRequest() => new(
-        Guid.NewGuid(), "VH-001", "DRV-001", DateTimeOffset.UtcNow, 4.65, -74.08, 45, 80, 90, "gps");
+        Guid.NewGuid(), Guid.Parse("11111111-1111-1111-1111-111111111111"), "DRV-001", DateTimeOffset.UtcNow, 4.65, -74.08, 45, 80, 90, "gps");
 }

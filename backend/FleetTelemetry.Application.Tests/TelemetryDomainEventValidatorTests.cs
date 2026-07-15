@@ -6,6 +6,8 @@ namespace FleetTelemetry.Application.Tests;
 
 public class TelemetryDomainEventValidatorTests
 {
+    private static readonly Guid DeviceA = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     [Fact]
     public void Validate_accepts_valid_domain_event()
     {
@@ -18,7 +20,7 @@ public class TelemetryDomainEventValidatorTests
     {
         var created = TelemetryEvent.TryCreate(
             Guid.Empty,
-            "VH-001",
+            DeviceA,
             null,
             DateTimeOffset.UtcNow,
             4.65,
@@ -34,11 +36,11 @@ public class TelemetryDomainEventValidatorTests
     }
 
     [Fact]
-    public void TryCreate_rejects_empty_vehicle_id()
+    public void TryCreate_rejects_empty_device_id()
     {
         var created = TelemetryEvent.TryCreate(
             Guid.NewGuid(),
-            " ",
+            Guid.Empty,
             null,
             DateTimeOffset.UtcNow,
             4.65,
@@ -50,7 +52,7 @@ public class TelemetryDomainEventValidatorTests
             out var error);
 
         Assert.False(created);
-        Assert.Contains("VehicleId", error);
+        Assert.Contains("DeviceId", error);
     }
 
     [Fact]
@@ -58,7 +60,7 @@ public class TelemetryDomainEventValidatorTests
     {
         var created = TelemetryEvent.TryCreate(
             Guid.NewGuid(),
-            "VH-001",
+            DeviceA,
             null,
             default,
             4.65,
@@ -76,9 +78,9 @@ public class TelemetryDomainEventValidatorTests
     [Fact]
     public void TryCreate_rejects_out_of_range_coordinates_and_negative_speed()
     {
-        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), "VH-001", null, DateTimeOffset.UtcNow, 91, -74.08, 45, null, null, out _, out _));
-        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), "VH-001", null, DateTimeOffset.UtcNow, 4.65, -181, 45, null, null, out _, out _));
-        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), "VH-001", null, DateTimeOffset.UtcNow, 4.65, -74.08, -1, null, null, out _, out _));
+        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), DeviceA, null, DateTimeOffset.UtcNow, 91, -74.08, 45, null, null, out _, out _));
+        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), DeviceA, null, DateTimeOffset.UtcNow, 4.65, -181, 45, null, null, out _, out _));
+        Assert.False(TelemetryEvent.TryCreate(Guid.NewGuid(), DeviceA, null, DateTimeOffset.UtcNow, 4.65, -74.08, -1, null, null, out _, out _));
     }
 
     [Fact]
@@ -86,7 +88,8 @@ public class TelemetryDomainEventValidatorTests
     {
         const string invalidDomainReason = "invalid_domain";
         var partialException = Assert.Throws<TelemetryKafkaContractException>(() =>
-            FleetTelemetry.Infrastructure.Kafka.TelemetryEventJsonSerializer.Deserialize("""{"vehicleId":"VH-001"}"""));
+            FleetTelemetry.Infrastructure.Kafka.TelemetryEventJsonSerializer.Deserialize(
+                """{"deviceId":"11111111-1111-1111-1111-111111111111"}"""));
 
         Assert.Contains("EventId", partialException.Message);
         Assert.Equal("invalid_domain", partialException.ErrorCode);
@@ -96,7 +99,7 @@ public class TelemetryDomainEventValidatorTests
     private static TelemetryEvent ValidEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-001",
+            DeviceA,
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

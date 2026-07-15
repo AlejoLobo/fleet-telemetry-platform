@@ -69,7 +69,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
         var json = TelemetryEventJsonSerializer.Serialize(telemetryEvent, _options.UseEventEnvelope);
         var message = new Message<string, string>
         {
-            Key = telemetryEvent.VehicleId,
+            Key = telemetryEvent.DeviceId.ToString("D"),
             Value = json,
             Headers = BuildHeaders(telemetryEvent)
         };
@@ -81,9 +81,9 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
                 cancellationToken);
 
             _logger.LogInformation(
-                "Published telemetry event {EventId} for vehicle {VehicleId} to {Topic} partition {Partition}",
+                "Published telemetry event {EventId} for device {DeviceId} to {Topic} partition {Partition}",
                 telemetryEvent.EventId,
-                telemetryEvent.VehicleId,
+                telemetryEvent.DeviceId,
                 result.Topic,
                 result.Partition.Value);
 

@@ -18,13 +18,13 @@ internal sealed class FakeFleetQueryService(IReadOnlyList<VehicleLatestStatusRes
         if (liveOnly)
             filtered = filtered.Where(v => v.Status == "online");
 
-        var ordered = filtered.OrderBy(v => v.VehicleId).ToList();
+        var ordered = filtered.OrderBy(v => v.DeviceId).ToList();
         var startIndex = 0;
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             var payload = FleetTelemetry.Application.Services.CursorCodec.Decode<FleetCursorPayload>(cursor);
             FleetTelemetry.Application.Services.CursorValidators.ValidateFleetCursor(payload, liveOnly, excludeSimulated);
-            startIndex = ordered.FindIndex(v => string.Compare(v.VehicleId, payload.LastVehicleId, StringComparison.Ordinal) > 0);
+            startIndex = ordered.FindIndex(v => v.DeviceId.CompareTo(payload.LastDeviceId) > 0);
             if (startIndex < 0) startIndex = ordered.Count;
         }
 
@@ -34,7 +34,7 @@ internal sealed class FakeFleetQueryService(IReadOnlyList<VehicleLatestStatusRes
         if (hasMore && pageItems.Count > 0)
         {
             nextCursor = FleetTelemetry.Application.Services.CursorCodec.Encode(
-                new FleetCursorPayload(FleetCursorPayload.CurrentVersion, pageItems[^1].VehicleId, liveOnly, excludeSimulated));
+                new FleetCursorPayload(FleetCursorPayload.CurrentVersion, pageItems[^1].DeviceId, liveOnly, excludeSimulated));
         }
 
         return Task.FromResult(new CursorPage<VehicleLatestStatusResponse>(pageItems, nextCursor, hasMore));
@@ -54,9 +54,9 @@ internal sealed class FakeFleetQueryService(IReadOnlyList<VehicleLatestStatusRes
     }
 
     public Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(vehicles.FirstOrDefault(v => v.VehicleId == vehicleId));
+        Task.FromResult(vehicles.FirstOrDefault(v => v.DeviceId == deviceId));
 }
 
 internal sealed class FakeFleetStateAggregateRepository(

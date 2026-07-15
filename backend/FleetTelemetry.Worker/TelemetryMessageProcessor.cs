@@ -85,9 +85,9 @@ public class TelemetryMessageProcessor
             {
                 _metrics.TelemetryProcessedTotal.Add(1);
                 _logger.LogInformation(
-                    "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
+                    "Telemetry event processed. EventId={EventId} DeviceId={DeviceId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
-                    telemetryEvent.VehicleId,
+                    telemetryEvent.DeviceId,
                     message.Partition,
                     message.Offset,
                     currentAttempt);

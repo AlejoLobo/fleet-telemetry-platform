@@ -3,7 +3,7 @@ namespace FleetTelemetry.Application.Interfaces;
 public interface IFleetRealtimePublisher
 {
     Task PublishVehicleUpdateAsync(
-        string vehicleId,
+        Guid deviceId,
         string payloadJson,
         CancellationToken cancellationToken = default);
 

@@ -3,15 +3,15 @@ namespace FleetTelemetry.Application.Interfaces;
 public interface IFleetOfflinePublishMarkerRepository
 {
     Task<bool> ShouldPublishOfflineAsync(
-        string vehicleId,
+        Guid deviceId,
         Guid lastEventId,
         CancellationToken cancellationToken = default);
 
     Task MarkOfflinePublishedAsync(
-        string vehicleId,
+        Guid deviceId,
         Guid lastEventId,
         DateTimeOffset statusEvaluatedAt,
         CancellationToken cancellationToken = default);
 
-    Task MarkOnlineAsync(string vehicleId, CancellationToken cancellationToken = default);
+    Task MarkOnlineAsync(Guid deviceId, CancellationToken cancellationToken = default);
 }

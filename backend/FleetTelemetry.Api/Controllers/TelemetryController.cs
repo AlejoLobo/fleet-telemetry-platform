@@ -2,6 +2,7 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Api.Identity;
 using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,6 +29,10 @@ public partial class TelemetryController : ControllerBase
         [FromBody] TelemetryEventRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, request.DeviceId);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             await _ingestEventUseCase.ExecuteAsync(request, cancellationToken);
@@ -49,6 +54,10 @@ public partial class TelemetryController : ControllerBase
         [FromBody] TelemetryBatchRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateBatchOrError(HttpContext, request.Events);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             await _ingestBatchUseCase.ExecuteAsync(request, cancellationToken);

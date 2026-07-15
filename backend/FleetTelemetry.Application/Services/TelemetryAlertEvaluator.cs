@@ -18,7 +18,7 @@ public static class TelemetryAlertEvaluator
         observations.Add(new AlertConditionObservation(
             OverspeedAlertType,
             "critical",
-            $"El vehículo {telemetryEvent.VehicleId} superó el límite de velocidad: {telemetryEvent.SpeedKmh:F1} km/h",
+            $"El vehículo {telemetryEvent.DeviceId:D} superó el límite de velocidad: {telemetryEvent.SpeedKmh:F1} km/h",
             telemetryEvent.SpeedKmh > options.OverspeedThresholdKmh
                 ? AlertConditionObservationStatus.Breached
                 : AlertConditionObservationStatus.Recovered));
@@ -26,7 +26,7 @@ public static class TelemetryAlertEvaluator
         observations.Add(new AlertConditionObservation(
             LowFuelAlertType,
             "warning",
-            $"El vehículo {telemetryEvent.VehicleId} tiene combustible bajo: {telemetryEvent.FuelLevelPercent:F1}%",
+            $"El vehículo {telemetryEvent.DeviceId:D} tiene combustible bajo: {telemetryEvent.FuelLevelPercent:F1}%",
             ResolveNullableThreshold(
                 telemetryEvent.FuelLevelPercent,
                 options.LowFuelPercent,
@@ -35,7 +35,7 @@ public static class TelemetryAlertEvaluator
         observations.Add(new AlertConditionObservation(
             LowBatteryAlertType,
             "warning",
-            $"El vehículo {telemetryEvent.VehicleId} tiene batería baja: {telemetryEvent.BatteryPercent:F1}%",
+            $"El vehículo {telemetryEvent.DeviceId:D} tiene batería baja: {telemetryEvent.BatteryPercent:F1}%",
             ResolveNullableThreshold(
                 telemetryEvent.BatteryPercent,
                 options.LowBatteryPercent,
@@ -59,7 +59,7 @@ public static class TelemetryAlertEvaluator
             FleetAlertConditionState? current = null;
             statesByType?.TryGetValue(observation.AlertType, out current);
             var transition = Transition(
-                telemetryEvent.VehicleId,
+                telemetryEvent.DeviceId,
                 observation,
                 current,
                 now,
@@ -76,7 +76,7 @@ public static class TelemetryAlertEvaluator
     }
 
     public static AlertConditionTransition Transition(
-        string vehicleId,
+        Guid deviceId,
         AlertConditionObservation observation,
         FleetAlertConditionState? current,
         DateTimeOffset now,
@@ -87,7 +87,7 @@ public static class TelemetryAlertEvaluator
             AlertConditionObservationStatus.NotObserved => AlertConditionTransition.NoChange,
             AlertConditionObservationStatus.Recovered => TransitionRecovered(current, now),
             AlertConditionObservationStatus.Breached => TransitionBreached(
-                vehicleId,
+                deviceId,
                 observation,
                 current,
                 now,
@@ -108,7 +108,7 @@ public static class TelemetryAlertEvaluator
     }
 
     private static AlertConditionTransition TransitionBreached(
-        string vehicleId,
+        Guid deviceId,
         AlertConditionObservation observation,
         FleetAlertConditionState? current,
         DateTimeOffset now,
@@ -123,14 +123,14 @@ public static class TelemetryAlertEvaluator
             if (current is null)
             {
                 var created = FleetAlertConditionState.Create(
-                    vehicleId,
+                    deviceId,
                     observation.AlertType,
                     isActive: true,
                     lastConditionAt: now,
                     lastAlertAt: now,
                     updatedAt: now);
                 return AlertConditionTransition.Emit(
-                    CreateAlert(vehicleId, observation, now),
+                    CreateAlert(deviceId, observation, now),
                     created);
             }
 
@@ -138,7 +138,7 @@ public static class TelemetryAlertEvaluator
             {
                 current.MarkActive(now, alertAt: now, updatedAt: now);
                 return AlertConditionTransition.Emit(
-                    CreateAlert(vehicleId, observation, now),
+                    CreateAlert(deviceId, observation, now),
                     current);
             }
 
@@ -152,7 +152,7 @@ public static class TelemetryAlertEvaluator
 
         current.MarkActive(now, alertAt: now, updatedAt: now);
         return AlertConditionTransition.Emit(
-            CreateAlert(vehicleId, observation, now),
+            CreateAlert(deviceId, observation, now),
             current);
     }
 
@@ -171,12 +171,12 @@ public static class TelemetryAlertEvaluator
     }
 
     private static FleetAlert CreateAlert(
-        string vehicleId,
+        Guid deviceId,
         AlertConditionObservation observation,
         DateTimeOffset now) =>
         FleetAlert.Create(
             Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             observation.AlertType,
             observation.Severity,
             observation.Message,

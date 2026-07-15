@@ -65,7 +65,7 @@ public class TimescaleAlertRepository : IAlertRepository
         var record = new FleetAlertRecord
         {
             AlertId = alert.AlertId,
-            VehicleId = alert.VehicleId,
+            VehicleId = alert.DeviceIdStorage,
             AlertType = alert.AlertType,
             Severity = alert.Severity,
             Message = alert.Message,

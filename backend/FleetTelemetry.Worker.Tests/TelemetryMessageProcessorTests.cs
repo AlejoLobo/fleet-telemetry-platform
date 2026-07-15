@@ -99,7 +99,7 @@ public class TelemetryMessageProcessorTests
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq);
-        var message = new KafkaConsumedMessage("""{"vehicleId":"VH-001"}""", Topic, 1, 22);
+        var message = new KafkaConsumedMessage("""{"deviceId":"11111111-1111-1111-1111-111111111111"}""", Topic, 1, 22);
 
         var processCalled = false;
         var outcome = await processor.ProcessAsync(
@@ -183,7 +183,7 @@ public class TelemetryMessageProcessorTests
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq);
-        var message = new KafkaConsumedMessage("""{"vehicleId":"VH-001"}""", Topic, 1, 22);
+        var message = new KafkaConsumedMessage("""{"deviceId":"11111111-1111-1111-1111-111111111111"}""", Topic, 1, 22);
 
         var outcome = await processor.ProcessAsync(
             message,
@@ -323,7 +323,7 @@ public class TelemetryMessageProcessorTests
     private static TelemetryEvent CreateValidEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-WORKER-001",
+            Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

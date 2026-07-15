@@ -31,7 +31,7 @@ public class AlertsController : ControllerBase
 
         var response = alerts.Select(a => new FleetAlertResponse(
             a.AlertId,
-            a.VehicleId,
+            a.DeviceId,
             a.AlertType,
             a.Severity,
             a.Message,

@@ -60,15 +60,15 @@ public class FleetController : ControllerBase
         }
     }
 
-    [HttpGet("{vehicleId}")]
+    [HttpGet("{deviceId:guid}")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<VehicleLatestStatusResponse>> GetById(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken)
     {
-        var vehicle = await _fleetQueryService.GetVehicleStatusAsync(vehicleId, cancellationToken);
+        var vehicle = await _fleetQueryService.GetVehicleStatusAsync(deviceId, cancellationToken);
         if (vehicle is null)
-            return NotFound(new { error = $"Vehículo '{vehicleId}' no encontrado." });
+            return NotFound(new { error = $"Dispositivo '{deviceId:D}' no encontrado." });
 
         return Ok(vehicle);
     }

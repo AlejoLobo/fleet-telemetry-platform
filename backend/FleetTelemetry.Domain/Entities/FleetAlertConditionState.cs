@@ -4,25 +4,25 @@ namespace FleetTelemetry.Domain.Entities;
 
 public sealed class FleetAlertConditionState
 {
-    public string VehicleId => _vehicleId.Value;
+    public Guid DeviceId => _deviceId.Value;
     public string AlertType => _alertType.Value;
     public bool IsActive { get; private set; }
     public DateTimeOffset LastConditionAt { get; private set; }
     public DateTimeOffset? LastAlertAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    private readonly VehicleId _vehicleId;
+    private readonly DeviceId _deviceId;
     private readonly AlertType _alertType;
 
     private FleetAlertConditionState(
-        VehicleId vehicleId,
+        DeviceId deviceId,
         AlertType alertType,
         bool isActive,
         DateTimeOffset lastConditionAt,
         DateTimeOffset? lastAlertAt,
         DateTimeOffset updatedAt)
     {
-        _vehicleId = vehicleId;
+        _deviceId = deviceId;
         _alertType = alertType;
         IsActive = isActive;
         LastConditionAt = lastConditionAt;
@@ -30,8 +30,10 @@ public sealed class FleetAlertConditionState
         UpdatedAt = updatedAt;
     }
 
+    public string DeviceIdStorage => DeviceId.ToString("D");
+
     public static FleetAlertConditionState Create(
-        string vehicleId,
+        Guid deviceId,
         string alertType,
         bool isActive,
         DateTimeOffset lastConditionAt,
@@ -39,7 +41,7 @@ public sealed class FleetAlertConditionState
         DateTimeOffset updatedAt)
     {
         return new FleetAlertConditionState(
-            ValueObjects.VehicleId.Create(vehicleId),
+            ValueObjects.DeviceId.Create(deviceId),
             ValueObjects.AlertType.Create(alertType),
             isActive,
             lastConditionAt,
@@ -48,13 +50,27 @@ public sealed class FleetAlertConditionState
     }
 
     public static FleetAlertConditionState FromPersistence(
-        string vehicleId,
+        Guid deviceId,
         string alertType,
         bool isActive,
         DateTimeOffset lastConditionAt,
         DateTimeOffset? lastAlertAt,
         DateTimeOffset updatedAt) =>
-        Create(vehicleId, alertType, isActive, lastConditionAt, lastAlertAt, updatedAt);
+        Create(deviceId, alertType, isActive, lastConditionAt, lastAlertAt, updatedAt);
+
+    public static FleetAlertConditionState FromPersistence(
+        string deviceIdStorage,
+        string alertType,
+        bool isActive,
+        DateTimeOffset lastConditionAt,
+        DateTimeOffset? lastAlertAt,
+        DateTimeOffset updatedAt)
+    {
+        if (!Guid.TryParse(deviceIdStorage, out var deviceId))
+            throw new ArgumentException("DeviceId storage value is not a valid Guid.", nameof(deviceIdStorage));
+
+        return FromPersistence(deviceId, alertType, isActive, lastConditionAt, lastAlertAt, updatedAt);
+    }
 
     public void MarkActive(DateTimeOffset conditionAt, DateTimeOffset? alertAt, DateTimeOffset updatedAt)
     {

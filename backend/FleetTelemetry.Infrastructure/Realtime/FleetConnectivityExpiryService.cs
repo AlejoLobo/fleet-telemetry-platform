@@ -60,7 +60,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         var pageSize = _sseOptions.ConnectivityExpiryBatchSize;
         var published = 0;
         DateTimeOffset? cursorTimestamp = null;
-        string? cursorVehicleId = null;
+        string? cursorDeviceIdStorage = null;
 
         while (true)
         {
@@ -68,7 +68,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 previousThreshold,
                 currentThreshold,
                 cursorTimestamp,
-                cursorVehicleId,
+                cursorDeviceIdStorage,
                 pageSize,
                 cancellationToken);
 
@@ -77,8 +77,9 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
             foreach (var state in page)
             {
+                var deviceId = Guid.Parse(state.VehicleId);
                 if (!await _markerRepository.ShouldPublishOfflineAsync(
-                        state.VehicleId,
+                        deviceId,
                         state.LastEventId,
                         cancellationToken))
                 {
@@ -89,12 +90,12 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
-                    state.VehicleId,
+                    deviceId,
                     payloadJson,
                     cancellationToken);
 
                 await _markerRepository.MarkOfflinePublishedAsync(
-                    state.VehicleId,
+                    deviceId,
                     state.LastEventId,
                     now,
                     cancellationToken);
@@ -102,8 +103,8 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 published += 1;
 
                 _logger.LogDebug(
-                    "Published offline transition for vehicle {VehicleId} (LastEventId={LastEventId})",
-                    state.VehicleId,
+                    "Published offline transition for device {DeviceId} (LastEventId={LastEventId})",
+                    deviceId,
                     state.LastEventId);
             }
 
@@ -112,7 +113,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
             var last = page[^1];
             cursorTimestamp = last.LastTimestamp;
-            cursorVehicleId = last.VehicleId;
+            cursorDeviceIdStorage = last.VehicleId;
         }
 
         await _watermarkRepository.SetPreviousOnlineThresholdAsync(currentThreshold, cancellationToken);
@@ -123,7 +124,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         DateTimeOffset previousThreshold,
         DateTimeOffset currentThreshold,
         DateTimeOffset? cursorTimestamp,
-        string? cursorVehicleId,
+        string? cursorDeviceIdStorage,
         int pageSize,
         CancellationToken cancellationToken)
     {
@@ -133,12 +134,12 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 state.LastTimestamp < currentThreshold
                 && state.LastTimestamp >= previousThreshold);
 
-        if (cursorTimestamp is not null && cursorVehicleId is not null)
+        if (cursorTimestamp is not null && cursorDeviceIdStorage is not null)
         {
             query = query.Where(state =>
                 state.LastTimestamp > cursorTimestamp.Value
                 || (state.LastTimestamp == cursorTimestamp.Value
-                    && string.Compare(state.VehicleId, cursorVehicleId) > 0));
+                    && string.Compare(state.VehicleId, cursorDeviceIdStorage) > 0));
         }
 
         return await query
@@ -150,10 +151,12 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
     private static VehicleLatestStatusResponse BuildOfflinePayload(
         FleetVehicleStateRecord state,
-        DateTimeOffset evaluatedAt) =>
-        new(
-            state.VehicleId,
-            state.VehicleId,
+        DateTimeOffset evaluatedAt)
+    {
+        var deviceId = Guid.Parse(state.VehicleId);
+        return new(
+            deviceId,
+            deviceId.ToString("D"),
             VehicleConnectivityStatus.Offline,
             state.LastTimestamp,
             state.SpeedKmh,
@@ -163,4 +166,5 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
             state.LocationSource,
             state.LastEventId,
             evaluatedAt);
+    }
 }

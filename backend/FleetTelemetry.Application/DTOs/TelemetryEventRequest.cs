@@ -1,6 +1,8 @@
+namespace FleetTelemetry.Application.DTOs;
+
 public record TelemetryEventRequest(
     Guid EventId,
-    string VehicleId,
+    Guid DeviceId,
     string? DriverId,
     DateTimeOffset Timestamp,
     double Latitude,

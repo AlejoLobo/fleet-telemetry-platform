@@ -1,9 +1,9 @@
 namespace FleetTelemetry.Application.DTOs;
 
-// Contenido validado del cursor de historial por vehículo.
+// Contenido validado del cursor de historial por dispositivo.
 public sealed record TelemetryHistoryCursorPayload(
     int Version,
-    string VehicleId,
+    Guid DeviceId,
     DateTimeOffset From,
     DateTimeOffset To,
     DateTimeOffset? LastTimestamp,

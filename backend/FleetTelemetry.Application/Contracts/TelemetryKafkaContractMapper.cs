@@ -12,15 +12,15 @@ public static class TelemetryKafkaContractMapper
         if (payload.EventId == Guid.Empty)
             throw new TelemetryKafkaContractException("invalid_envelope", "Payload EventId is required.");
 
-        if (string.IsNullOrWhiteSpace(payload.VehicleId))
-            throw new TelemetryKafkaContractException("invalid_envelope", "Payload VehicleId is required.");
+        if (payload.DeviceId == Guid.Empty)
+            throw new TelemetryKafkaContractException("invalid_envelope", "Payload DeviceId is required.");
 
         if (payload.Timestamp == default)
             throw new TelemetryKafkaContractException("invalid_envelope", "Payload timestamp is required.");
 
         if (!TelemetryEvent.TryCreate(
                 payload.EventId,
-                payload.VehicleId,
+                payload.DeviceId,
                 payload.DriverId,
                 payload.Timestamp,
                 payload.Latitude,

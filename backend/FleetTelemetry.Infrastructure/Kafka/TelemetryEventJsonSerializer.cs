@@ -91,7 +91,7 @@ public static class TelemetryEventJsonSerializer
 
         if (!TelemetryEvent.TryCreate(
                 legacy.EventId,
-                legacy.VehicleId,
+                legacy.DeviceId,
                 legacy.DriverId,
                 legacy.Timestamp,
                 legacy.Latitude,
@@ -112,7 +112,7 @@ public static class TelemetryEventJsonSerializer
     private static LegacyTelemetryEventDto ToLegacyDto(TelemetryEvent telemetryEvent) => new()
     {
         EventId = telemetryEvent.EventId,
-        VehicleId = telemetryEvent.VehicleId,
+        DeviceId = telemetryEvent.DeviceId,
         DriverId = telemetryEvent.DriverId,
         Timestamp = telemetryEvent.Timestamp,
         Latitude = telemetryEvent.Latitude,
@@ -126,7 +126,7 @@ public static class TelemetryEventJsonSerializer
     private sealed class LegacyTelemetryEventDto
     {
         public Guid EventId { get; set; }
-        public string VehicleId { get; set; } = string.Empty;
+        public Guid DeviceId { get; set; }
         public string? DriverId { get; set; }
         public DateTimeOffset Timestamp { get; set; }
         public double Latitude { get; set; }

@@ -19,20 +19,21 @@ public class TimescaleAnalyticsQueryService : IAnalyticsQueryService
     }
 
     public async Task<double> GetAverageSpeedAsync(
-        string vehicleId,
+        Guid deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken = default)
     {
+        var deviceIdStorage = deviceId.ToString("D");
         var speeds = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == vehicleId && e.Timestamp >= from && e.Timestamp <= to)
+            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp >= from && e.Timestamp <= to)
             .Select(e => e.SpeedKmh)
             .ToListAsync(cancellationToken);
 
         if (speeds.Count == 0)
         {
-            _logger.LogDebug("Sin telemetría para {VehicleId} en el rango solicitado", vehicleId);
+            _logger.LogDebug("Sin telemetría para {DeviceId} en el rango solicitado", deviceId);
             return 0;
         }
 

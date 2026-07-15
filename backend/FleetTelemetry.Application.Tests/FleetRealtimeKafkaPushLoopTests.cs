@@ -205,9 +205,9 @@ public class FleetRealtimeKafkaPushLoopTests
             SchemaVersion = FleetRealtimeKafkaMessage.CurrentSchemaVersion,
             EventType = FleetRealtimeEventTypes.VehicleUpdate,
             Payload = System.Text.Json.JsonDocument.Parse(
-                """{"vehicleId":"VH-001","name":"VH-001","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"}""").RootElement,
+                """{"deviceId":"11111111-1111-1111-1111-111111111111","vehicleName":"VH-001","status":"online","lastSeenAt":"2026-07-13T10:00:00Z"}""").RootElement,
             OccurredAt = DateTimeOffset.UtcNow,
-            VehicleId = "VH-001"
+            DeviceId = "11111111-1111-1111-1111-111111111111"
         });
 
     private sealed class FakeKafkaPushTransport : IRealtimeKafkaPushTransport

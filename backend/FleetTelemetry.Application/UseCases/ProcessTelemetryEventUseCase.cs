@@ -27,9 +27,9 @@ public class ProcessTelemetryEventUseCase
         if (outcome == ProcessTelemetryOutcome.Duplicate)
         {
             _logger.LogInformation(
-                "Duplicate telemetry event skipped: {EventId} for vehicle {VehicleId}",
+                "Duplicate telemetry event skipped: {EventId} for device {DeviceId}",
                 telemetryEvent.EventId,
-                telemetryEvent.VehicleId);
+                telemetryEvent.DeviceId);
         }
 
         return outcome;

@@ -97,10 +97,11 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 2);
         using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-a1")).StatusCode);
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-a1")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "device-a1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceId)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceId)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, deviceId)).StatusCode);
     }
 
     [Fact]
@@ -108,14 +109,15 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 2);
         using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1");
 
         for (var i = 0; i < 2; i++)
         {
-            using var ok = await PostBatchAsync(client, "device-batch");
+            using var ok = await PostBatchAsync(client, deviceId);
             Assert.Equal(HttpStatusCode.Accepted, ok.StatusCode);
         }
 
-        using var limited = await PostBatchAsync(client, "device-batch");
+        using var limited = await PostBatchAsync(client, deviceId);
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
 
@@ -139,14 +141,16 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 2);
         using var client = factory.CreateClient();
+        var deviceA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var deviceB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "device-a")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, deviceA)).StatusCode);
 
         // Desbordar A no debe afectar a B.
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-b")).StatusCode);
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "device-b")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceB)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceB)).StatusCode);
     }
 
     [Fact]
@@ -159,24 +163,28 @@ public class RateLimitingPolicyIntegrationTests
             telemetryLimit: 1,
             claims: [new Claim("sub", "user-shared")]);
         using var client = factory.CreateClient();
+        var deviceA = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var deviceB = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "claim-device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "claim-device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "claim-device-b")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceB)).StatusCode);
     }
 
     [Fact]
     public async Task Device_claim_has_priority_over_sub()
     {
+        var priorityDevice = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
         using var factory = CreateFactory(
             enabled: true,
             permitLimit: 1000,
             telemetryLimit: 1,
-            claims: [new Claim("sub", "user-1"), new Claim("device_id", "priority-device")]);
+            claims: [new Claim("sub", "user-1"), new Claim("device_id", priorityDevice.ToString("D"))]);
         using var client = factory.CreateClient();
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "other-device")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "other-device")).StatusCode);
+        // El claim device_id define la partición; el header debe coincidir con el payload.
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, priorityDevice)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, priorityDevice)).StatusCode);
     }
 
     [Fact]
@@ -188,10 +196,12 @@ public class RateLimitingPolicyIntegrationTests
             telemetryLimit: 1,
             claims: [new Claim("sub", "user-shared")]);
         using var client = factory.CreateClient();
+        var deviceA = Guid.Parse("ffffffff-ffff-ffff-ffff-fffffffffff1");
+        var deviceB = Guid.Parse("ffffffff-ffff-ffff-ffff-fffffffffff2");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "header-device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "header-device-a")).StatusCode);
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "header-device-b")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, deviceA)).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceB)).StatusCode);
     }
 
     [Fact]
@@ -199,11 +209,14 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 1);
         using var client = factory.CreateClient();
+        var payloadDevice = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "   ")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, "too@@@")).StatusCode);
+        // Header vacío: se omite y la partición cae a IP.
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, payloadDevice, headerDeviceId: "   ")).StatusCode);
+        // Header inválido: TryNormalizeDeviceId falla → misma partición IP → 429 antes del guard.
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await PostTelemetryAsync(client, payloadDevice, headerDeviceId: "too@@@")).StatusCode);
 
-        using var longId = await PostTelemetryAsync(client, new string('a', 200));
+        using var longId = await PostTelemetryAsync(client, payloadDevice, headerDeviceId: new string('a', 200));
         Assert.Equal(HttpStatusCode.TooManyRequests, longId.StatusCode);
     }
 
@@ -212,9 +225,10 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: true, permitLimit: 1000, telemetryLimit: 1);
         using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("99999999-9999-9999-9999-999999999999");
 
-        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, "retry-device")).StatusCode);
-        using var limited = await PostTelemetryAsync(client, "retry-device");
+        Assert.Equal(HttpStatusCode.Accepted, (await PostTelemetryAsync(client, deviceId)).StatusCode);
+        using var limited = await PostTelemetryAsync(client, deviceId);
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.NotNull(limited.Headers.RetryAfter);
         var body = await limited.Content.ReadFromJsonAsync<RateLimitBody>();
@@ -227,41 +241,46 @@ public class RateLimitingPolicyIntegrationTests
     {
         using var factory = CreateFactory(enabled: false, permitLimit: 1, telemetryLimit: 1);
         using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("12121212-1212-1212-1212-121212121212");
 
         for (var i = 0; i < 15; i++)
         {
             using var response = await client.GetAsync("/api/auth/status");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            using var ingest = await PostTelemetryAsync(client, "dev-device");
+            using var ingest = await PostTelemetryAsync(client, deviceId);
             Assert.Equal(HttpStatusCode.Accepted, ingest.StatusCode);
         }
     }
 
-    private static async Task<HttpResponseMessage> PostTelemetryAsync(HttpClient client, string deviceId)
+    private static async Task<HttpResponseMessage> PostTelemetryAsync(
+        HttpClient client,
+        Guid deviceId,
+        string? headerDeviceId = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/telemetry")
         {
-            Content = JsonContent.Create(CreateValidEvent())
+            Content = JsonContent.Create(CreateValidEvent(deviceId))
         };
-        if (!string.IsNullOrWhiteSpace(deviceId))
-            request.Headers.TryAddWithoutValidation("X-Device-Id", deviceId);
+        var headerValue = headerDeviceId ?? deviceId.ToString("D");
+        if (!string.IsNullOrWhiteSpace(headerValue))
+            request.Headers.TryAddWithoutValidation("X-Device-Id", headerValue);
         return await client.SendAsync(request);
     }
 
-    private static async Task<HttpResponseMessage> PostBatchAsync(HttpClient client, string deviceId)
+    private static async Task<HttpResponseMessage> PostBatchAsync(HttpClient client, Guid deviceId)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/telemetry/batch")
         {
-            Content = JsonContent.Create(new TelemetryBatchRequest([CreateValidEvent()]))
+            Content = JsonContent.Create(new TelemetryBatchRequest([CreateValidEvent(deviceId)]))
         };
-        request.Headers.TryAddWithoutValidation("X-Device-Id", deviceId);
+        request.Headers.TryAddWithoutValidation("X-Device-Id", deviceId.ToString("D"));
         return await client.SendAsync(request);
     }
 
-    private static TelemetryEventRequest CreateValidEvent() =>
+    private static TelemetryEventRequest CreateValidEvent(Guid deviceId) =>
         new(
             Guid.NewGuid(),
-            "VH-001",
+            deviceId,
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,
