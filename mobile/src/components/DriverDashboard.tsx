@@ -1,5 +1,5 @@
 // Panel principal del conductor: captura y sincroniza telemetría
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,8 +10,17 @@ import {
   View,
 } from "react-native";
 import { getDefaultDriverId, getDefaultVehicleId } from "@/config/env";
+import {
+  DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
+  TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS,
+  type TelemetryCaptureIntervalSeconds,
+} from "@/config/telemetry-capture-rate";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
+import {
+  loadCaptureIntervalSeconds,
+  saveCaptureIntervalSeconds,
+} from "@/services/capture-interval-store";
 
 const AUTH_STATUS_LABELS: Record<string, string> = {
   checking: "Comprobando autenticación...",
@@ -24,6 +33,13 @@ const AUTH_STATUS_LABELS: Record<string, string> = {
   auth_status_error: "Auth status desconocido — sincronización bloqueada",
 };
 
+const CAPTURE_INTERVAL_LABELS: Record<TelemetryCaptureIntervalSeconds, string> = {
+  3: "Cada 3 segundos",
+  5: "Cada 5 segundos",
+  10: "Cada 10 segundos",
+  15: "Cada 15 segundos",
+};
+
 export function DriverDashboard() {
   const [vehicleId, setVehicleId] = useState(getDefaultVehicleId());
   const [driverId, setDriverId] = useState(getDefaultDriverId());
@@ -31,6 +47,9 @@ export function DriverDashboard() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [captureIntervalSeconds, setCaptureIntervalSeconds] =
+    useState<TelemetryCaptureIntervalSeconds>(DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS);
+  const [intervalReady, setIntervalReady] = useState(false);
 
   const auth = useAuthSession();
   const {
@@ -46,7 +65,32 @@ export function DriverDashboard() {
     stopTracking,
     captureOnce,
     syncNow,
-  } = useDriverTelemetry(vehicleId.trim(), driverId.trim(), auth.canSync);
+  } = useDriverTelemetry(
+    vehicleId.trim(),
+    driverId.trim(),
+    auth.canSync,
+    captureIntervalSeconds,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const loaded = await loadCaptureIntervalSeconds();
+      if (!cancelled) {
+        setCaptureIntervalSeconds(loaded);
+        setIntervalReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCaptureIntervalChange = async (seconds: TelemetryCaptureIntervalSeconds) => {
+    if (tracking) return;
+    setCaptureIntervalSeconds(seconds);
+    await saveCaptureIntervalSeconds(seconds);
+  };
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -106,6 +150,40 @@ export function DriverDashboard() {
         <TextInput style={styles.input} value={driverId} onChangeText={setDriverId} />
       </View>
 
+      <View style={styles.card}>
+        <Text style={styles.section}>Frecuencia de registro</Text>
+        <Text style={styles.meta}>
+          Seleccionado: {CAPTURE_INTERVAL_LABELS[captureIntervalSeconds]}
+        </Text>
+        {!intervalReady && <Text style={styles.meta}>Cargando preferencia…</Text>}
+        <View style={styles.intervalRow}>
+          {TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS.map((seconds) => {
+            const selected = seconds === captureIntervalSeconds;
+            return (
+              <Pressable
+                key={seconds}
+                disabled={tracking || busy}
+                onPress={() => {
+                  void handleCaptureIntervalChange(seconds);
+                }}
+                style={[
+                  styles.intervalChip,
+                  selected && styles.intervalChipSelected,
+                  (tracking || busy) && styles.intervalChipDisabled,
+                ]}
+              >
+                <Text style={[styles.intervalChipText, selected && styles.intervalChipTextSelected]}>
+                  {CAPTURE_INTERVAL_LABELS[seconds]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {tracking && (
+          <Text style={styles.warn}>Detén el tracking para cambiar la frecuencia de registro.</Text>
+        )}
+      </View>
+
       <View style={styles.row}>
         <Badge label={`Red: ${networkStatus}`} tone={isOnline ? "ok" : "warn"} />
         <Badge label={`Pendientes: ${pendingCount}`} tone={pendingCount > 0 ? "warn" : "ok"} />
@@ -121,7 +199,7 @@ export function DriverDashboard() {
         {!tracking ? (
           <Button title="Iniciar tracking" onPress={() => run(startTracking)} disabled={busy} />
         ) : (
-          <Button title="Detener tracking" onPress={() => run(async () => stopTracking())} variant="danger" disabled={busy} />
+          <Button title="Detener tracking" onPress={() => run(async () => { await stopTracking(); })} variant="danger" disabled={busy} />
         )}
         <Button title="Capturar ahora" onPress={() => run(captureOnce)} disabled={busy} />
         <Button
@@ -206,6 +284,19 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: "600", color: "#334155" },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8, backgroundColor: "#fff" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  intervalRow: { gap: 8 },
+  intervalChip: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#f8fafc",
+  },
+  intervalChipSelected: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
+  intervalChipDisabled: { opacity: 0.5 },
+  intervalChipText: { fontSize: 13, fontWeight: "600", color: "#334155" },
+  intervalChipTextSelected: { color: "#1d4ed8" },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgeText: { fontSize: 12, fontWeight: "600" },
   actions: { gap: 10 },
