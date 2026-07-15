@@ -77,7 +77,7 @@ URLs: API `http://localhost:5000` · Dashboard `http://localhost:3000`.
 | Agente IA | `POST /api/ai/query` + pulido OpenAI opcional | Cumple |
 | SPA reactiva | Dashboard Next.js 15 | Cumple |
 | WebSockets/SSE | KafkaPush predeterminado; Polling alternativo; replay acotado, Last-Event-ID, stream-reset, resync por snapshot; multi-réplica según limitaciones documentadas | Cumple |
-| Mobile offline-first | Expo 52 + cola local | Cumple |
+| Mobile offline-first | Expo 54 + cola local | Cumple |
 | SQLite | `expo-sqlite` en mobile | Cumple |
 | Batch sync | `POST /api/telemetry/batch` | Cumple |
 | Pruebas Web/Mobile | CI ejecuta Vitest (`npm run test:ci --prefix web`) y Jest (`npm run test:ci` en mobile) con cobertura | Cumple |

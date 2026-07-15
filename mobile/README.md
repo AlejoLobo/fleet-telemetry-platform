@@ -4,7 +4,7 @@ App React Native Expo para conductores con cola offline-first y sincronización 
 
 ## Stack
 
-- Expo 52 + React Native
+- Expo 54 + React Native
 - SQLite (`expo-sqlite`) para cola local
 - `expo-secure-store` para JWT (nunca en SQLite ni variables públicas)
 - NetInfo para detectar conectividad
