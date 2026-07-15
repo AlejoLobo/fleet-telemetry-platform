@@ -4,7 +4,13 @@ import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/teleme
 
 /** Versión lógica del esquema (schema_meta + PRAGMA user_version). */
 export const SCHEMA_VERSION = 5;
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/** Promesa de base ya abierta y migrada (una sola inicialización por proceso). */
+let readyDbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/** Contadores de inicialización; solo para aserciones en pruebas. */
+let initOpenCountForTests = 0;
+let initMigrateCountForTests = 0;
 
 export class SchemaMigrationError extends Error {
   constructor(message: string) {
@@ -15,7 +21,20 @@ export class SchemaMigrationError extends Error {
 
 /** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
 export function resetOfflineQueueForTests(): void {
-  dbPromise = null;
+  readyDbPromise = null;
+  initOpenCountForTests = 0;
+  initMigrateCountForTests = 0;
+}
+
+/** Estadísticas de apertura/migración; solo para pruebas automatizadas. */
+export function getOfflineQueueInitStatsForTests(): {
+  openCount: number;
+  migrateCount: number;
+} {
+  return {
+    openCount: initOpenCountForTests,
+    migrateCount: initMigrateCountForTests,
+  };
 }
 
 async function readColumnNames(db: SQLite.SQLiteDatabase): Promise<Set<string>> {
@@ -133,11 +152,25 @@ async function migrateSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   void currentVersion;
 }
 
+/**
+ * Abre la base y migra el esquema una sola vez.
+ * Llamadas concurrentes comparten la misma promesa; un fallo limpia el caché para reintentar.
+ */
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) dbPromise = SQLite.openDatabaseAsync("fleet_offline.db");
-  const db = await dbPromise;
-  await migrateSchema(db);
-  return db;
+  if (!readyDbPromise) {
+    readyDbPromise = (async () => {
+      initOpenCountForTests += 1;
+      const db = await SQLite.openDatabaseAsync("fleet_offline.db");
+      initMigrateCountForTests += 1;
+      await migrateSchema(db);
+      return db;
+    })().catch((error) => {
+      readyDbPromise = null;
+      throw error;
+    });
+  }
+
+  return readyDbPromise;
 }
 
 export type DeviceIdentityConflict = {
