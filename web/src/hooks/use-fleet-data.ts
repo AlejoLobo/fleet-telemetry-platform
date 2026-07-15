@@ -15,7 +15,7 @@ import {
 } from "@/lib/analytics";
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
-import { getApiBaseUrl } from "@/lib/utils";
+import { resolveFleetFetchError } from "@/lib/fleet-fetch-error";
 import {
   ResyncFailedError,
   ResyncSupersededError,
@@ -37,6 +37,7 @@ type FleetDataState = {
   telemetryPartial: boolean;
   telemetryTruncated: boolean;
   dataSource: FleetDataSource;
+  lastSuccessfulFleetAt: string | null;
 };
 
 const emptyGlobal: GlobalAnalytics = {
@@ -62,6 +63,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryPartial: false,
     telemetryTruncated: false,
     dataSource: "api",
+    lastSuccessfulFleetAt: null,
   });
 
   const dataSourceRef = useRef<FleetDataSource>("api");
@@ -73,11 +75,14 @@ export function useFleetData(selectedVehicleId: string | null) {
   const isCurrentGeneration = (generation: number) =>
     generation === snapshotGenerationRef.current;
 
-  const loadFleetAndAlerts = useCallback(async (generation: number): Promise<boolean> => {
+  const loadFleetAndAlerts = useCallback(async (
+    generation: number,
+    options?: { silent?: boolean },
+  ): Promise<boolean> => {
     setState((prev) => ({
       ...prev,
-      fleetLoading: true,
-      fleetError: null,
+      fleetLoading: options?.silent ? prev.fleetLoading : true,
+      fleetError: options?.silent ? prev.fleetError : null,
       fleetPartial: false,
       fleetTruncated: false,
     }));
@@ -137,17 +142,28 @@ export function useFleetData(selectedVehicleId: string | null) {
             ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
             : null),
         dataSource: "api",
+        lastSuccessfulFleetAt: new Date().toISOString(),
       }));
       dataSourceRef.current = "api";
       return true;
-    } catch {
+    } catch (error) {
       if (!isCurrentGeneration(generation)) return false;
-      setState((prev) => ({
-        ...prev,
-        fleetLoading: false,
-        fleetError: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
-        dataSource: "api",
-      }));
+      const message = resolveFleetFetchError(error);
+      setState((prev) => {
+        if (options?.silent && prev.vehicles.length > 0) {
+          return {
+            ...prev,
+            fleetLoading: false,
+            fleetError: message,
+          };
+        }
+        return {
+          ...prev,
+          fleetLoading: false,
+          fleetError: message,
+          dataSource: "api",
+        };
+      });
       return true;
     }
   }, []);
@@ -276,6 +292,7 @@ export function useFleetData(selectedVehicleId: string | null) {
       telemetryPartial: false,
       telemetryTruncated: false,
       dataSource: "demo",
+      lastSuccessfulFleetAt: new Date().toISOString(),
     });
     dataSourceRef.current = "demo";
   }, [selectedVehicleId]);
@@ -394,6 +411,7 @@ export function useFleetData(selectedVehicleId: string | null) {
         : null,
       telemetryError: null,
       dataSource: "api",
+      lastSuccessfulFleetAt: new Date().toISOString(),
     }));
     dataSourceRef.current = "api";
 
@@ -465,6 +483,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryPartial: state.telemetryPartial,
     telemetryTruncated: state.telemetryTruncated,
     dataSource: state.dataSource,
+    lastSuccessfulFleetAt: state.lastSuccessfulFleetAt,
     refresh,
     refreshForResync,
     loadFromApi,

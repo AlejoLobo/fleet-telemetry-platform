@@ -73,14 +73,29 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let detail = `Error ${response.status} en ${path}`;
+    let retryAfterSeconds: number | undefined;
+    const retryHeader = response.headers.get("Retry-After");
+    if (retryHeader) {
+      const parsed = Number(retryHeader);
+      if (Number.isFinite(parsed) && parsed > 0) retryAfterSeconds = parsed;
+    }
     try {
-      const body = (await response.json()) as { detail?: string; title?: string };
-      if (body.detail) detail = body.detail;
+      const body = (await response.json()) as {
+        detail?: string;
+        title?: string;
+        error?: string;
+        retryAfterSeconds?: number;
+      };
+      if (body.error) detail = body.error;
+      else if (body.detail) detail = body.detail;
       else if (body.title) detail = body.title;
+      if (body.retryAfterSeconds != null && body.retryAfterSeconds > 0) {
+        retryAfterSeconds = body.retryAfterSeconds;
+      }
     } catch {
       // respuesta no JSON
     }
-    throw new ApiError(detail, response.status);
+    throw new ApiError(detail, response.status, retryAfterSeconds);
   }
 
   return response.json() as Promise<T>;

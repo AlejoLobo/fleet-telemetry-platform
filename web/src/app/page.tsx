@@ -6,6 +6,7 @@ import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
+import { applyLocalConnectivity } from "@/lib/local-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
 
@@ -21,6 +22,8 @@ import { AlertsModal } from "@/components/alerts/alerts-modal";
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 
+const CONNECTIVITY_TICK_MS = 5_000;
+
 export default function DashboardPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("VH-001");
   const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
@@ -34,6 +37,7 @@ export default function DashboardPage() {
   const [alertsAttention, setAlertsAttention] = useState(false);
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
+  const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
 
   const refreshAuthState = async () => {
     try {
@@ -49,6 +53,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void refreshAuthState();
+  }, []);
+
+  // Solo reloj local de frescura; no dispara REST.
+  useEffect(() => {
+    setConnectivityNowMs(Date.now());
+    const timer = window.setInterval(
+      () => setConnectivityNowMs(Date.now()),
+      CONNECTIVITY_TICK_MS,
+    );
+    return () => window.clearInterval(timer);
   }, []);
 
   const {
@@ -123,10 +137,13 @@ export default function DashboardPage() {
   }, [vehicles]);
 
   const displayVehicles = useMemo(() => {
-    if (dataSource === "demo") return vehicles;
-    if (liveVehiclePatches.length === 0) return vehicles;
-    return mergeVehicleUpdates(vehicles, liveVehiclePatches);
-  }, [dataSource, liveVehiclePatches, vehicles]);
+    const merged =
+      dataSource === "demo" || liveVehiclePatches.length === 0
+        ? vehicles
+        : mergeVehicleUpdates(vehicles, liveVehiclePatches);
+    if (dataSource === "demo") return merged;
+    return applyLocalConnectivity(merged, connectivityNowMs);
+  }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
 
   const displayAlerts = useMemo(() => {
     if (dataSource === "demo") return alerts;
