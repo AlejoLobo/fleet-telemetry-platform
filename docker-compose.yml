@@ -92,6 +92,11 @@ services:
       Kafka__BootstrapServers: redpanda:9092
       TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
+      RateLimiting__Enabled: ${RateLimiting__Enabled:-false}
+      RateLimiting__PermitLimit: ${RateLimiting__PermitLimit:-600}
+      RateLimiting__WindowSeconds: ${RateLimiting__WindowSeconds:-60}
+      RateLimiting__TelemetryPermitLimit: ${RateLimiting__TelemetryPermitLimit:-120}
+      RateLimiting__TelemetryWindowSeconds: ${RateLimiting__TelemetryWindowSeconds:-60}
     depends_on:
       redpanda:
         condition: service_healthy
