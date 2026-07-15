@@ -3,19 +3,34 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { ResyncFailedError, ResyncSupersededError } from "@/lib/sse-resync";
+import { ApiError } from "@/lib/api-client";
 
 const fetchFleetLive = vi.fn();
 const fetchAlertsLive = vi.fn();
 const fetchOpsSummary = vi.fn();
 const fetchTelemetrySnapshot = vi.fn();
 
-vi.mock("@/lib/api-client", () => ({
-  apiClient: {
-    fetchFleetLive: (...args: unknown[]) => fetchFleetLive(...args),
-    fetchAlertsLive: (...args: unknown[]) => fetchAlertsLive(...args),
-    fetchOpsSummary: (...args: unknown[]) => fetchOpsSummary(...args),
-  },
-}));
+vi.mock("@/lib/api-client", () => {
+  class ApiError extends Error {
+    readonly status: number;
+    readonly retryAfterSeconds?: number;
+    constructor(message: string, status: number, retryAfterSeconds?: number) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.retryAfterSeconds = retryAfterSeconds;
+    }
+  }
+
+  return {
+    ApiError,
+    apiClient: {
+      fetchFleetLive: (...args: unknown[]) => fetchFleetLive(...args),
+      fetchAlertsLive: (...args: unknown[]) => fetchAlertsLive(...args),
+      fetchOpsSummary: (...args: unknown[]) => fetchOpsSummary(...args),
+    },
+  };
+});
 
 vi.mock("@/lib/fleet-pagination", () => ({
   fetchTelemetrySnapshot: (...args: unknown[]) => fetchTelemetrySnapshot(...args),
@@ -443,5 +458,16 @@ describe("useFleetData refreshForResync", () => {
 
     expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
     expect(result.current.telemetry).toHaveLength(0);
+  });
+
+  it("carga_inicial_con_ApiError_429_muestra_mensaje_especifico", async () => {
+    fetchFleetLive.mockRejectedValue(new ApiError("Demasiadas solicitudes", 429, 60));
+    fetchAlertsLive.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    expect(result.current.fleetError).toContain("limitó temporalmente");
+    expect(result.current.fleetError).not.toContain("No se pudo conectar");
   });
 });
