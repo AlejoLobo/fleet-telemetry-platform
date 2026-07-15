@@ -105,6 +105,11 @@ export function DriverDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!deviceIdReady || !deviceId) return;
+    void auth.validateSessionForLocalDevice(deviceId);
+  }, [deviceIdReady, deviceId, auth.validateSessionForLocalDevice]);
+
   // Registro remoto cuando hay red y sync permitido; el backend asigna VH-###.
   useEffect(() => {
     if (!deviceId || identityError || !canSync || !isOnline) return;
@@ -183,7 +188,7 @@ export function DriverDashboard() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Fleet Telemetry — Conductor</Text>
       <Text style={styles.subtitle}>Cola offline-first con SQLite y sync batch</Text>
-      <Text style={styles.meta}>Captura fija cada 5 segundos (SQLite → sync).</Text>
+      <Text style={styles.meta}>Captura automática cada 5 segundos.</Text>
 
       <View style={styles.card}>
         <Text style={styles.section}>Autenticación</Text>
@@ -191,10 +196,11 @@ export function DriverDashboard() {
         {auth.statusMessage && <Text style={styles.meta}>{auth.statusMessage}</Text>}
         {syncPausedByAuth && <Text style={styles.warn}>Sincronización pausada por autenticación</Text>}
 
-        {auth.status === "auth_required" || auth.status === "session_expired" || auth.status === "forbidden" ? (
+        {auth.enabled && !canSync && auth.status !== "checking" && auth.status !== "status_error" ? (
           <>
             <Text style={styles.hint}>
-              Enrolamiento: emite un token ligado a este DeviceId (no usa el token de operador).
+              {auth.statusMessage
+                ?? "Enrolamiento: emite un token ligado a este DeviceId (no usa el token de operador)."}
             </Text>
             <Text style={styles.label}>Usuario</Text>
             <TextInput style={styles.input} value={username} onChangeText={setUsername} autoCapitalize="none" />

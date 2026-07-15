@@ -176,7 +176,7 @@ describe("useDriverTelemetry captura fija 5s y single-flight", () => {
     expect(source).not.toMatch(/captureIntervalSeconds/);
     expect(source).not.toMatch(/handleCaptureIntervalChange/);
     expect(source).not.toMatch(/capture-interval-store/);
-    expect(source).toMatch(/Captura fija cada 5 segundos/);
+    expect(source).toMatch(/Captura automática cada 5 segundos/);
   });
 
   it("después de capturar guarda primero en SQLite y luego sync", async () => {
