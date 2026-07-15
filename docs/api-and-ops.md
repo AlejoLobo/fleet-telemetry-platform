@@ -19,7 +19,8 @@
 | `GET` | `/api/alerts` | No | Alertas abiertas |
 | `PATCH` | `/api/alerts/{id}/acknowledge` | Si Auth on | Confirmar alerta |
 | `GET` | `/api/events/stream` | No | SSE |
-| `POST` | `/api/auth/login` | — | JWT (si Auth habilitado) |
+| `POST` | `/api/auth/login` | — | JWT operador (o admin con `device:manage` si hay `Auth:Admin*`) |
+| `POST` | `/api/auth/device-token` | — | Enrolamiento MVP: JWT `device` + `telemetry:write` + `device_id` |
 | `GET` | `/api/auth/status` | No | `{ enabled }` |
 | `POST` | `/api/ai/query` | No | Agente IA |
 
@@ -57,7 +58,12 @@ curl http://localhost:5000/api/ops/summary
 
 - Default: `Auth__Enabled=false` (demo abierta).
 - Con Auth: `JwtSecret` ≥ 32 caracteres y `DemoPassword` no vacío (`ConfigurationValidator`).
-- Login: `POST /api/auth/login` con usuario/password demo.
+- Login operador: `POST /api/auth/login` → JWT con `fleet:read`, `alert:acknowledge`, `ai:query`, `operations:read` (**sin** `telemetry:write`).
+- Login admin (opcional): configurar `Auth:AdminUsername` / `Auth:AdminPassword` → operador + `device:manage` (renombrar; **no** publica telemetría).
+- Enrolamiento de dispositivo (MVP): `POST /api/auth/device-token` con `{ deviceId, username, password }` → JWT `role=device`, `permission=telemetry:write`, claim `device_id`.
+  - Autorización explícita MVP: solo cuentas demo/admin configuradas.
+  - En producción debería reemplazarse por attestation, mTLS o enrollment firmado.
+- Ingesta/register exigen token de dispositivo con `device_id` coincidente (o bypass `device:manage` solo en rename).
 
 ## Ejemplos
 
