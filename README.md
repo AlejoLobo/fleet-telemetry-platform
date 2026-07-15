@@ -435,7 +435,7 @@ Detalle Worker/DLQ: [`docs/worker-and-dlq.md`](docs/worker-and-dlq.md).
 ## Seguridad y resiliencia
 
 - JWT opcional (`Auth__Enabled`) con políticas de autorización
-- CORS y rate limiting configurables
+- CORS configurable; rate limiting **desactivado por defecto** (`RateLimiting__Enabled=false`) para que el monitor pueda refrescar cada 3–15 s sin 429
 - Circuit breakers (Polly) en Kafka, DB y OpenAI
 - Health checks (`/health/live`, `/health/ready`, circuit breakers)
 - En AWS **dev**: Secrets Manager, IAM role, SSM; **sin** SSH público

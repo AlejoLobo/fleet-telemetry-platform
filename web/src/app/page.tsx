@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useFleetData } from "@/hooks/use-fleet-data";
@@ -47,6 +47,7 @@ export default function DashboardPage() {
   const [liveRefreshSeconds, setLiveRefreshSeconds] = useState<LiveRefreshIntervalSeconds>(
     DEFAULT_LIVE_REFRESH_INTERVAL_SECONDS,
   );
+  const silentRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
     setLiveRefreshSeconds(readLiveRefreshIntervalSeconds());
@@ -56,16 +57,6 @@ export default function DashboardPage() {
     setLiveRefreshSeconds(seconds);
     writeLiveRefreshIntervalSeconds(seconds);
   }, []);
-
-  // Recalcula frescura online/offline al ritmo elegido. Datos vivos: SSE (no REST de fondo).
-  useEffect(() => {
-    setConnectivityNowMs(Date.now());
-    const timer = window.setInterval(
-      () => setConnectivityNowMs(Date.now()),
-      liveRefreshSeconds * 1000,
-    );
-    return () => window.clearInterval(timer);
-  }, [liveRefreshSeconds]);
 
   const refreshAuthState = async () => {
     try {
@@ -154,6 +145,37 @@ export default function DashboardPage() {
     setAfterLiveRefresh(true);
     await refresh({ liveOnly: true });
   }, [dataSource, loadDemoData, refresh, resetLiveViewState]);
+
+  // Refresco del monitor al intervalo elegido (3/5/10/15s): frescura + captura API/demo.
+  useEffect(() => {
+    if (dataSource !== "api" && dataSource !== "demo") return;
+
+    const tick = async () => {
+      setConnectivityNowMs(Date.now());
+      if (silentRefreshInFlightRef.current) return;
+      silentRefreshInFlightRef.current = true;
+      try {
+        if (dataSource === "api") {
+          await refresh({
+            silent: true,
+            liveOnly: afterLiveRefresh,
+          });
+        } else {
+          await refresh({ silent: true });
+        }
+      } catch {
+        // El error queda en el estado del hook; no interrumpe el ciclo.
+      } finally {
+        silentRefreshInFlightRef.current = false;
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void tick();
+    }, liveRefreshSeconds * 1000);
+
+    return () => window.clearInterval(timer);
+  }, [dataSource, liveRefreshSeconds, refresh, afterLiveRefresh]);
 
   useEffect(() => {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
