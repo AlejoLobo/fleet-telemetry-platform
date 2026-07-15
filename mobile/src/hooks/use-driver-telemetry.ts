@@ -11,6 +11,11 @@ import { generateEventId } from "@/utils/id";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { LocationReading, SyncResult } from "@/types/telemetry";
 
+type CaptureOptions = {
+  /** Si true, espera el resultado de sync (botón manual). Por defecto false. */
+  awaitSync?: boolean;
+};
+
 export function useDriverTelemetry(
   deviceId: string,
   driverId: string,
@@ -20,8 +25,6 @@ export function useDriverTelemetry(
   const trackingRef = useRef(false);
   const previousReadyToSyncRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const syncPromiseRef = useRef<Promise<SyncResult> | null>(null);
-  const syncRequestedRef = useRef(false);
   const isOnlineRef = useRef(isOnline);
   const canSyncRef = useRef(canSync);
   const deviceIdRef = useRef(deviceId);
@@ -50,55 +53,84 @@ export function useDriverTelemetry(
     setState((p) => ({ ...p, pendingCount }));
   }, []);
 
-  /** Single-flight: una sola sync activa; reentra si hubo solicitudes durante la ejecución. */
-  const requestSync = useCallback(async (): Promise<SyncResult | null> => {
-    if (syncPromiseRef.current) {
-      syncRequestedRef.current = true;
-      return syncPromiseRef.current;
-    }
+  const applySyncError = useCallback((error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : "Error de sincronización";
+    setState((previous) => ({ ...previous, error: message }));
+  }, []);
 
-    const run = async (): Promise<SyncResult> => {
-      let lastResult: SyncResult = {
+  /**
+   * Solicita sync al coordinador (única autoridad de exclusión).
+   * El hook solo actualiza estado visual; no duplica mutex.
+   */
+  const requestSync = useCallback(async (): Promise<SyncResult> => {
+    try {
+      const result = await syncPendingQueue(
+        isOnlineRef.current,
+        deviceIdRef.current,
+      );
+      await refreshPendingCount();
+
+      let errorMessage: string | null = null;
+      switch (result.status) {
+        case "failed":
+          errorMessage = "Error de sincronización";
+          break;
+        case "deferred":
+          errorMessage = "Sincronización diferida";
+          break;
+        case "auth_required":
+          errorMessage = "Login requerido";
+          break;
+        case "forbidden":
+          errorMessage = "Permiso insuficiente";
+          break;
+        case "auth_status_error":
+          errorMessage = "Error consultando auth status";
+          break;
+        case "configuration_error":
+          errorMessage = "Configuración de dispositivo inválida";
+          break;
+        case "device_identity_conflict":
+          errorMessage = "Conflicto de identidad de dispositivo";
+          break;
+        default:
+          errorMessage = null;
+      }
+
+      setState((p) => ({
+        ...p,
+        lastSync: result,
+        error: errorMessage,
+      }));
+      return result;
+    } catch (error) {
+      const remaining = await countPendingEvents();
+      const failedResult: SyncResult = {
         synced: 0,
         failed: 0,
         retried: 0,
         permanentFailures: 0,
-        remaining: 0,
-        status: "completed",
+        remaining,
+        status: "failed",
       };
-
-      do {
-        syncRequestedRef.current = false;
-        try {
-          lastResult = await syncPendingQueue(
-            isOnlineRef.current,
-            deviceIdRef.current,
-          );
-          await refreshPendingCount();
-          setState((p) => ({ ...p, lastSync: lastResult, error: null }));
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Error de sincronización";
-          setState((p) => ({ ...p, error: message }));
-          await refreshPendingCount();
-        }
-      } while (syncRequestedRef.current);
-
-      return lastResult;
-    };
-
-    const promise = run().finally(() => {
-      syncPromiseRef.current = null;
-      // Solicitud entre el fin del ciclo y el clear: otra pasada sin solapar.
-      if (syncRequestedRef.current) {
-        void requestSync();
-      }
-    });
-    syncPromiseRef.current = promise;
-    return promise;
+      const message =
+        error instanceof Error ? error.message : "Error de sincronización";
+      setState((p) => ({
+        ...p,
+        lastSync: failedResult,
+        pendingCount: remaining,
+        error: message,
+      }));
+      return failedResult;
+    }
   }, [refreshPendingCount]);
 
-  const captureEvent = useCallback(async (reading: LocationReading) => {
+  const captureEvent = useCallback(async (
+    reading: LocationReading,
+    options: CaptureOptions = {},
+  ) => {
+    const awaitSync = options.awaitSync === true;
     const resolvedDeviceId = deviceIdRef.current.trim();
     if (!resolvedDeviceId) {
       setState((p) => ({ ...p, error: "deviceId no disponible" }));
@@ -119,28 +151,28 @@ export function useDriverTelemetry(
     };
     await enqueueEvent(event, reading.source);
     await refreshPendingCount();
-    setState((p) => ({ ...p, lastReading: reading, lastCapturedAt: event.timestamp, error: null }));
+    setState((p) => ({
+      ...p,
+      lastReading: reading,
+      lastCapturedAt: event.timestamp,
+      error: null,
+    }));
 
     if (isOnlineRef.current && canSyncRef.current) {
-      await requestSync().catch((error) => {
-        setState((previous) => ({
-          ...previous,
-          error: error instanceof Error ? error.message : "Error de sincronización",
-        }));
+      const syncPromise = requestSync().catch((error) => {
+        applySyncError(error);
+        return null;
       });
+      if (awaitSync) {
+        await syncPromise;
+      } else {
+        void syncPromise;
+      }
     }
-  }, [driverId, refreshPendingCount, requestSync]);
+  }, [applySyncError, driverId, refreshPendingCount, requestSync]);
 
   const syncNow = useCallback(async () => {
-    const result = await requestSync();
-    return result ?? {
-      synced: 0,
-      failed: 0,
-      retried: 0,
-      permanentFailures: 0,
-      remaining: await countPendingEvents(),
-      status: "completed" as const,
-    };
+    return requestSync();
   }, [requestSync]);
 
   const startSyncTimer = useCallback((): void => {
@@ -153,21 +185,9 @@ export function useDriverTelemetry(
     syncTimerRef.current = setInterval(() => {
       if (!trackingRef.current) return;
       if (!isOnlineRef.current || !canSyncRef.current) return;
-      if (syncPromiseRef.current) {
-        syncRequestedRef.current = true;
-        return;
-      }
-
-      void requestSync().catch((error) => {
-        setState((previous) => ({
-          ...previous,
-          error: error instanceof Error
-            ? error.message
-            : "Error de sincronización",
-        }));
-      });
+      void requestSync().catch(applySyncError);
     }, TELEMETRY_SYNC_INTERVAL_MILLISECONDS);
-  }, [clearSyncTimer, requestSync]);
+  }, [applySyncError, clearSyncTimer, requestSync]);
 
   const stopTracking = useCallback(async () => {
     clearSyncTimer();
@@ -185,9 +205,10 @@ export function useDriverTelemetry(
 
     startSyncTimer();
 
+    // Captura periódica: nunca espera a que termine la sync.
     runCaptureLoop(
       async (reading) => {
-        await captureEvent(reading);
+        await captureEvent(reading, { awaitSync: false });
       },
       TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
       () => trackingRef.current,
@@ -203,7 +224,12 @@ export function useDriverTelemetry(
   }, [captureEvent, clearSyncTimer, startSyncTimer]);
 
   const captureOnce = useCallback(async () => {
-    await captureEvent(await getCurrentReading());
+    await captureEvent(await getCurrentReading(), { awaitSync: true });
+  }, [captureEvent]);
+
+  /** Captura para pruebas/loop: encola y dispara sync sin bloquear. */
+  const captureAndQueue = useCallback(async () => {
+    await captureEvent(await getCurrentReading(), { awaitSync: false });
   }, [captureEvent]);
 
   useEffect(() => {
@@ -243,6 +269,7 @@ export function useDriverTelemetry(
     startTracking,
     stopTracking,
     captureOnce,
+    captureAndQueue,
     syncNow,
     refreshPendingCount,
   };

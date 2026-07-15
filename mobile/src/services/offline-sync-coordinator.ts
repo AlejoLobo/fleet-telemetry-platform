@@ -22,7 +22,10 @@ import {
 import type { QueuedTelemetryEvent, SyncResult, SyncStatus } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
+/** Autoridad global de exclusión: una sola sync remota a la vez. */
 let syncInFlight: Promise<SyncResult> | null = null;
+let syncInFlightDeviceId: string | null = null;
+let syncRequestedWhileInFlight = false;
 
 type SyncAccumulator = {
   synced: number;
@@ -105,9 +108,34 @@ export async function syncPendingQueue(
     };
   }
 
-  if (syncInFlight) return syncInFlight;
-  syncInFlight = runSync(normalizedDeviceId, batchSize).finally(() => {
+  // Misma DeviceId: compartir promesa y marcar trabajo pendiente.
+  if (syncInFlight) {
+    if (syncInFlightDeviceId === normalizedDeviceId) {
+      syncRequestedWhileInFlight = true;
+      return syncInFlight;
+    }
+    // DeviceId distinto: esperar a que termine la sync ajena antes de continuar.
+    try {
+      await syncInFlight;
+    } catch {
+      // Liberar mutex aunque la pasada anterior falle.
+    }
+  }
+
+  const runWithReentry = async (): Promise<SyncResult> => {
+    let last = await runSync(normalizedDeviceId, batchSize);
+    while (syncRequestedWhileInFlight) {
+      syncRequestedWhileInFlight = false;
+      last = await runSync(normalizedDeviceId, batchSize);
+    }
+    return last;
+  };
+
+  syncInFlightDeviceId = normalizedDeviceId;
+  syncRequestedWhileInFlight = false;
+  syncInFlight = runWithReentry().finally(() => {
     syncInFlight = null;
+    syncInFlightDeviceId = null;
   });
   return syncInFlight;
 }
@@ -115,6 +143,8 @@ export async function syncPendingQueue(
 /** Libera el mutex de sincronización; solo para pruebas automatizadas. */
 export function resetSyncCoordinatorForTests(): void {
   syncInFlight = null;
+  syncInFlightDeviceId = null;
+  syncRequestedWhileInFlight = false;
 }
 
 async function runSync(deviceId: string, batchSize: number): Promise<SyncResult> {
