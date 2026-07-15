@@ -1,14 +1,20 @@
 import { registerDevice, renameDevice, type DeviceProfile } from "@/services/device-api";
 import {
   loadCachedVehicleName,
-  loadRegisteredDeviceId,
   markDeviceRegistered,
   saveCachedVehicleName,
 } from "@/services/device-profile-store";
+import { TelemetryApiError } from "@/services/telemetry-api";
+
+type InflightEntry = {
+  promise: Promise<DeviceProfile>;
+};
+
+const registerInflight = new Map<string, InflightEntry>();
 
 /**
- * Garantiza registro remoto antes de sync. El backend es idempotente y asigna VH-###.
- * Mobile nunca genera VH-### localmente.
+ * Confirma registro remoto antes de sync (endpoint idempotente).
+ * La caché SecureStore solo aporta el nombre offline; no demuestra registro servidor.
  */
 export async function ensureDeviceRegistered(deviceId: string): Promise<DeviceProfile> {
   const id = deviceId.trim();
@@ -16,15 +22,24 @@ export async function ensureDeviceRegistered(deviceId: string): Promise<DevicePr
     throw new Error("deviceId vacío");
   }
 
-  const registeredId = await loadRegisteredDeviceId();
-  const cachedName = await loadCachedVehicleName();
-  if (registeredId === id && cachedName) {
-    return { deviceId: id, vehicleName: cachedName };
+  const existing = registerInflight.get(id);
+  if (existing) {
+    return existing.promise;
   }
 
-  const profile = await registerDevice(id);
-  await markDeviceRegistered(profile.deviceId, profile.vehicleName);
-  return profile;
+  const promise = (async () => {
+    const profile = await registerDevice(id);
+    await markDeviceRegistered(profile.deviceId, profile.vehicleName);
+    await saveCachedVehicleName(profile.vehicleName);
+    return profile;
+  })();
+
+  registerInflight.set(id, { promise });
+  try {
+    return await promise;
+  } finally {
+    registerInflight.delete(id);
+  }
 }
 
 /** Actualiza el nombre visible; DeviceId permanece inmutable. */
@@ -32,9 +47,39 @@ export async function updateVehicleDisplayName(
   deviceId: string,
   vehicleName: string,
 ): Promise<DeviceProfile> {
-  await ensureDeviceRegistered(deviceId);
-  const profile = await renameDevice(deviceId, vehicleName);
-  await markDeviceRegistered(profile.deviceId, profile.vehicleName);
-  await saveCachedVehicleName(profile.vehicleName);
-  return profile;
+  const id = deviceId.trim();
+  const previousName = await loadCachedVehicleName();
+
+  try {
+    const profile = await renameDevice(id, vehicleName);
+    await markDeviceRegistered(profile.deviceId, profile.vehicleName);
+    await saveCachedVehicleName(profile.vehicleName);
+    return profile;
+  } catch (error) {
+    if (error instanceof TelemetryApiError && error.status === 404) {
+      await ensureDeviceRegistered(id);
+      try {
+        const profile = await renameDevice(id, vehicleName);
+        await markDeviceRegistered(profile.deviceId, profile.vehicleName);
+        await saveCachedVehicleName(profile.vehicleName);
+        return profile;
+      } catch (retryError) {
+        if (previousName) await saveCachedVehicleName(previousName);
+        throw retryError;
+      }
+    }
+
+    if (error instanceof TelemetryApiError && error.status === 409) {
+      // Conserva el nombre local anterior ante conflicto.
+      if (previousName) await saveCachedVehicleName(previousName);
+      throw error;
+    }
+
+    throw error;
+  }
+}
+
+/** Solo pruebas: limpia promesas en vuelo. */
+export function resetDeviceRegistryForTests(): void {
+  registerInflight.clear();
 }

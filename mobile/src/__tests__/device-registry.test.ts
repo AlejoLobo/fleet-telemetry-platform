@@ -1,7 +1,6 @@
 const mockRegisterDevice = jest.fn();
 const mockRenameDevice = jest.fn();
 const mockLoadCachedVehicleName = jest.fn();
-const mockLoadRegisteredDeviceId = jest.fn();
 const mockMarkDeviceRegistered = jest.fn();
 const mockSaveCachedVehicleName = jest.fn();
 
@@ -12,19 +11,24 @@ jest.mock("@/services/device-api", () => ({
 
 jest.mock("@/services/device-profile-store", () => ({
   loadCachedVehicleName: () => mockLoadCachedVehicleName(),
-  loadRegisteredDeviceId: () => mockLoadRegisteredDeviceId(),
+  loadRegisteredDeviceId: jest.fn(),
   markDeviceRegistered: (...args: unknown[]) => mockMarkDeviceRegistered(...args),
   saveCachedVehicleName: (...args: unknown[]) => mockSaveCachedVehicleName(...args),
 }));
 
-import { ensureDeviceRegistered, updateVehicleDisplayName } from "@/services/device-registry";
+import { TelemetryApiError } from "@/services/telemetry-api";
+import {
+  ensureDeviceRegistered,
+  resetDeviceRegistryForTests,
+  updateVehicleDisplayName,
+} from "@/services/device-registry";
 
-const DEVICE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+const DEVICE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
 describe("device-registry", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockLoadRegisteredDeviceId.mockResolvedValue(null);
+    resetDeviceRegistryForTests();
     mockLoadCachedVehicleName.mockResolvedValue(null);
     mockRegisterDevice.mockResolvedValue({ deviceId: DEVICE_ID, vehicleName: "VH-007" });
     mockRenameDevice.mockResolvedValue({ deviceId: DEVICE_ID, vehicleName: "Unidad Sur" });
@@ -32,35 +36,65 @@ describe("device-registry", () => {
     mockSaveCachedVehicleName.mockResolvedValue(undefined);
   });
 
-  it("registra en backend cuando no hay cache local", async () => {
+  it("caché existente y servidor disponible: confirma registro", async () => {
+    mockLoadCachedVehicleName.mockResolvedValue("VH-OLD");
     const profile = await ensureDeviceRegistered(DEVICE_ID);
     expect(mockRegisterDevice).toHaveBeenCalledWith(DEVICE_ID);
-    expect(mockMarkDeviceRegistered).toHaveBeenCalledWith(DEVICE_ID, "VH-007");
     expect(profile.vehicleName).toBe("VH-007");
+    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("VH-007");
   });
 
-  it("omite registro remoto si ya está cacheado para el mismo DeviceId", async () => {
-    mockLoadRegisteredDeviceId.mockResolvedValue(DEVICE_ID);
-    mockLoadCachedVehicleName.mockResolvedValue("VH-007");
-    const profile = await ensureDeviceRegistered(DEVICE_ID);
-    expect(mockRegisterDevice).not.toHaveBeenCalled();
-    expect(profile).toEqual({ deviceId: DEVICE_ID, vehicleName: "VH-007" });
-  });
-
-  it("vuelve a registrar si el DeviceId cacheado no coincide", async () => {
-    mockLoadRegisteredDeviceId.mockResolvedValue("other-id");
-    mockLoadCachedVehicleName.mockResolvedValue("VH-001");
+  it("backend reiniciado: vuelve a registrar", async () => {
     await ensureDeviceRegistered(DEVICE_ID);
-    expect(mockRegisterDevice).toHaveBeenCalledWith(DEVICE_ID);
+    await ensureDeviceRegistered(DEVICE_ID);
+    expect(mockRegisterDevice).toHaveBeenCalledTimes(2);
   });
 
-  it("renombra sin regenerar identidad", async () => {
-    mockLoadRegisteredDeviceId.mockResolvedValue(DEVICE_ID);
-    mockLoadCachedVehicleName.mockResolvedValue("VH-007");
-    const profile = await updateVehicleDisplayName(DEVICE_ID, "Unidad Sur");
-    expect(mockRenameDevice).toHaveBeenCalledWith(DEVICE_ID, "Unidad Sur");
-    expect(profile.deviceId).toBe(DEVICE_ID);
-    expect(profile.vehicleName).toBe("Unidad Sur");
-    expect(mockRegisterDevice).not.toHaveBeenCalled();
+  it("dos llamadas concurrentes producen un solo POST", async () => {
+    let resolveRegister!: (value: { deviceId: string; vehicleName: string }) => void;
+    mockRegisterDevice.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveRegister = resolve;
+      }),
+    );
+
+    const p1 = ensureDeviceRegistered(DEVICE_ID);
+    const p2 = ensureDeviceRegistered(DEVICE_ID);
+    expect(mockRegisterDevice).toHaveBeenCalledTimes(1);
+    resolveRegister({ deviceId: DEVICE_ID, vehicleName: "VH-001" });
+    const [a, b] = await Promise.all([p1, p2]);
+    expect(a.vehicleName).toBe("VH-001");
+    expect(b.vehicleName).toBe("VH-001");
+    expect(mockRegisterDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it("nombre remoto reemplaza caché antigua", async () => {
+    mockLoadCachedVehicleName.mockResolvedValue("Nombre Viejo");
+    mockRegisterDevice.mockResolvedValue({ deviceId: DEVICE_ID, vehicleName: "VH-042" });
+    await ensureDeviceRegistered(DEVICE_ID);
+    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("VH-042");
+  });
+
+  it("rename con 404 registra y reintenta una vez", async () => {
+    mockLoadCachedVehicleName.mockResolvedValue("Anterior");
+    mockRenameDevice
+      .mockRejectedValueOnce(new TelemetryApiError(404, "protocol", "not found"))
+      .mockResolvedValueOnce({ deviceId: DEVICE_ID, vehicleName: "Camión Pereira" });
+
+    const profile = await updateVehicleDisplayName(DEVICE_ID, "Camión Pereira");
+
+    expect(mockRegisterDevice).toHaveBeenCalledTimes(1);
+    expect(mockRenameDevice).toHaveBeenCalledTimes(2);
+    expect(profile.vehicleName).toBe("Camión Pereira");
+  });
+
+  it("409 no modifica el nombre local", async () => {
+    mockLoadCachedVehicleName.mockResolvedValue("Nombre Original");
+    mockRenameDevice.mockRejectedValue(new TelemetryApiError(409, "protocol", "conflict"));
+
+    await expect(updateVehicleDisplayName(DEVICE_ID, "Duplicado")).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("Nombre Original");
   });
 });
