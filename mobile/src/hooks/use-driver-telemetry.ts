@@ -3,7 +3,7 @@ import {
   TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
   TELEMETRY_SYNC_INTERVAL_MILLISECONDS,
 } from "@/config/telemetry-capture-rate";
-import { enqueueEvent, countPendingEvents } from "@/db/offline-queue";
+import { enqueueEvent, countPendingEvents, SchemaMigrationError } from "@/db/offline-queue";
 import { getCurrentReading, runCaptureLoop } from "@/services/location-provider";
 import { syncPendingQueue } from "@/services/offline-sync-coordinator";
 import { runSyncResumeEffect } from "@/services/sync-resume-policy";
@@ -49,8 +49,20 @@ export function useDriverTelemetry(
   }, []);
 
   const refreshPendingCount = useCallback(async () => {
-    const pendingCount = await countPendingEvents();
-    setState((p) => ({ ...p, pendingCount }));
+    try {
+      const pendingCount = await countPendingEvents();
+      setState((p) => ({ ...p, pendingCount }));
+    } catch (error) {
+      if (error instanceof SchemaMigrationError) {
+        setState((p) => ({
+          ...p,
+          error: "Error de base local (migración SQLite). No se iniciará tracking ni sync.",
+        }));
+        console.error("[offline-queue] migración SQLite fallida", error);
+        return;
+      }
+      throw error;
+    }
   }, []);
 
   const applySyncError = useCallback((error: unknown) => {
