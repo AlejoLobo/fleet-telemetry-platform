@@ -21,10 +21,12 @@ jest.mock("expo-crypto", () => ({
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import {
+  DeviceIdentityStorageError,
   generateDeviceId,
   isValidDeviceId,
   loadOrCreateDeviceId,
   resetDeviceIdForTests,
+  setCachedDeviceIdForTests,
 } from "@/services/device-id-store";
 
 describe("device-id-store", () => {
@@ -49,49 +51,7 @@ describe("device-id-store", () => {
     mockStore.clear();
   });
 
-  it("genera UUID cuando no existe", async () => {
-    const id = await loadOrCreateDeviceId();
-    expect(isValidDeviceId(id)).toBe(true);
-    expect(SecureStore.setItemAsync).toHaveBeenCalled();
-  });
-
-  it("devuelve el mismo ID en lecturas posteriores", async () => {
-    const first = await loadOrCreateDeviceId();
-    const second = await loadOrCreateDeviceId();
-    expect(second).toBe(first);
-    expect(Crypto.randomUUID).toHaveBeenCalledTimes(1);
-  });
-
-  it("dos llamadas concurrentes generan un solo UUID", async () => {
-    const [a, b] = await Promise.all([loadOrCreateDeviceId(), loadOrCreateDeviceId()]);
-    expect(a).toBe(b);
-    expect(isValidDeviceId(a)).toBe(true);
-    expect(Crypto.randomUUID).toHaveBeenCalledTimes(1);
-  });
-
-  it("lectura y escritura fallan pero llamadas posteriores devuelven el mismo UUID", async () => {
-    (SecureStore.getItemAsync as jest.Mock).mockRejectedValue(new Error("read fail"));
-    (SecureStore.setItemAsync as jest.Mock).mockRejectedValue(new Error("write fail"));
-
-    const first = await loadOrCreateDeviceId();
-    const second = await loadOrCreateDeviceId();
-    const third = await loadOrCreateDeviceId();
-
-    expect(first).toBe(second);
-    expect(second).toBe(third);
-    expect(isValidDeviceId(first)).toBe(true);
-    expect(Crypto.randomUUID).toHaveBeenCalledTimes(1);
-  });
-
-  it("un valor inválido almacenado se reemplaza", async () => {
-    mockStore.set("fleet.device.id", "VH-001");
-    const id = await loadOrCreateDeviceId();
-    expect(id).not.toBe("VH-001");
-    expect(isValidDeviceId(id)).toBe(true);
-    expect(Crypto.randomUUID).toHaveBeenCalled();
-  });
-
-  it("un UUID válido se conserva", async () => {
+  it("UUID válido almacenado se reutiliza", async () => {
     const persisted = "11111111-1111-4111-8111-111111111111";
     mockStore.set("fleet.device.id", persisted);
     const id = await loadOrCreateDeviceId();
@@ -99,26 +59,91 @@ describe("device-id-store", () => {
     expect(Crypto.randomUUID).not.toHaveBeenCalled();
   });
 
-  it("no acepta nombres antiguos como VH-001", () => {
-    expect(isValidDeviceId("VH-001")).toBe(false);
-    expect(isValidDeviceId("Camión Pereira")).toBe(false);
-    expect(isValidDeviceId("")).toBe(false);
+  it("SecureStore null genera y persiste UUID nuevo", async () => {
+    const id = await loadOrCreateDeviceId();
+    expect(isValidDeviceId(id)).toBe(true);
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith("fleet.device.id", id);
   });
 
-  it("generateDeviceId produce UUID válido", async () => {
-    const id = await generateDeviceId();
+  it("dos llamadas concurrentes generan un solo UUID", async () => {
+    const [a, b] = await Promise.all([loadOrCreateDeviceId(), loadOrCreateDeviceId()]);
+    expect(a).toBe(b);
+    expect(Crypto.randomUUID).toHaveBeenCalledTimes(1);
+  });
+
+  it("fallo de lectura sin caché produce error y no genera UUID", async () => {
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValue(new Error("read fail"));
+    await expect(loadOrCreateDeviceId()).rejects.toBeInstanceOf(DeviceIdentityStorageError);
+    expect(Crypto.randomUUID).not.toHaveBeenCalled();
+  });
+
+  it("fallo de lectura con caché reutiliza la caché", async () => {
+    const cached = "22222222-2222-4222-8222-222222222222";
+    setCachedDeviceIdForTests(cached);
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValue(new Error("read fail"));
+    const id = await loadOrCreateDeviceId();
+    expect(id).toBe(cached);
+    expect(Crypto.randomUUID).not.toHaveBeenCalled();
+  });
+
+  it("fallo de escritura produce error y no confirma identidad en caché", async () => {
+    (SecureStore.setItemAsync as jest.Mock).mockRejectedValue(new Error("write fail"));
+    await expect(loadOrCreateDeviceId()).rejects.toMatchObject({
+      name: "DeviceIdentityStorageError",
+      operation: "write",
+    });
+    // Reintento sin éxito de escritura: sigue fallando (sin identidad confirmada).
+    await expect(loadOrCreateDeviceId()).rejects.toBeInstanceOf(DeviceIdentityStorageError);
+    expect(mockStore.size).toBe(0);
+  });
+
+  it("fallo de lectura sin caché bloquea registro remoto (no genera UUID usable)", async () => {
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValue(new Error("read fail"));
+    let caught: unknown;
+    try {
+      await loadOrCreateDeviceId();
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(DeviceIdentityStorageError);
+    expect(Crypto.randomUUID).not.toHaveBeenCalled();
+    // Sin UUID no hay ensureDeviceRegistered / syncPendingQueue con identidad válida.
+  });
+
+  it("un fallo no deja la promesa bloqueada permanentemente", async () => {
+    (SecureStore.getItemAsync as jest.Mock)
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockImplementation(async (key: string) => mockStore.get(key) ?? null);
+
+    await expect(loadOrCreateDeviceId()).rejects.toBeInstanceOf(DeviceIdentityStorageError);
+    const recovered = await loadOrCreateDeviceId();
+    expect(isValidDeviceId(recovered)).toBe(true);
+  });
+
+  it("valor inválido VH-001 se reemplaza tras lectura OK", async () => {
+    mockStore.set("fleet.device.id", "VH-001");
+    const id = await loadOrCreateDeviceId();
+    expect(id).not.toBe("VH-001");
     expect(isValidDeviceId(id)).toBe(true);
   });
 
-  it("reset limpia SecureStore, caché y promesa", async () => {
+  it("rechaza UUID nil y nombres no UUID", () => {
+    expect(isValidDeviceId("00000000-0000-0000-0000-000000000000")).toBe(false);
+    expect(isValidDeviceId("VH-001")).toBe(false);
+    expect(isValidDeviceId("Camión")).toBe(false);
+    expect(isValidDeviceId("not-a-uuid")).toBe(false);
+  });
+
+  it("generateDeviceId produce UUID válido", async () => {
+    expect(isValidDeviceId(await generateDeviceId())).toBe(true);
+  });
+
+  it("reset limpia SecureStore y caché", async () => {
     const first = await loadOrCreateDeviceId();
-    expect(first).toBeTruthy();
     await resetDeviceIdForTests();
     expect(mockStore.has("fleet.device.id")).toBe(false);
-
     mockGenerateCounter = 10;
     const second = await loadOrCreateDeviceId();
     expect(second).not.toBe(first);
-    expect(isValidDeviceId(second)).toBe(true);
   });
 });
