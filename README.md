@@ -8,7 +8,7 @@
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![Next.js 15](https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![Expo 52](https://img.shields.io/badge/Expo-52-000020?logo=expo&logoColor=white)
+![Expo 54](https://img.shields.io/badge/Expo-54-000020?logo=expo&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Kafka-Redpanda-231F20?logo=apachekafka&logoColor=white)
 ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2.17-FDB515?logo=timescale&logoColor=black)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
@@ -68,7 +68,7 @@ Los productores (app móvil Expo u otros clientes HTTP) envían telemetría a la
 | Alertas | Evaluador + cooldown | Deduplicación de condiciones activas |
 | Tiempo real | SSE KafkaPush | `Last-Event-ID`, replay, `stream-reset`, resync |
 | Dashboard | Next.js 15 + React 19 | Modo API y mock; Vitest en CI |
-| Mobile offline | Expo 52 + SQLite | Batch sync, fallback, reanudación post-login |
+| Mobile offline | Expo 54 + SQLite | Batch sync, fallback, reanudación post-login |
 | Agente IA | `POST /api/ai/query` | Catálogo tipado de tools; OpenAI opcional |
 | Observabilidad | OpenTelemetry | Opt-in OTLP (trazas, métricas, logs) |
 | AWS dev | Terraform + EC2 + Compose | Entorno reproducible; no HA productivo |
@@ -264,7 +264,7 @@ Versiones tomadas de los manifests del monorepo.
 | Mensajería | Redpanda (Kafka API) | imagen `v24.2.4` |
 | Persistencia | TimescaleDB | `2.17.2-pg16` |
 | Web | Next.js + React | Next `^15.1.0`, React `^19.0.0` |
-| Mobile | Expo + React Native | Expo `~52.0.0`, RN `0.76.3` |
+| Mobile | Expo + React Native | Expo `~54.0.0`, RN `0.81.5` |
 | Infraestructura | Docker Compose + Terraform | Terraform `>= 1.9.8` (CI `1.9.8`) |
 | Observabilidad | OpenTelemetry OTLP | Opt-in vía configuración |
 | Calidad | xUnit, Vitest, Jest, k6, GitHub Actions | Ver [`docs/testing.md`](docs/testing.md) |
