@@ -19,6 +19,7 @@ type DashboardHeaderProps = {
   criticalAlertCount: number;
   alertsAttention?: boolean;
   refreshRate: MonitorRefreshRate;
+  refreshRateReady?: boolean;
   onRefreshRateChange: (rate: MonitorRefreshRate) => void;
   onOpenAlerts: () => void;
   onLoadApi: () => void;
@@ -35,6 +36,7 @@ export function DashboardHeader({
   criticalAlertCount,
   alertsAttention = false,
   refreshRate,
+  refreshRateReady = true,
   onRefreshRateChange,
   onOpenAlerts,
   onLoadApi,
@@ -92,13 +94,17 @@ export function DashboardHeader({
             <Dices className="h-4 w-4" />
             Demo
           </Button>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <label
+            htmlFor="monitor-refresh-rate"
+            className="flex items-center gap-1.5 text-xs text-slate-600"
+          >
             <span className="whitespace-nowrap font-medium">Actualización</span>
             <select
-              aria-label="Actualización"
+              id="monitor-refresh-rate"
               title="Los datos se reciben continuamente; esta opción controla cuándo se actualiza la pantalla."
               className="h-8 max-w-[11rem] rounded-md border border-input bg-background px-2 text-xs text-slate-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={String(refreshRate)}
+              disabled={!refreshRateReady}
               onChange={(event) => {
                 onRefreshRateChange(parseMonitorRefreshRate(event.target.value));
               }}

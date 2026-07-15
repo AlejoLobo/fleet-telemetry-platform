@@ -140,7 +140,7 @@ describe("dashboard header selector", () => {
       resolve(process.cwd(), "src/components/dashboard/dashboard-header.tsx"),
       "utf8",
     );
-    expect(header).toContain('aria-label="Actualización"');
+    expect(header).toContain('id="monitor-refresh-rate"');
     expect(header).toContain("MONITOR_REFRESH_RATE_OPTIONS");
     expect(header).toContain("Actualizar");
     expect(header).toContain("onRefreshRateChange");
@@ -247,6 +247,14 @@ describe("page.tsx comportamiento del selector", () => {
     const source = pageSource();
     expect(source).toMatch(/onAlert:[\s\S]*setLiveAlerts/);
     expect(source).not.toMatch(/bufferPending.*[Aa]lert/);
+  });
+
+  it("inicializa realtime y restaura preferencia tras hidratación", () => {
+    const source = pageSource();
+    expect(source).toMatch(/useState<MonitorRefreshRate>\("realtime"\)/);
+    expect(source).toContain("setRefreshRateReady(true)");
+    expect(source).toContain("if (!refreshRateReady) return");
+    expect(source).toContain("displayGlobalAnalytics");
   });
 });
 

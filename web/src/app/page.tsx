@@ -22,6 +22,10 @@ import {
   bufferPendingVehicleUpdates,
   takePendingVehicleUpdates,
 } from "@/lib/pending-vehicle-updates";
+import {
+  buildDisplayGlobalAnalytics,
+  buildDisplaySelectedAnalytics,
+} from "@/lib/display-analytics";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -51,9 +55,9 @@ export default function DashboardPage() {
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
   const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
-  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>(() =>
-    loadMonitorRefreshRate(),
-  );
+  // Valor determinista en SSR/hidratación; se restaura tras montar.
+  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>("realtime");
+  const [refreshRateReady, setRefreshRateReady] = useState(false);
 
   const pendingVehicleUpdatesRef = useRef<Map<string, VehicleStatus>>(new Map());
   const refreshRateRef = useRef(refreshRate);
@@ -73,6 +77,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void refreshAuthState();
+  }, []);
+
+  useEffect(() => {
+    setRefreshRate(loadMonitorRefreshRate());
+    setRefreshRateReady(true);
   }, []);
 
   // Solo reloj local de frescura; no descarga datos ni depende del selector.
@@ -147,6 +156,8 @@ export default function DashboardPage() {
 
   // Ciclo visual: buffer SSE + telemetría seleccionada (API) o regeneración demo.
   useEffect(() => {
+    if (!refreshRateReady) return;
+
     if (dataSource === "demo") {
       const ms =
         refreshRate === "realtime"
@@ -178,7 +189,7 @@ export default function DashboardPage() {
       void refreshSelectedTelemetryRef.current();
     }, ms);
     return () => window.clearInterval(timer);
-  }, [refreshRate, dataSource]);
+  }, [refreshRate, dataSource, refreshRateReady]);
 
   useEffect(() => {
     if (vehicles.length === 0) {
@@ -250,6 +261,25 @@ export default function DashboardPage() {
 
   const criticalAlertCount = displayAlerts.filter((a) => esSeveridadCritica(a.severity)).length;
 
+  const displayGlobalAnalytics = useMemo(
+    () =>
+      buildDisplayGlobalAnalytics({
+        dataSource,
+        displayVehicles,
+        displayAlerts,
+        fleetTruncated,
+        globalAnalytics,
+      }),
+    [dataSource, displayVehicles, displayAlerts, fleetTruncated, globalAnalytics],
+  );
+
+  const selectedVehicle = displayVehicles.find((v) => v.deviceId === selectedDeviceId) ?? null;
+
+  const displaySelectedAnalytics = useMemo(
+    () => buildDisplaySelectedAnalytics(selectedAnalytics, selectedVehicle),
+    [selectedAnalytics, selectedVehicle],
+  );
+
   const handleFocusVehicle = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
     setMapAutoFit(false);
@@ -275,8 +305,6 @@ export default function DashboardPage() {
     }
   };
 
-  const selectedVehicle = displayVehicles.find((v) => v.deviceId === selectedDeviceId) ?? null;
-
   return (
     <div className="dashboard-grid-bg min-h-screen">
       <DashboardHeader
@@ -287,6 +315,7 @@ export default function DashboardPage() {
         criticalAlertCount={criticalAlertCount}
         alertsAttention={alertsAttention}
         refreshRate={refreshRate}
+        refreshRateReady={refreshRateReady}
         onRefreshRateChange={handleRefreshRateChange}
         onOpenAlerts={() => {
           setAlertsAttention(false);
@@ -331,8 +360,8 @@ export default function DashboardPage() {
 
         <section className="animate-fade-up">
           <KpiGrid
-            globalAnalytics={globalAnalytics}
-            selectedAnalytics={selectedAnalytics}
+            globalAnalytics={displayGlobalAnalytics}
+            selectedAnalytics={displaySelectedAnalytics}
             telemetryLoading={telemetryLoading}
           />
         </section>
@@ -351,9 +380,9 @@ export default function DashboardPage() {
               vehicles={displayVehicles}
               selectedDeviceId={selectedDeviceId}
               fleetTruncated={fleetTruncated}
-              aggregationSource={globalAnalytics.aggregationSource}
-              totalVehiclesGlobal={globalAnalytics.totalVehicles}
-              activeVehiclesGlobal={globalAnalytics.activeVehicles}
+              aggregationSource={displayGlobalAnalytics.aggregationSource}
+              totalVehiclesGlobal={displayGlobalAnalytics.totalVehicles}
+              activeVehiclesGlobal={displayGlobalAnalytics.activeVehicles}
               onSelectVehicle={setSelectedDeviceId}
               onFocusVehicle={handleFocusVehicle}
             />
