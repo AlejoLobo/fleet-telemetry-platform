@@ -252,10 +252,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefix web
 
-      - name: Build frontend (Demo)
+      - name: Build frontend (E2E)
         run: npm run build --prefix web
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_E2E_TEST_MODE: "true"
+          NEXT_PUBLIC_E2E_SEED: "12345"
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
@@ -266,6 +268,8 @@ jobs:
         env:
           CI: true
           NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_E2E_TEST_MODE: "true"
+          NEXT_PUBLIC_E2E_SEED: "12345"
 
   mobile:
     name: Mobile (Expo)
