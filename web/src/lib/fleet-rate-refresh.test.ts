@@ -45,12 +45,15 @@ describe("local-connectivity", () => {
 });
 
 describe("dashboard sin polling REST agresivo", () => {
-  it("page solo usa setInterval para connectivityNowMs", () => {
+  it("page no usa setInterval para loadFromApi ni fetchFleetLive", () => {
     const source = readFileSync(resolve(process.cwd(), "src/app/page.tsx"), "utf8");
     expect(source).toContain("setConnectivityNowMs");
     expect(source).toMatch(/setInterval\(\s*\(\)\s*=>\s*setConnectivityNowMs/);
-    expect(source).not.toMatch(/setInterval\([\s\S]{0,200}refresh\(/);
-    expect(source).not.toMatch(/setInterval\([\s\S]{0,200}loadFromApi\(/);
-    expect(source).not.toMatch(/setInterval\([\s\S]{0,200}fetchFleetLive/);
+    expect(source).not.toMatch(/setInterval\([\s\S]{0,260}loadFromApi\(/);
+    expect(source).not.toMatch(/setInterval\([\s\S]{0,260}fetchFleetLive/);
+    expect(source).not.toMatch(/setInterval\([\s\S]{0,260}fetchAlertsLive/);
+    // El refresh completo de flota no debe ir en el timer del selector
+    expect(source).toContain("refreshSelectedTelemetry");
+    expect(source).toContain("CONNECTIVITY_TICK_MS");
   });
 });

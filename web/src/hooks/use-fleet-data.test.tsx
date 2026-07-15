@@ -515,3 +515,141 @@ describe("useFleetData refreshForResync", () => {
     expect(result.current.telemetryError).not.toContain("Failed to fetch");
   });
 });
+
+describe("useFleetData refreshSelectedTelemetry", () => {
+  beforeEach(() => {
+    fetchFleetLive.mockReset();
+    fetchAlertsLive.mockReset();
+    fetchOpsSummary.mockReset();
+    fetchTelemetrySnapshot.mockReset();
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [{
+        eventId: "e1",
+        deviceId: "00000000-0000-4000-8000-000000000001",
+        timestamp: "2026-07-10T10:00:00Z",
+        latitude: 1,
+        longitude: 1,
+        speedKmh: 10,
+      }],
+      partial: false,
+      truncated: false,
+    });
+  });
+
+  it("refresca solo telemetría del seleccionado sin reload de flota", async () => {
+    const { result } = renderHook(() =>
+      useFleetData("00000000-0000-4000-8000-000000000001"),
+    );
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    await waitFor(() => expect(result.current.telemetry.length).toBe(1));
+
+    const fleetCalls = fetchFleetLive.mock.calls.length;
+    const alertCalls = fetchAlertsLive.mock.calls.length;
+    fetchTelemetrySnapshot.mockClear();
+
+    await act(async () => {
+      await result.current.refreshSelectedTelemetry();
+    });
+
+    expect(fetchTelemetrySnapshot).toHaveBeenCalledTimes(1);
+    expect(fetchFleetLive.mock.calls.length).toBe(fleetCalls);
+    expect(fetchAlertsLive.mock.calls.length).toBe(alertCalls);
+  });
+
+  it("cambiar de vehículo cancela solicitudes anteriores", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    fetchTelemetrySnapshot.mockImplementationOnce(
+      (_deviceId: string, options?: { signal?: AbortSignal }) =>
+        first.then(() => {
+          if (options?.signal?.aborted) {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            throw err;
+          }
+          return {
+            events: [{
+              eventId: "old",
+              deviceId: "00000000-0000-4000-8000-000000000001",
+              timestamp: "2026-07-10T10:00:00Z",
+              latitude: 1,
+              longitude: 1,
+              speedKmh: 1,
+            }],
+            partial: false,
+            truncated: false,
+          };
+        }),
+    );
+
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [
+        vehicle,
+        {
+          ...vehicle,
+          deviceId: "00000000-0000-4000-8000-000000000002",
+          vehicleName: "00000000-0000-4000-8000-000000000002",
+        },
+      ],
+      partial: false,
+      truncated: false,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string | null }) => useFleetData(id),
+      { initialProps: { id: "00000000-0000-4000-8000-000000000001" } },
+    );
+
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    fetchTelemetrySnapshot.mockResolvedValue({
+      events: [{
+        eventId: "new",
+        deviceId: "00000000-0000-4000-8000-000000000002",
+        timestamp: "2026-07-10T11:00:00Z",
+        latitude: 2,
+        longitude: 2,
+        speedKmh: 20,
+      }],
+      partial: false,
+      truncated: false,
+    });
+
+    rerender({ id: "00000000-0000-4000-8000-000000000002" });
+
+    await act(async () => {
+      resolveFirst({
+        events: [],
+        partial: false,
+        truncated: false,
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(result.current.telemetry.some((e) => e.eventId === "new")).toBe(true),
+    );
+    expect(result.current.telemetry.some((e) => e.eventId === "old")).toBe(false);
+  });
+
+  it("no ejecuta sin dispositivo seleccionado", async () => {
+    const { result } = renderHook(() => useFleetData(null));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+    fetchTelemetrySnapshot.mockClear();
+
+    await act(async () => {
+      await result.current.refreshSelectedTelemetry();
+    });
+
+    expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
+  });
+});
