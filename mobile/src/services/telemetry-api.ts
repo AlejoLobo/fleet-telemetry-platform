@@ -56,8 +56,13 @@ export function categorizeHttpStatus(status: number): TelemetryApiErrorCategory 
   return "protocol";
 }
 
-async function ensureTelemetryTransportReady(): Promise<Record<string, string>> {
+async function ensureTelemetryTransportReady(
+  deviceId?: string | null,
+): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (deviceId && deviceId.trim()) {
+    headers["X-Device-Id"] = deviceId.trim();
+  }
   const auth = getAuthRuntimeSnapshot();
 
   if (auth.mode === "unknown") {
@@ -81,12 +86,17 @@ async function ensureTelemetryTransportReady(): Promise<Record<string, string>> 
   return headers;
 }
 
-async function postJson(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
+async function postJson(
+  path: string,
+  body: unknown,
+  deviceId?: string | null,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const headers = await ensureTelemetryTransportReady();
+    const headers = await ensureTelemetryTransportReady(deviceId);
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: "POST",
       headers,
@@ -116,11 +126,19 @@ async function postJson(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT
 }
 
 export async function sendSingleEvent(event: TelemetryEventPayload): Promise<void> {
-  await postJson("/api/telemetry", { ...event, locationSource: event.locationSource ?? "gps" });
+  await postJson(
+    "/api/telemetry",
+    { ...event, locationSource: event.locationSource ?? "gps" },
+    event.vehicleId,
+  );
 }
 
 export async function sendBatchEvents(events: TelemetryEventPayload[]): Promise<void> {
-  await postJson("/api/telemetry/batch", {
-    events: events.map((event) => ({ ...event, locationSource: event.locationSource ?? "gps" })),
-  });
+  await postJson(
+    "/api/telemetry/batch",
+    {
+      events: events.map((event) => ({ ...event, locationSource: event.locationSource ?? "gps" })),
+    },
+    events[0]?.vehicleId,
+  );
 }

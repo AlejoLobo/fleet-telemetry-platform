@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
+  type TelemetryCaptureIntervalSeconds,
+} from "@/config/telemetry-capture-rate";
 import { enqueueEvent, countPendingEvents } from "@/db/offline-queue";
 import { getCurrentReading, runCaptureLoop } from "@/services/location-provider";
 import { syncPendingQueue } from "@/services/offline-sync-coordinator";
@@ -7,10 +11,20 @@ import { generateEventId } from "@/utils/id";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { LocationReading, SyncResult } from "@/types/telemetry";
 
-export function useDriverTelemetry(vehicleId: string, driverId: string, canSync: boolean) {
+const SYNC_INTERVAL_MILLISECONDS = 10_000;
+
+export function useDriverTelemetry(
+  vehicleId: string,
+  driverId: string,
+  canSync: boolean,
+  captureIntervalSeconds: TelemetryCaptureIntervalSeconds = DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
+) {
   const { isOnline, status: networkStatus } = useNetworkStatus();
   const trackingRef = useRef(false);
   const previousReadyToSyncRef = useRef(false);
+  const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isOnlineRef = useRef(isOnline);
+  const canSyncRef = useRef(canSync);
   const [state, setState] = useState({
     tracking: false,
     pendingCount: 0,
@@ -19,6 +33,16 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
     lastSync: null as SyncResult | null,
     error: null as string | null,
   });
+
+  isOnlineRef.current = isOnline;
+  canSyncRef.current = canSync;
+
+  function clearSyncTimer(): void {
+    if (syncTimerRef.current != null) {
+      clearInterval(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+  }
 
   const refreshPendingCount = useCallback(async () => {
     const pendingCount = await countPendingEvents();
@@ -44,29 +68,41 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
   }, [vehicleId, driverId, refreshPendingCount]);
 
   const syncNow = useCallback(async () => {
-    const result = await syncPendingQueue(isOnline);
+    const result = await syncPendingQueue(isOnlineRef.current);
     await refreshPendingCount();
     setState((p) => ({ ...p, lastSync: result, error: null }));
     return result;
-  }, [isOnline, refreshPendingCount]);
+  }, [refreshPendingCount]);
 
-  const stopTracking = useCallback(() => {
+  const stopTracking = useCallback(async () => {
+    clearSyncTimer();
     trackingRef.current = false;
     setState((p) => ({ ...p, tracking: false }));
-  }, []);
+    if (isOnlineRef.current && canSyncRef.current) {
+      await syncNow();
+    }
+  }, [syncNow]);
 
   const startTracking = useCallback(async () => {
     if (trackingRef.current) return;
     trackingRef.current = true;
     setState((p) => ({ ...p, tracking: true, error: null }));
+
+    clearSyncTimer();
+    syncTimerRef.current = setInterval(() => {
+      if (!trackingRef.current) return;
+      if (!isOnlineRef.current || !canSyncRef.current) return;
+      void syncNow();
+    }, SYNC_INTERVAL_MILLISECONDS);
+
     runCaptureLoop(
       async (reading) => {
         await captureEvent(reading);
-        if (isOnline && canSync) await syncNow();
       },
-      8000,
+      captureIntervalSeconds * 1000,
       () => trackingRef.current,
     ).catch((e) => {
+      clearSyncTimer();
       trackingRef.current = false;
       setState((p) => ({
         ...p,
@@ -74,12 +110,12 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
         error: e instanceof Error ? e.message : "Tracking error",
       }));
     });
-  }, [captureEvent, isOnline, canSync, syncNow]);
+  }, [captureEvent, captureIntervalSeconds, syncNow]);
 
   const captureOnce = useCallback(async () => {
     await captureEvent(await getCurrentReading());
-    if (isOnline && canSync) await syncNow();
-  }, [captureEvent, isOnline, canSync, syncNow]);
+    if (isOnlineRef.current && canSyncRef.current) await syncNow();
+  }, [captureEvent, syncNow]);
 
   useEffect(() => {
     refreshPendingCount();
@@ -95,8 +131,15 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
     previousReadyToSyncRef.current = resume.nextPreviousReadyToSync;
   }, [isOnline, canSync, syncNow]);
 
+  useEffect(() => {
+    if (!canSync) {
+      clearSyncTimer();
+    }
+  }, [canSync]);
+
   useEffect(() => () => {
     trackingRef.current = false;
+    clearSyncTimer();
   }, []);
 
   return {
@@ -110,3 +153,5 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
     refreshPendingCount,
   };
 }
+
+export { SYNC_INTERVAL_MILLISECONDS };
