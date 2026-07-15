@@ -2,7 +2,8 @@ import type { CursorPage } from "@/types/pagination";
 import type { TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { normalizeVehicles } from "@/lib/fleet-normalize";
 import { getApiBaseUrl } from "@/lib/utils";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, readRetryAfterSeconds } from "@/lib/http-error";
+import { resolveFleetFetchError } from "@/lib/fleet-fetch-error";
 
 type FleetPageParams = {
   pageSize?: number;
@@ -73,12 +74,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let detail = `Error ${response.status} en ${path}`;
-    let retryAfterSeconds: number | undefined;
-    const retryHeader = response.headers.get("Retry-After");
-    if (retryHeader) {
-      const parsed = Number(retryHeader);
-      if (Number.isFinite(parsed) && parsed > 0) retryAfterSeconds = parsed;
-    }
+    let retryAfterSeconds = readRetryAfterSeconds(response);
     try {
       const body = (await response.json()) as {
         detail?: string;
@@ -176,8 +172,17 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
       if (!page.hasMore || !page.nextCursor) break;
       cursor = page.nextCursor;
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        partial = true;
+        break;
+      }
+
+      if (vehicles.length === 0) {
+        throw error;
+      }
+
       partial = true;
-      lastError = error instanceof Error ? error.message : "Error al cargar flota";
+      lastError = resolveFleetFetchError(error);
       break;
     }
   }
@@ -251,8 +256,17 @@ export async function fetchTelemetrySnapshot(
       if (!page.hasMore || !page.nextCursor) break;
       cursor = page.nextCursor;
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        partial = true;
+        break;
+      }
+
+      if (events.length === 0) {
+        throw error;
+      }
+
       partial = true;
-      lastError = error instanceof Error ? error.message : "Error al cargar telemetría";
+      lastError = resolveFleetFetchError(error);
       break;
     }
   }
