@@ -21,6 +21,8 @@ cp .env.example .env.local
 | Variable | Descripción |
 |----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Backend .NET (default `http://localhost:5000`) |
+| `NEXT_PUBLIC_E2E_TEST_MODE` | Solo pruebas E2E (`true` activa inyector y Demo sembrado). No usar en producción. |
+| `NEXT_PUBLIC_E2E_SEED` | Semilla Demo E2E (default `12345`) |
 
 ## Comandos
 
