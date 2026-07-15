@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
-  type TelemetryCaptureIntervalSeconds,
+  TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
+  TELEMETRY_SYNC_INTERVAL_MILLISECONDS,
 } from "@/config/telemetry-capture-rate";
 import { enqueueEvent, countPendingEvents } from "@/db/offline-queue";
 import { getCurrentReading, runCaptureLoop } from "@/services/location-provider";
@@ -11,18 +11,17 @@ import { generateEventId } from "@/utils/id";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { LocationReading, SyncResult } from "@/types/telemetry";
 
-const SYNC_INTERVAL_MILLISECONDS = 10_000;
-
 export function useDriverTelemetry(
   deviceId: string,
   driverId: string,
   canSync: boolean,
-  captureIntervalSeconds: TelemetryCaptureIntervalSeconds = DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
 ) {
   const { isOnline, status: networkStatus } = useNetworkStatus();
   const trackingRef = useRef(false);
   const previousReadyToSyncRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const syncPromiseRef = useRef<Promise<SyncResult> | null>(null);
+  const syncRequestedRef = useRef(false);
   const isOnlineRef = useRef(isOnline);
   const canSyncRef = useRef(canSync);
   const deviceIdRef = useRef(deviceId);
@@ -51,6 +50,54 @@ export function useDriverTelemetry(
     setState((p) => ({ ...p, pendingCount }));
   }, []);
 
+  /** Single-flight: una sola sync activa; reentra si hubo solicitudes durante la ejecución. */
+  const requestSync = useCallback(async (): Promise<SyncResult | null> => {
+    if (syncPromiseRef.current) {
+      syncRequestedRef.current = true;
+      return syncPromiseRef.current;
+    }
+
+    const run = async (): Promise<SyncResult> => {
+      let lastResult: SyncResult = {
+        synced: 0,
+        failed: 0,
+        retried: 0,
+        permanentFailures: 0,
+        remaining: 0,
+        status: "completed",
+      };
+
+      do {
+        syncRequestedRef.current = false;
+        try {
+          lastResult = await syncPendingQueue(
+            isOnlineRef.current,
+            deviceIdRef.current,
+          );
+          await refreshPendingCount();
+          setState((p) => ({ ...p, lastSync: lastResult, error: null }));
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Error de sincronización";
+          setState((p) => ({ ...p, error: message }));
+          await refreshPendingCount();
+        }
+      } while (syncRequestedRef.current);
+
+      return lastResult;
+    };
+
+    const promise = run().finally(() => {
+      syncPromiseRef.current = null;
+      // Solicitud entre el fin del ciclo y el clear: otra pasada sin solapar.
+      if (syncRequestedRef.current) {
+        void requestSync();
+      }
+    });
+    syncPromiseRef.current = promise;
+    return promise;
+  }, [refreshPendingCount]);
+
   const captureEvent = useCallback(async (reading: LocationReading) => {
     const resolvedDeviceId = deviceIdRef.current.trim();
     if (!resolvedDeviceId) {
@@ -73,14 +120,28 @@ export function useDriverTelemetry(
     await enqueueEvent(event, reading.source);
     await refreshPendingCount();
     setState((p) => ({ ...p, lastReading: reading, lastCapturedAt: event.timestamp, error: null }));
-  }, [driverId, refreshPendingCount]);
+
+    if (isOnlineRef.current && canSyncRef.current) {
+      await requestSync().catch((error) => {
+        setState((previous) => ({
+          ...previous,
+          error: error instanceof Error ? error.message : "Error de sincronización",
+        }));
+      });
+    }
+  }, [driverId, refreshPendingCount, requestSync]);
 
   const syncNow = useCallback(async () => {
-    const result = await syncPendingQueue(isOnlineRef.current, deviceIdRef.current);
-    await refreshPendingCount();
-    setState((p) => ({ ...p, lastSync: result, error: null }));
-    return result;
-  }, [refreshPendingCount]);
+    const result = await requestSync();
+    return result ?? {
+      synced: 0,
+      failed: 0,
+      retried: 0,
+      permanentFailures: 0,
+      remaining: await countPendingEvents(),
+      status: "completed" as const,
+    };
+  }, [requestSync]);
 
   const startSyncTimer = useCallback((): void => {
     clearSyncTimer();
@@ -92,8 +153,12 @@ export function useDriverTelemetry(
     syncTimerRef.current = setInterval(() => {
       if (!trackingRef.current) return;
       if (!isOnlineRef.current || !canSyncRef.current) return;
+      if (syncPromiseRef.current) {
+        syncRequestedRef.current = true;
+        return;
+      }
 
-      void syncNow().catch((error) => {
+      void requestSync().catch((error) => {
         setState((previous) => ({
           ...previous,
           error: error instanceof Error
@@ -101,8 +166,8 @@ export function useDriverTelemetry(
             : "Error de sincronización",
         }));
       });
-    }, SYNC_INTERVAL_MILLISECONDS);
-  }, [clearSyncTimer, syncNow]);
+    }, TELEMETRY_SYNC_INTERVAL_MILLISECONDS);
+  }, [clearSyncTimer, requestSync]);
 
   const stopTracking = useCallback(async () => {
     clearSyncTimer();
@@ -124,7 +189,7 @@ export function useDriverTelemetry(
       async (reading) => {
         await captureEvent(reading);
       },
-      captureIntervalSeconds * 1000,
+      TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
       () => trackingRef.current,
     ).catch((e) => {
       clearSyncTimer();
@@ -135,12 +200,11 @@ export function useDriverTelemetry(
         error: e instanceof Error ? e.message : "Tracking error",
       }));
     });
-  }, [captureEvent, captureIntervalSeconds, clearSyncTimer, startSyncTimer]);
+  }, [captureEvent, clearSyncTimer, startSyncTimer]);
 
   const captureOnce = useCallback(async () => {
     await captureEvent(await getCurrentReading());
-    if (isOnlineRef.current && canSyncRef.current) await syncNow();
-  }, [captureEvent, syncNow]);
+  }, [captureEvent]);
 
   useEffect(() => {
     refreshPendingCount();
@@ -184,4 +248,7 @@ export function useDriverTelemetry(
   };
 }
 
-export { SYNC_INTERVAL_MILLISECONDS };
+export {
+  TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
+  TELEMETRY_SYNC_INTERVAL_MILLISECONDS,
+};

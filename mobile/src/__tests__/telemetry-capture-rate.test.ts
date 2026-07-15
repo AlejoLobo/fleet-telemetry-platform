@@ -1,25 +1,19 @@
 import {
-  DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
-  isTelemetryCaptureIntervalSeconds,
-  parseTelemetryCaptureIntervalSeconds,
-  TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS,
-} from "@/config/telemetry-capture-rate";
+  TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS,
+  TELEMETRY_SYNC_INTERVAL_MILLISECONDS,
+} from "../config/telemetry-capture-rate";
+import * as captureRate from "../config/telemetry-capture-rate";
 
 describe("telemetry-capture-rate", () => {
-  it("acepta solo 3, 5, 10 y 15", () => {
-    expect(TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS).toEqual([3, 5, 10, 15]);
-    for (const value of [3, 5, 10, 15]) {
-      expect(isTelemetryCaptureIntervalSeconds(value)).toBe(true);
-    }
-    expect(isTelemetryCaptureIntervalSeconds(8)).toBe(false);
-    expect(isTelemetryCaptureIntervalSeconds(4)).toBe(false);
-    expect(isTelemetryCaptureIntervalSeconds("5")).toBe(false);
+  it("fija captura y sync de respaldo en 5 segundos", () => {
+    expect(TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS).toBe(5_000);
+    expect(TELEMETRY_SYNC_INTERVAL_MILLISECONDS).toBe(5_000);
   });
 
-  it("parse inválido usa 5 segundos", () => {
-    expect(parseTelemetryCaptureIntervalSeconds(undefined)).toBe(DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS);
-    expect(parseTelemetryCaptureIntervalSeconds("7")).toBe(5);
-    expect(parseTelemetryCaptureIntervalSeconds(NaN)).toBe(5);
-    expect(parseTelemetryCaptureIntervalSeconds("15")).toBe(15);
+  it("no exporta opciones seleccionables", () => {
+    expect(Object.keys(captureRate).sort()).toEqual([
+      "TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS",
+      "TELEMETRY_SYNC_INTERVAL_MILLISECONDS",
+    ]);
   });
 });
