@@ -77,7 +77,7 @@ export function createSqliteMemoryDb() {
       }
       return null;
     }),
-    getAllAsync: jest.fn(async (sql: string, nowIso?: string, limit?: number) => {
+    getAllAsync: jest.fn(async (sql: string, ...params: unknown[]) => {
       if (sql.includes("PRAGMA table_info")) {
         return [
           { name: "local_id" },
@@ -108,9 +108,25 @@ export function createSqliteMemoryDb() {
           .map((row) => row as unknown as Record<string, unknown>);
       }
       if (!sql.includes("telemetry_queue")) return [];
+
+      const nowIso = typeof params[0] === "string" ? params[0] : "";
+      let filterDeviceId: string | undefined;
+      let limit: number | undefined;
+      if (sql.includes("lower(device_id)")) {
+        filterDeviceId = typeof params[1] === "string" ? params[1] : undefined;
+        limit = typeof params[2] === "number" ? params[2] : undefined;
+      } else {
+        limit = typeof params[1] === "number" ? params[1] : undefined;
+      }
+
       const eligible = rows
         .filter((row) => ["pending", "retry"].includes(row.status))
-        .filter((row) => !row.next_attempt_at || row.next_attempt_at <= (nowIso ?? ""))
+        .filter((row) => !row.next_attempt_at || row.next_attempt_at <= nowIso)
+        .filter((row) =>
+          !filterDeviceId
+            || (typeof row.device_id === "string"
+              && row.device_id.toLowerCase() === filterDeviceId.toLowerCase()),
+        )
         .sort((a, b) => a.local_id - b.local_id);
       return (typeof limit === "number" ? eligible.slice(0, limit) : eligible) as unknown as Record<string, unknown>[];
     }),

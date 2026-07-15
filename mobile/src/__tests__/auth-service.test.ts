@@ -33,7 +33,7 @@ global.fetch = mockFetch as unknown as typeof fetch;
 
 const queueEvent = {
   eventId: "99999999-9999-9999-9999-999999999999",
-  deviceId: "11111111-1111-1111-1111-111111111111",
+  deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
   driverId: "DRV-001",
   timestamp: "2026-07-10T10:00:00Z",
   latitude: 4.65,

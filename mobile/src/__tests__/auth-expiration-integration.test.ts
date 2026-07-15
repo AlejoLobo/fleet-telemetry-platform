@@ -34,7 +34,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -50,7 +50,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: "  ", tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -66,7 +66,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: "invalid", tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -87,7 +87,7 @@ describe("expiración centralizada", () => {
     });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -109,7 +109,7 @@ describe("expiración centralizada", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      deviceId: "11111111-1111-1111-1111-111111111111",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -138,7 +138,7 @@ describe("expiración centralizada", () => {
     try {
       await sendSingleEvent({
         eventId: "11111111-1111-1111-1111-111111111111",
-        deviceId: "11111111-1111-1111-1111-111111111111",
+        deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
         driverId: null,
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,

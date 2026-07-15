@@ -46,6 +46,7 @@ export type SyncStatus =
   | "forbidden"
   | "deferred"
   | "configuration_error"
+  | "device_identity_conflict"
   | "failed";
 
 export type SyncResult = {
