@@ -60,9 +60,10 @@ curl http://localhost:5000/api/ops/summary
 - Con Auth: `JwtSecret` ≥ 32 caracteres y `DemoPassword` no vacío (`ConfigurationValidator`).
 - Login operador: `POST /api/auth/login` → JWT con `fleet:read`, `alert:acknowledge`, `ai:query`, `operations:read` (**sin** `telemetry:write`).
 - Login admin (opcional): configurar `Auth:AdminUsername` / `Auth:AdminPassword` → operador + `device:manage` (renombrar; **no** publica telemetría).
-- Enrolamiento de dispositivo (MVP): `POST /api/auth/device-token` con `{ deviceId, username, password }` → JWT `role=device`, `permission=telemetry:write`, claim `device_id`.
-  - Autorización explícita MVP: solo cuentas demo/admin configuradas.
-  - En producción debería reemplazarse por attestation, mTLS o enrollment firmado.
+- Enrolamiento de dispositivo (MVP **demo**, no productivo):
+  - **Development/Demo:** `POST /api/auth/device-token` permitido solo si `Auth:AllowDemoDeviceEnrollment=true`.
+  - **Production:** el endpoint demo está **prohibido** (HTTP 403) y el arranque falla si `AllowDemoDeviceEnrollment=true` con Auth habilitada. Antes de desplegar la app móvil con Auth en producción se requiere enrolamiento firmado, attestation, mTLS o secreto individual.
+  - Autorización MVP: solo cuentas demo/admin configuradas; no es attestation.
 - Ingesta/register exigen token de dispositivo con `device_id` coincidente (o bypass `device:manage` solo en rename).
 
 ## Ejemplos
