@@ -34,6 +34,8 @@ import { TelemetryTable } from "@/components/telemetry-table";
 import { AiChatPanel } from "@/components/ai-chat-panel";
 import { LoginPanel } from "@/components/auth/login-panel";
 import { AlertsModal } from "@/components/alerts/alerts-modal";
+import { useFleetE2eInjector } from "@/hooks/use-fleet-e2e-injector";
+import { isE2eTestMode } from "@/lib/e2e-test-mode";
 
 import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
@@ -130,6 +132,26 @@ export default function DashboardPage() {
   const flushPendingVehicleUpdatesRef = useRef(flushPendingVehicleUpdates);
   flushPendingVehicleUpdatesRef.current = flushPendingVehicleUpdates;
 
+  const emitVehicleUpdateForE2e = useCallback((update: VehicleStatus) => {
+    bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, [update]);
+  }, []);
+
+  const emitAlertForE2e = useCallback((alert: FleetAlert) => {
+    setLiveAlerts((prev) => [alert, ...prev]);
+    setAlertsAttention(true);
+  }, []);
+
+  const getPendingVehicleCountForE2e = useCallback(
+    () => pendingVehicleUpdatesRef.current.size,
+    [],
+  );
+
+  useFleetE2eInjector({
+    emitVehicleUpdate: emitVehicleUpdateForE2e,
+    emitAlert: emitAlertForE2e,
+    getPendingVehicleCount: getPendingVehicleCountForE2e,
+  });
+
   const { connectionState } = useSseStream({
     enabled: dataSource === "api",
     authToken,
@@ -151,27 +173,29 @@ export default function DashboardPage() {
   });
 
   // Ciclo visual: buffer SSE + telemetría seleccionada (API) o regeneración demo.
+  // En E2E, el intervalo hace flush del buffer real (mismo camino que SSE + Actualizar).
   useEffect(() => {
     if (!refreshRateReady) return;
 
     const ms = monitorRefreshRateToMs(refreshRate);
+    const e2e = isE2eTestMode();
 
-    if (dataSource === "demo") {
+    if (dataSource === "demo" && !e2e) {
       const timer = window.setInterval(() => {
         void loadDemoDataRef.current();
       }, ms);
       return () => window.clearInterval(timer);
     }
 
-    if (dataSource !== "api") {
-      return;
+    if (dataSource === "api" || (dataSource === "demo" && e2e)) {
+      const timer = window.setInterval(() => {
+        flushPendingVehicleUpdatesRef.current();
+        if (dataSource === "api") {
+          void refreshSelectedTelemetryRef.current();
+        }
+      }, ms);
+      return () => window.clearInterval(timer);
     }
-
-    const timer = window.setInterval(() => {
-      flushPendingVehicleUpdatesRef.current();
-      void refreshSelectedTelemetryRef.current();
-    }, ms);
-    return () => window.clearInterval(timer);
   }, [refreshRate, dataSource, refreshRateReady]);
 
   useEffect(() => {
@@ -220,16 +244,20 @@ export default function DashboardPage() {
   }, [vehicles]);
 
   const displayVehicles = useMemo(() => {
-    const merged =
-      dataSource === "demo" || liveVehiclePatches.length === 0
-        ? vehicles
-        : mergeVehicleUpdates(vehicles, liveVehiclePatches);
-    if (dataSource === "demo") return merged;
+    const e2e = isE2eTestMode();
+    const shouldMergePatches =
+      liveVehiclePatches.length > 0 && (dataSource !== "demo" || e2e);
+    const merged = shouldMergePatches
+      ? mergeVehicleUpdates(vehicles, liveVehiclePatches)
+      : vehicles;
+    if (dataSource === "demo" && !e2e) return merged;
+    if (dataSource === "demo" && e2e) return merged;
     return applyLocalConnectivity(merged, connectivityNowMs);
   }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
 
   const displayAlerts = useMemo(() => {
-    if (dataSource === "demo") return alerts;
+    // En E2E (y en API) las alertas live se muestran de inmediato.
+    if (dataSource === "demo" && !isE2eTestMode()) return alerts;
     const merged = [...liveAlerts, ...alerts];
     const seen = new Set<string>();
     return merged.filter((a) => {
