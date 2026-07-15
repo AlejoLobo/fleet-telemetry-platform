@@ -1,14 +1,18 @@
 import { expect, test } from "@playwright/test";
 
-async function waitForDemoReady(page: import("@playwright/test").Page) {
+const E2E_DEVICE_ID = "00000000-0000-4000-8000-000000000001";
+
+async function prepareDemo(page: import("@playwright/test").Page) {
+  await page.goto("/");
   await page.getByRole("button", { name: "Demo" }).click();
-  const select = page.locator("#monitor-refresh-rate");
-  await expect(select).toBeEnabled();
-  // El snap OSRM es async; esperar a que desaparezca el indicador.
+  await expect(page.locator("#monitor-refresh-rate")).toBeEnabled();
   await page
     .getByText("Ajustando a calles")
     .waitFor({ state: "hidden", timeout: 20_000 })
     .catch(() => undefined);
+  await expect
+    .poll(async () => page.evaluate(() => Boolean(window.__FLEET_E2E__)))
+    .toBe(true);
 }
 
 test.describe("Dashboard demo", () => {
@@ -32,6 +36,7 @@ test.describe("Selector de actualización 5/10/15/20", () => {
       "Cada 20 segundos",
     ]);
     expect(labels.join(" ")).not.toContain("Tiempo real");
+    expect(labels.join(" ")).not.toContain("Cada 30 segundos");
     expect(labels.join(" ")).not.toContain("1 minuto");
   });
 
@@ -47,66 +52,102 @@ test.describe("Selector de actualización 5/10/15/20", () => {
     await expect(page.locator("#monitor-refresh-rate")).toHaveValue("15");
   });
 
-  test("migra realtime legado a 5 y reescribe localStorage", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => localStorage.setItem("fleet-monitor-refresh-rate", "realtime"));
-    await page.reload();
-    await expect(page.locator("#monitor-refresh-rate")).toHaveValue("5");
-    await expect
-      .poll(async () => page.evaluate(() => localStorage.getItem("fleet-monitor-refresh-rate")))
-      .toBe("5");
-  });
+  for (const legacy of ["realtime", "30", "60", "bogus"]) {
+    test(`normaliza legado ${legacy} a 5 y reescribe localStorage`, async ({ page }) => {
+      await page.goto("/");
+      await page.evaluate(
+        (value) => localStorage.setItem("fleet-monitor-refresh-rate", value),
+        legacy,
+      );
+      await page.reload();
+      await expect(page.locator("#monitor-refresh-rate")).toHaveValue("5");
+      await expect
+        .poll(async () => page.evaluate(() => localStorage.getItem("fleet-monitor-refresh-rate")))
+        .toBe("5");
+    });
+  }
 
-  test("Actualizar fuerza actualización inmediata con intervalo 20", async ({ page }) => {
-    await page.goto("/");
-    await waitForDemoReady(page);
+  test("buffer 20s: actualización no aparece hasta Actualizar", async ({ page }) => {
+    await prepareDemo(page);
     const select = page.locator("#monitor-refresh-rate");
     await select.selectOption("20");
     await expect(select).toHaveValue("20");
 
-    const speed = page.locator("main").getByText(/\d+\s*km\/h/).first();
-    await expect(speed).toBeVisible();
-    const before = await speed.textContent();
+    await page.evaluate((deviceId) => {
+      window.__FLEET_E2E__!.emitVehicleUpdate({
+        deviceId,
+        vehicleName: "Vehículo E2E",
+        status: "online",
+        lastSeenAt: "2099-01-01T00:00:00Z",
+        lastSpeedKmh: 137,
+        lastLatitude: 4.65,
+        lastLongitude: -74.08,
+      });
+    }, E2E_DEVICE_ID);
 
+    await expect
+      .poll(async () => page.evaluate(() => window.__FLEET_E2E__!.getPendingVehicleCount()))
+      .toBeGreaterThan(0);
     await page.waitForTimeout(2_500);
-    expect(await speed.textContent()).toBe(before);
+    await expect(page.getByText("137 km/h")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Actualizar" }).click();
-    await expect
-      .poll(async () => speed.textContent(), { timeout: 5_000 })
-      .not.toBe(before);
+    await expect(page.getByText("137 km/h").first()).toBeVisible({ timeout: 5_000 });
     await expect(select).toHaveValue("20");
   });
 
-  test("ciclo de 5 segundos regenera demo tras el intervalo", async ({ page }) => {
-    await page.goto("/");
-    await waitForDemoReady(page);
+  test("ciclo automático 5s aplica buffer tras el intervalo", async ({ page }) => {
+    await prepareDemo(page);
     await page.locator("#monitor-refresh-rate").selectOption("5");
-    const speed = page.locator("main").getByText(/\d+\s*km\/h/).first();
-    const before = await speed.textContent();
-    await page.waitForTimeout(2_000);
-    expect(await speed.textContent()).toBe(before);
-    await expect
-      .poll(async () => speed.textContent(), { timeout: 8_000 })
-      .not.toBe(before);
+
+    await page.evaluate((deviceId) => {
+      window.__FLEET_E2E__!.emitVehicleUpdate({
+        deviceId,
+        vehicleName: "Vehículo E2E",
+        status: "online",
+        lastSeenAt: "2099-01-01T00:00:01Z",
+        lastSpeedKmh: 141,
+        lastLatitude: 4.65,
+        lastLongitude: -74.08,
+      });
+    }, E2E_DEVICE_ID);
+
+    await expect(page.getByText("141 km/h")).toHaveCount(0);
+    await expect(page.getByText("141 km/h").first()).toBeVisible({ timeout: 9_000 });
   });
 
-  test("selector usable por teclado", async ({ page }) => {
+  test("alerta nueva aparece de inmediato con intervalo 20", async ({ page }) => {
+    await prepareDemo(page);
+    const select = page.locator("#monitor-refresh-rate");
+    await select.selectOption("20");
+
+    await page.evaluate((deviceId) => {
+      window.__FLEET_E2E__!.emitAlert({
+        alertId: "alert-e2e-immediate",
+        deviceId,
+        alertType: "overspeed",
+        severity: "critical",
+        message: "Alerta E2E inmediata",
+        createdAt: new Date().toISOString(),
+        isAcknowledged: false,
+      });
+    }, E2E_DEVICE_ID);
+
+    await page.getByRole("button", { name: /Ver .* alertas/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByText("Alerta E2E inmediata")).toBeVisible({ timeout: 3_000 });
+    await expect(select).toHaveValue("20");
+  });
+
+  test("selector usable por teclado y persiste", async ({ page }) => {
     await page.goto("/");
     const select = page.locator("#monitor-refresh-rate");
     await expect(select).toBeEnabled();
     await select.focus();
-    // Chromium: flecha cambia la opción del <select> nativo y dispara change en React.
     await select.press("ArrowDown");
     await expect(select).toHaveValue("10");
-  });
-
-  test("alertas de demo aparecen sin esperar el ciclo de 20s", async ({ page }) => {
-    await page.goto("/");
-    await waitForDemoReady(page);
-    await page.locator("#monitor-refresh-rate").selectOption("20");
-    await page.getByRole("button", { name: /Ver .* alertas/i }).click();
-    await expect(page.getByRole("dialog")).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByText(/Alertas activas/i)).toBeVisible();
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem("fleet-monitor-refresh-rate")))
+      .toBe("10");
   });
 });

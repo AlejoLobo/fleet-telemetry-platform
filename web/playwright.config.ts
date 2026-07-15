@@ -16,11 +16,16 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  // CI: arranca next start tras build (job web-e2e). Local: next dev.
+  // CI: next start tras build con NEXT_PUBLIC_E2E_*. Local: next dev con las mismas vars.
   webServer: {
     command: isCi ? "npm run start" : "npm run dev",
     url: "http://localhost:3000",
     reuseExistingServer: !isCi,
     timeout: 120_000,
+    env: {
+      ...process.env,
+      NEXT_PUBLIC_E2E_TEST_MODE: "true",
+      NEXT_PUBLIC_E2E_SEED: process.env.NEXT_PUBLIC_E2E_SEED ?? "12345",
+    },
   },
 });
