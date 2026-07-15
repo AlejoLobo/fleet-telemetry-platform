@@ -153,7 +153,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         DateTimeOffset evaluatedAt) =>
         new(
             state.VehicleId,
-            state.VehicleId,
+            string.IsNullOrWhiteSpace(state.DisplayName) ? state.VehicleId : state.DisplayName!,
             VehicleConnectivityStatus.Offline,
             state.LastTimestamp,
             state.SpeedKmh,
@@ -162,5 +162,6 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
             null,
             state.LocationSource,
             state.LastEventId,
-            evaluatedAt);
+            evaluatedAt,
+            state.DriverId);
 }

@@ -15,6 +15,9 @@ public class FleetVehicleStateRecord
     [MaxLength(64)]
     public string? DriverId { get; set; }
 
+    [MaxLength(64)]
+    public string? DisplayName { get; set; }
+
     public DateTimeOffset LastTimestamp { get; set; }
 
     public double Latitude { get; set; }

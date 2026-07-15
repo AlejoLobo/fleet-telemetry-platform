@@ -49,11 +49,17 @@ cp .env.example .env
 | Variable | Descripción |
 |----------|-------------|
 | `EXPO_PUBLIC_API_URL` | Backend .NET |
-| `EXPO_PUBLIC_VEHICLE_ID` | Vehículo fijo de la sesión (solo cambia al reiniciar Expo Go) |
-| `EXPO_PUBLIC_DRIVER_ID` | Conductor fijo de la sesión (solo cambia al reiniciar Expo Go) |
+| `EXPO_PUBLIC_VEHICLE_ID` | Nombre de vehículo inicial (solo seed; luego se edita en la app) |
+| `EXPO_PUBLIC_DRIVER_ID` | Nombre de conductor inicial (solo seed; luego se edita en la app) |
 | `EXPO_PUBLIC_ALLOW_SIMULATED_LOCATION` | `true` para permitir GPS simulado en desarrollo |
 
-Vehículo y conductor se leen solo desde estos parámetros: la UI los muestra en solo lectura. Para cambiarlos, cierra Expo Go, edita `mobile/.env` y vuelve a abrir con `npx expo start -c`.
+La app genera un **ID de dispositivo** persistente (SecureStore) y lo usa como `VehicleId` en la telemetría. Así, al reconectar, el portal reconoce el mismo vehículo.
+
+Nombre de vehículo y conductor:
+
+- editables **solo con el tracking detenido** (antes de conectarse);
+- se guardan en el perfil local;
+- al sincronizar se envían al backend (`vehicleName` + `driverId`) y actualizan el portal.
 
 No usar `EXPO_PUBLIC_JWT` ni credenciales en variables públicas.
 

@@ -147,7 +147,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
 
         return new VehicleLatestStatusResponse(
             VehicleId: record.VehicleId,
-            Name: record.VehicleId,
+            Name: string.IsNullOrWhiteSpace(record.DisplayName) ? record.VehicleId : record.DisplayName,
             Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
@@ -156,7 +156,8 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastHeadingDegrees: headingDegrees,
             LastLocationSource: record.LocationSource,
             LastEventId: record.LastEventId,
-            StatusEvaluatedAt: now);
+            StatusEvaluatedAt: now,
+            DriverId: record.DriverId);
     }
 
     private static void ValidatePageSize(int pageSize, int maxPageSize)

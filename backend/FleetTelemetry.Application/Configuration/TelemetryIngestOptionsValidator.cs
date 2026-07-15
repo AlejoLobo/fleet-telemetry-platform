@@ -18,6 +18,9 @@ public sealed class TelemetryIngestOptionsValidator : IValidateOptions<Telemetry
         if (options.MaxDriverIdLength < 1 || options.MaxDriverIdLength > 128)
             return ValidateOptionsResult.Fail("TelemetryIngest:MaxDriverIdLength inválido.");
 
+        if (options.MaxVehicleNameLength < 1 || options.MaxVehicleNameLength > 128)
+            return ValidateOptionsResult.Fail("TelemetryIngest:MaxVehicleNameLength inválido.");
+
         if (options.MaxFutureSkewMinutes < 0 || options.MaxFutureSkewMinutes > 60)
             return ValidateOptionsResult.Fail("TelemetryIngest:MaxFutureSkewMinutes inválido.");
 

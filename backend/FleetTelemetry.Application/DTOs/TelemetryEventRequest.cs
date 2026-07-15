@@ -8,4 +8,5 @@ public record TelemetryEventRequest(
     double SpeedKmh,
     double? FuelLevelPercent = null,
     double? BatteryPercent = null,
-    string? LocationSource = null);
+    string? LocationSource = null,
+    string? VehicleName = null);

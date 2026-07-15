@@ -10,6 +10,7 @@ type QueueRow = {
   fuel_level_percent: number | null;
   battery_percent: number | null;
   source: string;
+  vehicle_name: string | null;
   status: string;
   retry_count: number;
   next_attempt_at: string | null;
@@ -98,6 +99,7 @@ export function createSqliteMemoryDb() {
           fuel_level_percent: (params[7] as number | null) ?? null,
           battery_percent: (params[8] as number | null) ?? null,
           source: params[9] as string,
+          vehicle_name: (params[10] as string | null) ?? null,
           status: "pending",
           retry_count: 0,
           next_attempt_at: null,
@@ -105,7 +107,7 @@ export function createSqliteMemoryDb() {
           last_error: null,
           locked_at: null,
           synced_at: null,
-          created_at: params[10] as string,
+          created_at: params[11] as string,
         };
         rows.push(row);
         return { lastInsertRowId: row.local_id, changes: 1 };

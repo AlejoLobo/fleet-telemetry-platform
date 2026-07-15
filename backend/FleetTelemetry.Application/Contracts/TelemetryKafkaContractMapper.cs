@@ -30,7 +30,8 @@ public static class TelemetryKafkaContractMapper
                 payload.BatteryPercent,
                 out var telemetryEvent,
                 out var error,
-                locationSource: payload.LocationSource))
+                locationSource: payload.LocationSource,
+                vehicleName: payload.VehicleName))
         {
             throw new TelemetryKafkaContractException("invalid_domain", error ?? "Domain validation failed.");
         }

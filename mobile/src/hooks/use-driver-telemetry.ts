@@ -7,7 +7,12 @@ import { generateEventId } from "@/utils/id";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { LocationReading, SyncResult } from "@/types/telemetry";
 
-export function useDriverTelemetry(vehicleId: string, driverId: string, canSync: boolean) {
+export function useDriverTelemetry(
+  vehicleId: string,
+  driverId: string,
+  canSync: boolean,
+  vehicleName?: string | null,
+) {
   const { isOnline, status: networkStatus } = useNetworkStatus();
   const trackingRef = useRef(false);
   const previousReadyToSyncRef = useRef(false);
@@ -30,6 +35,7 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
       eventId: await generateEventId(),
       vehicleId,
       driverId: driverId || null,
+      vehicleName: vehicleName?.trim() || null,
       timestamp: new Date().toISOString(),
       latitude: reading.latitude,
       longitude: reading.longitude,
@@ -41,7 +47,7 @@ export function useDriverTelemetry(vehicleId: string, driverId: string, canSync:
     await enqueueEvent(event, reading.source);
     await refreshPendingCount();
     setState((p) => ({ ...p, lastReading: reading, lastCapturedAt: event.timestamp, error: null }));
-  }, [vehicleId, driverId, refreshPendingCount]);
+  }, [vehicleId, driverId, vehicleName, refreshPendingCount]);
 
   const syncNow = useCallback(async () => {
     const result = await syncPendingQueue(isOnline);

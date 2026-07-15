@@ -14,6 +14,7 @@ public sealed class TelemetryEventPayloadV1
     public double? FuelLevelPercent { get; init; }
     public double? BatteryPercent { get; init; }
     public string? LocationSource { get; init; }
+    public string? VehicleName { get; init; }
 
     public static TelemetryEventPayloadV1 FromDomain(TelemetryEvent telemetryEvent) => new()
     {
@@ -26,6 +27,7 @@ public sealed class TelemetryEventPayloadV1
         SpeedKmh = telemetryEvent.SpeedKmh,
         FuelLevelPercent = telemetryEvent.FuelLevelPercent,
         BatteryPercent = telemetryEvent.BatteryPercent,
-        LocationSource = telemetryEvent.LocationSource
+        LocationSource = telemetryEvent.LocationSource,
+        VehicleName = telemetryEvent.VehicleName
     };
 }

@@ -11,6 +11,7 @@ export type TelemetryEventPayload = {
   fuelLevelPercent: number | null;
   batteryPercent: number | null;
   locationSource?: "gps" | "simulated";
+  vehicleName?: string | null;
 };
 
 export type QueueStatus = "pending" | "processing" | "retry" | "permanent_failure" | "synced";

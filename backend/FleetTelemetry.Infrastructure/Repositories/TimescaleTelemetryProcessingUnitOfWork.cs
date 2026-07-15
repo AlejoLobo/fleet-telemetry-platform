@@ -93,13 +93,14 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
         var stateRowsAffected = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO fleet_vehicle_state (
-                "VehicleId", "LastEventId", "DriverId", "LastTimestamp", "Latitude", "Longitude",
+                "VehicleId", "LastEventId", "DriverId", "DisplayName", "LastTimestamp", "Latitude", "Longitude",
                 "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "LocationSource", "UpdatedAt"
             )
             VALUES (
                 {telemetryEvent.VehicleId},
                 {telemetryEvent.EventId},
                 {telemetryEvent.DriverId},
+                {telemetryEvent.VehicleName},
                 {telemetryEvent.Timestamp},
                 {telemetryEvent.Latitude},
                 {telemetryEvent.Longitude},
@@ -113,6 +114,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
             SET
                 "LastEventId" = EXCLUDED."LastEventId",
                 "DriverId" = EXCLUDED."DriverId",
+                "DisplayName" = COALESCE(EXCLUDED."DisplayName", fleet_vehicle_state."DisplayName"),
                 "LastTimestamp" = EXCLUDED."LastTimestamp",
                 "Latitude" = EXCLUDED."Latitude",
                 "Longitude" = EXCLUDED."Longitude",
@@ -252,7 +254,7 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
 
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     telemetryEvent.VehicleId,
-                    telemetryEvent.VehicleId,
+                    telemetryEvent.VehicleName ?? telemetryEvent.VehicleId,
                     connectivityStatus,
                     telemetryEvent.Timestamp,
                     telemetryEvent.SpeedKmh,
@@ -261,7 +263,8 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                     null,
                     telemetryEvent.LocationSource,
                     telemetryEvent.EventId,
-                    now);
+                    now,
+                    telemetryEvent.DriverId);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
                     telemetryEvent.VehicleId,

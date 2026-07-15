@@ -1,5 +1,5 @@
 // Panel principal del conductor: captura y sincroniza telemetría
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -9,9 +9,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getDefaultDriverId, getDefaultVehicleId } from "@/config/env";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
+import { loadDriverProfile, saveDriverProfile, type DriverProfile } from "@/services/driver-profile";
 
 const AUTH_STATUS_LABELS: Record<string, string> = {
   checking: "Comprobando autenticación...",
@@ -25,15 +25,19 @@ const AUTH_STATUS_LABELS: Record<string, string> = {
 };
 
 export function DriverDashboard() {
-  // Identidad fija desde parámetros (.env). Solo cambia al reiniciar Expo Go.
-  const vehicleId = getDefaultVehicleId().trim();
-  const driverId = getDefaultDriverId().trim();
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [vehicleName, setVehicleName] = useState("");
+  const [driverName, setDriverName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const auth = useAuthSession();
+  const connected = profile !== null;
+  const deviceId = profile?.deviceId ?? "";
+
   const {
     tracking,
     pendingCount,
@@ -47,15 +51,61 @@ export function DriverDashboard() {
     stopTracking,
     captureOnce,
     syncNow,
-  } = useDriverTelemetry(vehicleId, driverId, auth.canSync);
+  } = useDriverTelemetry(
+    deviceId,
+    driverName.trim(),
+    auth.canSync && Boolean(deviceId),
+    vehicleName.trim(),
+  );
+
+  const profileEditable = !tracking;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await loadDriverProfile();
+        if (cancelled) return;
+        setProfile(loaded);
+        setVehicleName(loaded.vehicleName);
+        setDriverName(loaded.driverName);
+      } catch (e) {
+        if (!cancelled) {
+          setProfileError(e instanceof Error ? e.message : "No se pudo cargar el perfil del dispositivo");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persistProfile = async (): Promise<DriverProfile> => {
+    const saved = await saveDriverProfile({
+      vehicleName,
+      driverName,
+    });
+    setProfile(saved);
+    setVehicleName(saved.vehicleName);
+    setDriverName(saved.driverName);
+    return saved;
+  };
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
+    setProfileError(null);
     try {
       await action();
     } finally {
       setBusy(false);
     }
+  };
+
+  const ensureProfileBeforeConnect = async () => {
+    if (!vehicleName.trim() || !driverName.trim()) {
+      throw new Error("Indica nombre del vehículo y del conductor antes de conectarte.");
+    }
+    await persistProfile();
   };
 
   const handleLogin = async () => {
@@ -107,35 +157,76 @@ export function DriverDashboard() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.section}>Identidad (parámetros)</Text>
-        <Text style={styles.label}>Vehículo</Text>
-        <TextInput style={[styles.input, styles.inputLocked]} value={vehicleId} editable={false} />
-        <Text style={styles.label}>Conductor</Text>
-        <TextInput style={[styles.input, styles.inputLocked]} value={driverId} editable={false} />
+        <Text style={styles.section}>Perfil del dispositivo</Text>
+        <Text style={styles.label}>ID de dispositivo (estable)</Text>
+        <TextInput
+          style={[styles.input, styles.inputLocked]}
+          value={connected ? deviceId : "Cargando..."}
+          editable={false}
+        />
+        <Text style={styles.label}>Nombre del vehículo</Text>
+        <TextInput
+          style={[styles.input, !profileEditable && styles.inputLocked]}
+          value={vehicleName}
+          onChangeText={setVehicleName}
+          editable={profileEditable && connected}
+          placeholder="Ej. Camión norte"
+        />
+        <Text style={styles.label}>Nombre del conductor</Text>
+        <TextInput
+          style={[styles.input, !profileEditable && styles.inputLocked]}
+          value={driverName}
+          onChangeText={setDriverName}
+          editable={profileEditable && connected}
+          placeholder="Ej. Juan Pérez"
+        />
         <Text style={styles.hint}>
-          Fijos en EXPO_PUBLIC_VEHICLE_ID / EXPO_PUBLIC_DRIVER_ID. Para cambiarlos: cierra Expo Go, edita mobile/.env y vuelve a abrir con npx expo start -c.
+          Puedes editar vehículo y conductor solo con el tracking detenido (antes de conectarte al servidor).
+          El ID de dispositivo no cambia: al reconectar, el portal reúne el mismo vehículo en línea.
         </Text>
+        {profileEditable && (
+          <Button
+            title="Guardar perfil"
+            onPress={() => run(async () => { await persistProfile(); })}
+            disabled={busy || !connected || !vehicleName.trim() || !driverName.trim()}
+          />
+        )}
       </View>
 
       <View style={styles.row}>
         <Badge label={`Red: ${networkStatus}`} tone={isOnline ? "ok" : "warn"} />
         <Badge label={`Pendientes: ${pendingCount}`} tone={pendingCount > 0 ? "warn" : "ok"} />
         <Badge label={locationBadge.label} tone={locationBadge.tone} />
+        <Badge label={tracking ? "Conectado" : "Desconectado"} tone={tracking ? "ok" : "neutral"} />
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {(error || profileError) && <Text style={styles.error}>{profileError ?? error}</Text>}
 
       <View style={styles.actions}>
         {!tracking ? (
-          <Button title="Iniciar tracking" onPress={() => run(startTracking)} disabled={busy} />
+          <Button
+            title="Iniciar tracking"
+            onPress={() => run(async () => {
+              await ensureProfileBeforeConnect();
+              await startTracking();
+            })}
+            disabled={busy || !connected}
+          />
         ) : (
           <Button title="Detener tracking" onPress={() => run(async () => stopTracking())} variant="danger" disabled={busy} />
         )}
-        <Button title="Capturar ahora" onPress={() => run(captureOnce)} disabled={busy} />
+        <Button
+          title="Capturar ahora"
+          onPress={() => run(async () => {
+            await ensureProfileBeforeConnect();
+            await captureOnce();
+          })}
+          disabled={busy || !connected}
+        />
         <Button
           title="Sincronizar cola"
           onPress={() => run(async () => { await syncNow(); })}
-          disabled={busy || !isOnline || !auth.canSync}
+          disabled={busy || !isOnline || !auth.canSync || !connected}
         />
       </View>
 

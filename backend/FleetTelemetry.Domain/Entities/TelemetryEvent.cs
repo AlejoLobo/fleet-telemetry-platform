@@ -15,6 +15,7 @@ public sealed class TelemetryEvent
     public double? FuelLevelPercent => _fuelLevel?.Value;
     public double? BatteryPercent => _batteryLevel?.Value;
     public string LocationSource { get; }
+    public string? VehicleName { get; }
 
     private readonly EventId _eventId;
     private readonly VehicleId _vehicleId;
@@ -32,7 +33,8 @@ public sealed class TelemetryEvent
         SpeedKmh speed,
         PercentLevel? fuelLevel,
         PercentLevel? batteryLevel,
-        string locationSource)
+        string locationSource,
+        string? vehicleName)
     {
         _eventId = eventId;
         _vehicleId = vehicleId;
@@ -43,6 +45,7 @@ public sealed class TelemetryEvent
         _fuelLevel = fuelLevel;
         _batteryLevel = batteryLevel;
         LocationSource = locationSource;
+        VehicleName = string.IsNullOrWhiteSpace(vehicleName) ? null : vehicleName.Trim();
     }
 
     public static bool TryCreate(
@@ -57,7 +60,8 @@ public sealed class TelemetryEvent
         double? batteryPercent,
         out TelemetryEvent? telemetryEvent,
         out string? error,
-        string? locationSource = null)
+        string? locationSource = null,
+        string? vehicleName = null)
     {
         telemetryEvent = null;
         error = null;
@@ -89,6 +93,9 @@ public sealed class TelemetryEvent
         if (!TryNormalizeLocationSource(locationSource, out var normalizedSource, out error))
             return false;
 
+        if (!TryNormalizeVehicleName(vehicleName, out var normalizedName, out error))
+            return false;
+
         telemetryEvent = new TelemetryEvent(
             domainEventId!,
             domainVehicleId!,
@@ -98,7 +105,8 @@ public sealed class TelemetryEvent
             speed!,
             fuelLevel,
             batteryLevel,
-            normalizedSource!);
+            normalizedSource!,
+            normalizedName);
 
         return true;
     }
@@ -113,7 +121,8 @@ public sealed class TelemetryEvent
         double speedKmh,
         double? fuelLevelPercent = null,
         double? batteryPercent = null,
-        string? locationSource = null) =>
+        string? locationSource = null,
+        string? vehicleName = null) =>
         TryCreate(
             eventId,
             vehicleId,
@@ -126,7 +135,8 @@ public sealed class TelemetryEvent
             batteryPercent,
             out var telemetryEvent,
             out var error,
-            locationSource)
+            locationSource,
+            vehicleName)
             ? telemetryEvent!
             : throw new ArgumentException(error);
 
@@ -140,7 +150,8 @@ public sealed class TelemetryEvent
         double speedKmh,
         double? fuelLevelPercent,
         double? batteryPercent,
-        string? locationSource = null) =>
+        string? locationSource = null,
+        string? vehicleName = null) =>
         new(
             ValueObjects.EventId.Create(eventId),
             ValueObjects.VehicleId.Create(vehicleId),
@@ -150,7 +161,35 @@ public sealed class TelemetryEvent
             ValueObjects.SpeedKmh.Create(speedKmh),
             PercentLevel.CreateOptional(fuelLevelPercent),
             PercentLevel.CreateOptional(batteryPercent),
-            NormalizeLocationSource(locationSource));
+            NormalizeLocationSource(locationSource),
+            NormalizeVehicleName(vehicleName));
+
+    private static bool TryNormalizeVehicleName(string? name, out string? normalized, out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            normalized = null;
+            error = null;
+            return true;
+        }
+
+        var trimmed = name.Trim();
+        if (trimmed.Length > 64)
+        {
+            normalized = null;
+            error = "VehicleName must be at most 64 characters.";
+            return false;
+        }
+
+        normalized = trimmed;
+        error = null;
+        return true;
+    }
+
+    private static string? NormalizeVehicleName(string? name) =>
+        TryNormalizeVehicleName(name, out var normalized, out var error)
+            ? normalized
+            : throw new ArgumentException(error);
 
     private static bool TryNormalizeLocationSource(string? source, out string? normalized, out string? error)
     {

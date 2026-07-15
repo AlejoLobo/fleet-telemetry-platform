@@ -4,6 +4,7 @@ import type { VehicleStatus } from "@/types/fleet";
 type RawVehicle = VehicleStatus & {
   VehicleId?: string;
   Name?: string;
+  DriverId?: string | null;
   Status?: string;
   LastSeenAt?: string | null;
   LastEventId?: string | null;
@@ -18,9 +19,11 @@ type RawVehicle = VehicleStatus & {
 
 /** Normaliza un vehículo del API (PascalCase → camelCase). */
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
+  const vehicleId = vehicle.vehicleId ?? vehicle.VehicleId ?? "";
   return {
-    vehicleId: vehicle.vehicleId ?? vehicle.VehicleId ?? "",
-    name: vehicle.name ?? vehicle.Name ?? "",
+    vehicleId,
+    name: vehicle.name ?? vehicle.Name ?? vehicleId,
+    driverId: vehicle.driverId ?? vehicle.DriverId ?? null,
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,
     lastEventId: vehicle.lastEventId ?? vehicle.LastEventId ?? null,

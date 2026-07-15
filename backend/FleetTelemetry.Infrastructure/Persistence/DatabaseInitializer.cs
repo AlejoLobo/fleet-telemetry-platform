@@ -366,6 +366,7 @@ public static class DatabaseInitializer
                 "VehicleId" character varying(64) NOT NULL,
                 "LastEventId" uuid NOT NULL,
                 "DriverId" character varying(64),
+                "DisplayName" character varying(64),
                 "LastTimestamp" timestamp with time zone NOT NULL,
                 "Latitude" double precision NOT NULL,
                 "Longitude" double precision NOT NULL,
@@ -376,6 +377,15 @@ public static class DatabaseInitializer
                 "UpdatedAt" timestamp with time zone NOT NULL,
                 CONSTRAINT "PK_fleet_vehicle_state" PRIMARY KEY ("VehicleId")
             );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            ALTER TABLE fleet_vehicle_state
+            ADD COLUMN IF NOT EXISTS "DisplayName" character varying(64);
             """,
             cancellationToken);
 

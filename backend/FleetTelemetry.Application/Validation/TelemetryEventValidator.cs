@@ -30,6 +30,9 @@ public class TelemetryEventValidator
         if (request.DriverId is not null && request.DriverId.Trim().Length > _options.MaxDriverIdLength)
             throw new ArgumentException($"DriverId must be <= {_options.MaxDriverIdLength} characters.");
 
+        if (request.VehicleName is not null && request.VehicleName.Trim().Length > _options.MaxVehicleNameLength)
+            throw new ArgumentException($"VehicleName must be <= {_options.MaxVehicleNameLength} characters.");
+
         if (request.Timestamp == default)
             throw new ArgumentException("Timestamp is required.");
 
@@ -74,7 +77,8 @@ public class TelemetryEventValidator
             request.SpeedKmh,
             request.FuelLevelPercent,
             request.BatteryPercent,
-            NormalizeLocationSource(request.LocationSource));
+            NormalizeLocationSource(request.LocationSource),
+            request.VehicleName?.Trim());
 
     public static string NormalizeLocationSource(string? source) =>
         string.IsNullOrWhiteSpace(source) ? "gps" : source.Trim().ToLowerInvariant();

@@ -4,6 +4,7 @@
 export type VehicleStatus = {
   vehicleId: string;
   name: string;
+  driverId?: string | null;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;

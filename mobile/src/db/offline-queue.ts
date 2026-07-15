@@ -1,7 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/telemetry";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 /** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
@@ -25,6 +25,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
       fuel_level_percent REAL,
       battery_percent REAL,
       source TEXT NOT NULL DEFAULT 'gps',
+      vehicle_name TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       retry_count INTEGER NOT NULL DEFAULT 0,
       next_attempt_at TEXT,
@@ -38,8 +39,14 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   `);
 
   const versionRow = await db.getFirstAsync<{ value: string }>(`SELECT value FROM schema_meta WHERE key = 'version'`);
-  if (Number(versionRow?.value ?? 1) < SCHEMA_VERSION) {
+  const currentVersion = Number(versionRow?.value ?? 1);
+  if (currentVersion < 2) {
     await migrateToV2(db);
+  }
+  if (currentVersion < 3) {
+    await migrateToV3(db);
+  }
+  if (currentVersion < SCHEMA_VERSION) {
     await db.runAsync(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`, String(SCHEMA_VERSION));
   }
   return db;
@@ -58,6 +65,14 @@ async function migrateToV2(db: SQLite.SQLiteDatabase): Promise<void> {
   await add(`ALTER TABLE telemetry_queue ADD COLUMN synced_at TEXT`, "synced_at");
 }
 
+async function migrateToV3(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
+  const names = new Set(columns.map((c) => c.name));
+  if (!names.has("vehicle_name")) {
+    await db.execAsync(`ALTER TABLE telemetry_queue ADD COLUMN vehicle_name TEXT`);
+  }
+}
+
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
   return {
     localId: row.local_id as number,
@@ -71,6 +86,7 @@ function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
     fuelLevelPercent: (row.fuel_level_percent as number | null) ?? null,
     batteryPercent: (row.battery_percent as number | null) ?? null,
     source: (row.source as QueuedTelemetryEvent["source"]) ?? "gps",
+    vehicleName: (row.vehicle_name as string | null) ?? null,
     status: row.status as QueuedTelemetryEvent["status"],
     retryCount: (row.retry_count as number) ?? 0,
     nextAttemptAt: (row.next_attempt_at as string | null) ?? null,
@@ -92,10 +108,10 @@ export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" |
   const db = await getDb();
   const result = await db.runAsync(
     `INSERT INTO telemetry_queue (event_id, vehicle_id, driver_id, timestamp, latitude, longitude, speed_kmh,
-      fuel_level_percent, battery_percent, source, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      fuel_level_percent, battery_percent, source, vehicle_name, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     event.eventId, event.vehicleId, event.driverId, event.timestamp, event.latitude, event.longitude,
-    event.speedKmh, event.fuelLevelPercent, event.batteryPercent, source, new Date().toISOString(),
+    event.speedKmh, event.fuelLevelPercent, event.batteryPercent, source, event.vehicleName ?? null, new Date().toISOString(),
   );
   return result.lastInsertRowId;
 }
@@ -271,5 +287,6 @@ export function toPayload(event: QueuedTelemetryEvent): TelemetryEventPayload {
     eventId: event.eventId, vehicleId: event.vehicleId, driverId: event.driverId, timestamp: event.timestamp,
     latitude: event.latitude, longitude: event.longitude, speedKmh: event.speedKmh,
     fuelLevelPercent: event.fuelLevelPercent, batteryPercent: event.batteryPercent, locationSource: event.source,
+    vehicleName: event.vehicleName ?? null,
   };
 }
