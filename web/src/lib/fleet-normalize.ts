@@ -1,7 +1,7 @@
 /** Normaliza respuestas del backend al formato del frontend. */
 import type { VehicleStatus } from "@/types/fleet";
 
-type RawVehicle = VehicleStatus & {
+type RawVehicle = Partial<VehicleStatus> & {
   VehicleId?: string;
   Name?: string;
   DriverId?: string | null;

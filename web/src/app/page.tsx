@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useFleetData } from "@/hooks/use-fleet-data";
@@ -9,6 +9,12 @@ import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
 import { resolveDisplayVehicles } from "@/lib/fleet-display";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
+import {
+  DEFAULT_LIVE_REFRESH_INTERVAL_SECONDS,
+  type LiveRefreshIntervalSeconds,
+  readLiveRefreshIntervalSeconds,
+  writeLiveRefreshIntervalSeconds,
+} from "@/lib/live-refresh-interval";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -38,11 +44,29 @@ export default function DashboardPage() {
   const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
   /** Activo solo tras Actualizar: elimina desconectados previos sin ocultarlos en operación normal. */
   const [afterLiveRefresh, setAfterLiveRefresh] = useState(false);
+  const [liveRefreshSeconds, setLiveRefreshSeconds] = useState<LiveRefreshIntervalSeconds>(
+    DEFAULT_LIVE_REFRESH_INTERVAL_SECONDS,
+  );
+  const silentRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setConnectivityNowMs(Date.now()), 5_000);
-    return () => window.clearInterval(timer);
+    setLiveRefreshSeconds(readLiveRefreshIntervalSeconds());
   }, []);
+
+  const handleLiveRefreshSecondsChange = useCallback((seconds: LiveRefreshIntervalSeconds) => {
+    setLiveRefreshSeconds(seconds);
+    writeLiveRefreshIntervalSeconds(seconds);
+  }, []);
+
+  // Recalcula frescura online/offline al ritmo elegido en el monitor.
+  useEffect(() => {
+    setConnectivityNowMs(Date.now());
+    const timer = window.setInterval(
+      () => setConnectivityNowMs(Date.now()),
+      liveRefreshSeconds * 1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [liveRefreshSeconds]);
 
   const refreshAuthState = async () => {
     try {
@@ -125,6 +149,37 @@ export default function DashboardPage() {
     await refresh({ liveOnly: true });
   }, [refresh, resetLiveViewState]);
 
+  // Captura periódica de flota/telemetría al ritmo del monitor (sin spinner).
+  useEffect(() => {
+    if (dataSource !== "api" && dataSource !== "demo") return;
+
+    const tick = async () => {
+      if (silentRefreshInFlightRef.current) return;
+      silentRefreshInFlightRef.current = true;
+      try {
+        if (dataSource === "api") {
+          await refresh({
+            silent: true,
+            liveOnly: afterLiveRefresh,
+          });
+        } else {
+          await refresh({ silent: true });
+        }
+        setConnectivityNowMs(Date.now());
+      } catch {
+        // El error queda en el estado del hook; no interrumpe el ciclo.
+      } finally {
+        silentRefreshInFlightRef.current = false;
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void tick();
+    }, liveRefreshSeconds * 1000);
+
+    return () => window.clearInterval(timer);
+  }, [dataSource, liveRefreshSeconds, refresh, afterLiveRefresh]);
+
   useEffect(() => {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
   }, [vehicles]);
@@ -197,6 +252,8 @@ export default function DashboardPage() {
         alertCount={displayAlerts.length}
         criticalAlertCount={criticalAlertCount}
         alertsAttention={alertsAttention}
+        liveRefreshSeconds={liveRefreshSeconds}
+        onLiveRefreshSecondsChange={handleLiveRefreshSecondsChange}
         onOpenAlerts={() => {
           setAlertsAttention(false);
           setAlertsOpen(true);

@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/connection-status";
 import { AlertsModalTrigger } from "@/components/alerts/alerts-modal";
 import { cn } from "@/lib/utils";
+import {
+  LIVE_REFRESH_INTERVAL_OPTIONS_SECONDS,
+  type LiveRefreshIntervalSeconds,
+} from "@/lib/live-refresh-interval";
 import type { SseConnectionState } from "@/types/fleet";
 
 type DashboardHeaderProps = {
@@ -13,6 +17,8 @@ type DashboardHeaderProps = {
   alertCount: number;
   criticalAlertCount: number;
   alertsAttention?: boolean;
+  liveRefreshSeconds: LiveRefreshIntervalSeconds;
+  onLiveRefreshSecondsChange: (seconds: LiveRefreshIntervalSeconds) => void;
   onOpenAlerts: () => void;
   onLoadApi: () => void;
   onLoadDemo: () => void;
@@ -27,6 +33,8 @@ export function DashboardHeader({
   alertCount,
   criticalAlertCount,
   alertsAttention = false,
+  liveRefreshSeconds,
+  onLiveRefreshSecondsChange,
   onOpenAlerts,
   onLoadApi,
   onLoadDemo,
@@ -64,6 +72,23 @@ export function DashboardHeader({
             attention={alertsAttention}
             onClick={onOpenAlerts}
           />
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs text-slate-600">
+            <span className="whitespace-nowrap font-medium text-slate-500">Refresco</span>
+            <select
+              className="rounded-md border-0 bg-transparent text-xs font-semibold text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={liveRefreshSeconds}
+              aria-label="Intervalo de refresco del monitor"
+              onChange={(event) => {
+                onLiveRefreshSecondsChange(Number(event.target.value) as LiveRefreshIntervalSeconds);
+              }}
+            >
+              {LIVE_REFRESH_INTERVAL_OPTIONS_SECONDS.map((seconds) => (
+                <option key={seconds} value={seconds}>
+                  {seconds}s
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="hidden h-6 w-px bg-slate-200 sm:block" />
           <Button
             variant={dataSource === "api" ? "default" : "outline"}

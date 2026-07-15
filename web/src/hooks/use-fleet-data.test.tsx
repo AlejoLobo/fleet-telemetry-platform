@@ -462,4 +462,41 @@ describe("useFleetData refreshForResync", () => {
 
     expect(fetchFleetLive).toHaveBeenCalledWith({ liveOnly: true });
   });
+
+  it("refresh_silencioso_no_activa_loading_de_flota", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    let resolveFleet: ((value: unknown) => void) | undefined;
+    fetchFleetLive.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFleet = resolve;
+        }),
+    );
+
+    let done = false;
+    void result.current.refresh({ silent: true }).then(() => {
+      done = true;
+    });
+
+    await waitFor(() => expect(fetchFleetLive).toHaveBeenCalled());
+    expect(result.current.fleetLoading).toBe(false);
+
+    resolveFleet?.({
+      vehicles: [{ ...vehicle, lastSpeedKmh: 99 }],
+      partial: false,
+      truncated: false,
+    });
+    await waitFor(() => expect(done).toBe(true));
+    expect(result.current.vehicles[0]?.lastSpeedKmh).toBe(99);
+  });
 });

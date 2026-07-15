@@ -75,12 +75,12 @@ export function useFleetData(selectedVehicleId: string | null) {
 
   const loadFleetAndAlerts = useCallback(async (
     generation: number,
-    options?: { liveOnly?: boolean },
+    options?: { liveOnly?: boolean; silent?: boolean },
   ): Promise<boolean> => {
     setState((prev) => ({
       ...prev,
-      fleetLoading: true,
-      fleetError: null,
+      fleetLoading: options?.silent ? prev.fleetLoading : true,
+      fleetError: options?.silent ? prev.fleetError : null,
       fleetPartial: false,
       fleetTruncated: false,
     }));
@@ -158,6 +158,7 @@ export function useFleetData(selectedVehicleId: string | null) {
   const loadTelemetryForVehicle = useCallback(async (
     vehicleId: string,
     generation: number,
+    options?: { silent?: boolean },
   ) => {
     if (!isCurrentGeneration(generation)) return;
 
@@ -168,8 +169,8 @@ export function useFleetData(selectedVehicleId: string | null) {
 
     setState((prev) => ({
       ...prev,
-      telemetryLoading: true,
-      telemetryError: null,
+      telemetryLoading: options?.silent ? prev.telemetryLoading : true,
+      telemetryError: options?.silent ? prev.telemetryError : null,
       telemetryPartial: false,
       telemetryTruncated: false,
     }));
@@ -221,7 +222,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     }));
   }, []);
 
-  const loadFromApi = useCallback(async (options?: { liveOnly?: boolean }) => {
+  const loadFromApi = useCallback(async (options?: { liveOnly?: boolean; silent?: boolean }) => {
     const generation = ++snapshotGenerationRef.current;
     const fleetOk = await loadFleetAndAlerts(generation, options);
     if (!fleetOk || !isCurrentGeneration(generation)) return;
@@ -236,7 +237,7 @@ export function useFleetData(selectedVehicleId: string | null) {
       return;
     }
 
-    await loadTelemetryForVehicle(vehicleId, generation);
+    await loadTelemetryForVehicle(vehicleId, generation, { silent: options?.silent });
   }, [clearSelectedTelemetry, loadFleetAndAlerts, loadTelemetryForVehicle, selectedVehicleId]);
 
   const loadDemoData = useCallback(async () => {
@@ -283,7 +284,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     dataSourceRef.current = "demo";
   }, [selectedVehicleId]);
 
-  const refresh = useCallback(async (options?: { liveOnly?: boolean }) => {
+  const refresh = useCallback(async (options?: { liveOnly?: boolean; silent?: boolean }) => {
     if (dataSourceRef.current === "demo") {
       await loadDemoData();
     } else {
