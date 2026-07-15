@@ -162,13 +162,17 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await ExecuteSqlAsync(
-            connection,
-            """
-            CREATE INDEX IF NOT EXISTS ix_fleet_alerts_vehicle_created
-            ON fleet_alerts ("VehicleId", "CreatedAt" DESC);
-            """,
-            cancellationToken);
+        // Tras v7 la columna es device_id; no recrear índices sobre VehicleId inexistente.
+        if (await ColumnExistsAsync(connection, null, "fleet_alerts", "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                """
+                CREATE INDEX IF NOT EXISTS ix_fleet_alerts_vehicle_created
+                ON fleet_alerts ("VehicleId", "CreatedAt" DESC);
+                """,
+                cancellationToken);
+        }
 
         await ExecuteSqlAsync(
             connection,
@@ -196,13 +200,16 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await ExecuteSqlAsync(
-            connection,
-            """
-            CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp
-            ON telemetry_events ("VehicleId", "Timestamp" DESC);
-            """,
-            cancellationToken);
+        if (await ColumnExistsAsync(connection, null, "telemetry_events", "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                """
+                CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp
+                ON telemetry_events ("VehicleId", "Timestamp" DESC);
+                """,
+                cancellationToken);
+        }
 
         await ExecuteSqlAsync(
             connection,
@@ -233,13 +240,16 @@ public static class DatabaseInitializer
             """,
             cancellationToken);
 
-        await ExecuteSqlAsync(
-            connection,
-            """
-            CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp_event
-            ON telemetry_events ("VehicleId", "Timestamp" DESC, "EventId" DESC);
-            """,
-            cancellationToken);
+        if (await ColumnExistsAsync(connection, null, "telemetry_events", "VehicleId", cancellationToken))
+        {
+            await ExecuteSqlAsync(
+                connection,
+                """
+                CREATE INDEX IF NOT EXISTS ix_telemetry_events_vehicle_timestamp_event
+                ON telemetry_events ("VehicleId", "Timestamp" DESC, "EventId" DESC);
+                """,
+                cancellationToken);
+        }
 
         await ExecuteSqlAsync(
             connection,
@@ -858,10 +868,12 @@ public static class DatabaseInitializer
             await EnsureFleetDevicesSchemaAsync(connection, transaction, cancellationToken);
             await BuildDeviceIdMigrationMapAsync(connection, transaction, cancellationToken);
             await InsertMigratedDevicesAsync(connection, transaction, cancellationToken);
+            await SyncFleetVehicleNameSequenceAsync(connection, transaction, cancellationToken);
 
             await ConvertOperationalTableToDeviceIdAsync(
                 connection,
                 transaction,
+                logger,
                 "fleet_vehicle_state",
                 primaryKeyColumns: ["device_id"],
                 primaryKeyName: "PK_fleet_vehicle_state",
@@ -875,6 +887,7 @@ public static class DatabaseInitializer
             await ConvertOperationalTableToDeviceIdAsync(
                 connection,
                 transaction,
+                logger,
                 "fleet_alerts",
                 primaryKeyColumns: null,
                 primaryKeyName: null,
@@ -888,6 +901,7 @@ public static class DatabaseInitializer
             await ConvertOperationalTableToDeviceIdAsync(
                 connection,
                 transaction,
+                logger,
                 "fleet_alert_states",
                 primaryKeyColumns: ["device_id", "\"AlertType\""],
                 primaryKeyName: "PK_fleet_alert_states",
@@ -898,6 +912,7 @@ public static class DatabaseInitializer
             await ConvertOperationalTableToDeviceIdAsync(
                 connection,
                 transaction,
+                logger,
                 "fleet_offline_publish_markers",
                 primaryKeyColumns: ["device_id"],
                 primaryKeyName: "PK_fleet_offline_publish_markers",
@@ -905,7 +920,7 @@ public static class DatabaseInitializer
                 createIndexesSql: null,
                 cancellationToken);
 
-            await ConvertTelemetryEventsToDeviceIdAsync(connection, transaction, cancellationToken);
+            await ConvertTelemetryEventsToDeviceIdAsync(connection, transaction, logger, cancellationToken);
             await RecreateTelemetryHourlyAggregateAsync(connection, transaction, cancellationToken);
 
             await migrationHooks.OnBeforeRegisterVersionAsync(
@@ -961,6 +976,15 @@ public static class DatabaseInitializer
             SELECT
                 legacy,
                 CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM fleet_devices d WHERE d.vehicle_name = legacy
+                    )
+                        THEN (
+                            SELECT d.device_id
+                            FROM fleet_devices d
+                            WHERE d.vehicle_name = legacy
+                            LIMIT 1
+                        )
                     WHEN legacy ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                         THEN legacy::uuid
                     ELSE gen_random_uuid()
@@ -1037,9 +1061,33 @@ public static class DatabaseInitializer
             cancellationToken);
     }
 
+    // Alinea la secuencia VH-###: si el máximo es M, el próximo nextval es M+1; si no hay nombres, el próximo es 1.
+    private static async Task SyncFleetVehicleNameSequenceAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            SELECT setval(
+                'fleet_vehicle_name_seq',
+                COALESCE((
+                    SELECT MAX(substring(vehicle_name FROM '^VH-([0-9]+)$')::bigint)
+                    FROM fleet_devices
+                    WHERE vehicle_name ~ '^VH-[0-9]+$'
+                ), 0),
+                true
+            );
+            """,
+            cancellationToken);
+    }
+
     private static async Task ConvertOperationalTableToDeviceIdAsync(
         DbConnection connection,
         DbTransaction transaction,
+        ILogger logger,
         string tableName,
         string[]? primaryKeyColumns,
         string? primaryKeyName,
@@ -1074,13 +1122,11 @@ public static class DatabaseInitializer
                 """,
                 cancellationToken);
 
-            await ExecuteSqlAsync(
+            await PreserveUnmappedOperationalRowsAsync(
                 connection,
                 transaction,
-                $"""
-                DELETE FROM {tableName}
-                WHERE device_id IS NULL;
-                """,
+                logger,
+                tableName,
                 cancellationToken);
         }
 
@@ -1142,9 +1188,134 @@ public static class DatabaseInitializer
             await ExecuteSqlAsync(connection, transaction, createIndexesSql, cancellationToken);
     }
 
+    // Conserva filas históricas sin mapeo: asigna DeviceId, registra en fleet_devices y evita DELETE silencioso.
+    private static async Task PreserveUnmappedOperationalRowsAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        ILogger logger,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var countCommand = connection.CreateCommand();
+        countCommand.Transaction = transaction;
+        countCommand.CommandText = $"""
+            SELECT COUNT(*)::bigint
+            FROM {tableName}
+            WHERE device_id IS NULL;
+            """;
+        var unmappedCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0L);
+        if (unmappedCount == 0)
+            return;
+
+        logger.LogWarning(
+            "Migración DeviceId: {UnmappedCount} filas en {TableName} sin mapeo; se generan device_id y se registran en fleet_devices.",
+            unmappedCount,
+            tableName);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            $"""
+            DO $$
+            DECLARE
+                r RECORD;
+                assigned uuid;
+                candidate text;
+                suffix int;
+            BEGIN
+                FOR r IN
+                    SELECT DISTINCT "VehicleId" AS legacy
+                    FROM {tableName}
+                    WHERE device_id IS NULL
+                      AND "VehicleId" IS NOT NULL
+                      AND btrim("VehicleId") <> ''
+                    ORDER BY 1
+                LOOP
+                    SELECT d.device_id INTO assigned
+                    FROM fleet_devices d
+                    WHERE d.vehicle_name = r.legacy
+                    LIMIT 1;
+
+                    IF assigned IS NULL
+                       AND r.legacy ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+                        assigned := r.legacy::uuid;
+                    END IF;
+
+                    IF assigned IS NULL THEN
+                        assigned := gen_random_uuid();
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM fleet_devices d WHERE d.device_id = assigned) THEN
+                        candidate := CASE
+                            WHEN char_length(r.legacy) < 2 THEN left(r.legacy || '-legacy', 100)
+                            ELSE left(r.legacy, 100)
+                        END;
+                        suffix := 0;
+
+                        LOOP
+                            BEGIN
+                                INSERT INTO fleet_devices (device_id, vehicle_name, created_at, updated_at)
+                                VALUES (assigned, candidate, NOW(), NOW());
+                                EXIT;
+                            EXCEPTION WHEN unique_violation THEN
+                                IF EXISTS (SELECT 1 FROM fleet_devices d WHERE d.device_id = assigned) THEN
+                                    EXIT;
+                                END IF;
+                                suffix := suffix + 1;
+                                candidate := left(
+                                    CASE
+                                        WHEN char_length(r.legacy) < 2 THEN left(r.legacy || '-legacy', 100)
+                                        ELSE left(r.legacy, 100)
+                                    END,
+                                    greatest(1, 100 - length('-' || suffix::text)))
+                                    || '-' || suffix::text;
+                            END;
+                        END LOOP;
+                    END IF;
+
+                    UPDATE {tableName}
+                    SET device_id = assigned
+                    WHERE device_id IS NULL
+                      AND "VehicleId" = r.legacy;
+                END LOOP;
+
+                -- Filas con VehicleId nulo/vacío: conservar con UUID nuevo anónimo.
+                FOR r IN
+                    SELECT ctid AS row_ctid
+                    FROM {tableName}
+                    WHERE device_id IS NULL
+                LOOP
+                    assigned := gen_random_uuid();
+                    candidate := 'orphan-' || substr(assigned::text, 1, 8);
+                    suffix := 0;
+
+                    LOOP
+                        BEGIN
+                            INSERT INTO fleet_devices (device_id, vehicle_name, created_at, updated_at)
+                            VALUES (assigned, candidate, NOW(), NOW());
+                            EXIT;
+                        EXCEPTION WHEN unique_violation THEN
+                            IF EXISTS (SELECT 1 FROM fleet_devices d WHERE d.device_id = assigned) THEN
+                                EXIT;
+                            END IF;
+                            suffix := suffix + 1;
+                            candidate := 'orphan-' || substr(assigned::text, 1, 8) || '-' || suffix::text;
+                        END;
+                    END LOOP;
+
+                    UPDATE {tableName}
+                    SET device_id = assigned
+                    WHERE ctid = r.row_ctid;
+                END LOOP;
+            END $$;
+            """,
+            cancellationToken);
+    }
+
     private static async Task ConvertTelemetryEventsToDeviceIdAsync(
         DbConnection connection,
         DbTransaction transaction,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         if (!await TableExistsAsync(connection, transaction, "telemetry_events", cancellationToken))
@@ -1222,6 +1393,13 @@ public static class DatabaseInitializer
                 WHERE device_id IS NULL
                   AND "VehicleId" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
                 """,
+                cancellationToken);
+
+            await PreserveUnmappedOperationalRowsAsync(
+                connection,
+                transaction,
+                logger,
+                "telemetry_events",
                 cancellationToken);
         }
 
