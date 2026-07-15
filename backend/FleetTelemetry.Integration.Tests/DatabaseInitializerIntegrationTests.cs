@@ -49,12 +49,29 @@ public class DatabaseInitializerIntegrationTests : IAsyncLifetime
                 "fleet_vehicle_state",
                 "fleet_alert_states"));
         Assert.True(await HypertableExistsAsync(connection));
-        Assert.True(await IndexExistsAsync(connection, "ix_fleet_alerts_vehicle_created"));
-        Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_vehicle_timestamp"));
+        Assert.True(await IndexExistsAsync(connection, "ix_fleet_alerts_device_created"));
+        Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_device_timestamp_event"));
+        Assert.False(await IndexExistsAsync(connection, "ix_fleet_alerts_vehicle_created"));
+        Assert.False(await IndexExistsAsync(connection, "ix_telemetry_events_vehicle_timestamp"));
         Assert.True(await IndexExistsAsync(connection, "ix_fleet_alert_states_active_condition"));
         Assert.True(await SchemaVersionExistsAsync(connection, 4));
         Assert.True(await SchemaVersionExistsAsync(connection, 5));
+        Assert.True(await SchemaVersionExistsAsync(connection, 7));
         Assert.Equal(0, await CountActiveAdvisoryLocksAsync(connection));
+    }
+
+    [Fact]
+    public async Task Reentry_after_v7_does_not_fail_creating_legacy_vehicle_indexes()
+    {
+        await DatabaseInitializer.InitializeAsync(_services);
+        // Segunda pasada: InitializeBaseSchemaAsync no debe recrear índices sobre VehicleId.
+        var exception = await CaptureExceptionAsync(DatabaseInitializer.InitializeAsync(_services));
+        Assert.Null(exception);
+
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+        Assert.True(await SchemaVersionExistsAsync(connection, 7));
+        Assert.True(await IndexExistsAsync(connection, "ix_telemetry_events_device_timestamp_event"));
     }
 
     private static async Task<bool> SchemaVersionExistsAsync(NpgsqlConnection connection, int version)
