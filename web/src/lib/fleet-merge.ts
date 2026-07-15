@@ -58,7 +58,7 @@ function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): Vehi
   return compareVehicleRecency(incoming, current) >= 0 ? incoming : current;
 }
 
-/** Fusiona actualizaciones por VehicleId conservando el registro más reciente. */
+/** Fusiona actualizaciones por DeviceId conservando el registro más reciente. */
 export function mergeVehicleUpdates(
   snapshot: VehicleStatus[],
   updates: VehicleStatus[],
@@ -67,25 +67,25 @@ export function mergeVehicleUpdates(
 
   const patchById = new Map<string, VehicleStatus>();
   for (const update of updates) {
-    if (!update.vehicleId) continue;
-    const existing = patchById.get(update.vehicleId);
-    patchById.set(update.vehicleId, existing ? pickNewerVehicle(existing, update) : update);
+    if (!update.deviceId) continue;
+    const existing = patchById.get(update.deviceId);
+    patchById.set(update.deviceId, existing ? pickNewerVehicle(existing, update) : update);
   }
 
   const merged: VehicleStatus[] = [];
   const seen = new Set<string>();
 
   for (const vehicle of snapshot) {
-    const patch = patchById.get(vehicle.vehicleId);
+    const patch = patchById.get(vehicle.deviceId);
     merged.push(patch ? pickNewerVehicle(vehicle, patch) : vehicle);
-    seen.add(vehicle.vehicleId);
-    patchById.delete(vehicle.vehicleId);
+    seen.add(vehicle.deviceId);
+    patchById.delete(vehicle.deviceId);
   }
 
   for (const patch of patchById.values()) {
-    if (!seen.has(patch.vehicleId)) {
+    if (!seen.has(patch.deviceId)) {
       merged.push(patch);
-      seen.add(patch.vehicleId);
+      seen.add(patch.deviceId);
     }
   }
 
@@ -99,9 +99,9 @@ export function pruneVehiclePatches(
 ): VehicleStatus[] {
   if (patches.length === 0 || snapshot.length === 0) return patches;
 
-  const snapshotById = new Map(snapshot.map((vehicle) => [vehicle.vehicleId, vehicle]));
+  const snapshotById = new Map(snapshot.map((vehicle) => [vehicle.deviceId, vehicle]));
   return patches.filter((patch) => {
-    const snapshotVehicle = snapshotById.get(patch.vehicleId);
+    const snapshotVehicle = snapshotById.get(patch.deviceId);
     if (!snapshotVehicle) return true;
     return compareVehicleRecency(patch, snapshotVehicle) > 0;
   });

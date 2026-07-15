@@ -2,7 +2,7 @@
 "use client";
 
 import { AlertTriangle, Bell, CheckCircle2, ShieldAlert } from "lucide-react";
-import type { FleetAlert } from "@/types/fleet";
+import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,18 +10,20 @@ import {
   esSeveridadCritica,
   etiquetaSeveridad,
   etiquetaTipoAlerta,
+  resolveAlertDeviceLabel,
   traducirMensajeAlerta,
 } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 type AlertsPanelProps = {
   alerts: FleetAlert[];
+  vehicles?: VehicleStatus[];
   onAcknowledge?: (alertId: string) => Promise<void>;
   acknowledgingId?: string | null;
 };
 
 /** Lista de alertas con opción de confirmar. */
-export function AlertsPanel({ alerts, onAcknowledge, acknowledgingId }: AlertsPanelProps) {
+export function AlertsPanel({ alerts, vehicles, onAcknowledge, acknowledgingId }: AlertsPanelProps) {
   const criticalCount = alerts.filter((a) => esSeveridadCritica(a.severity)).length;
 
   return (
@@ -73,14 +75,19 @@ export function AlertsPanel({ alerts, onAcknowledge, acknowledgingId }: AlertsPa
                   <Badge variant={critical ? "critical" : "warning"}>
                     {etiquetaSeveridad(alert.severity)}
                   </Badge>
-                  <span className="font-semibold text-slate-800">{alert.vehicleId}</span>
+                  <span className="font-semibold text-slate-800">
+                    {resolveAlertDeviceLabel(alert, vehicles)}
+                  </span>
                   <span className="text-xs text-slate-400">·</span>
                   <span className="text-xs font-medium text-slate-500">
                     {etiquetaTipoAlerta(alert.alertType)}
                   </span>
                 </div>
                 <p className="text-sm leading-relaxed text-slate-700">
-                  {traducirMensajeAlerta(alert)}
+                  {traducirMensajeAlerta({
+                    ...alert,
+                    displayLabel: resolveAlertDeviceLabel(alert, vehicles),
+                  })}
                 </p>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <p className="flex items-center gap-1.5 text-xs text-slate-400">

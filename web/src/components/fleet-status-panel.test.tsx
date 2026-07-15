@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FleetStatusPanel } from "@/components/fleet-status-panel";
 import type { VehicleStatus } from "@/types/fleet";
 
+import { mockDeviceId } from "@/mocks/fleet-data";
+
 function buildVehicles(count: number): VehicleStatus[] {
   return Array.from({ length: count }, (_, index) => ({
-    vehicleId: `VH-${String(index + 1).padStart(3, "0")}`,
-    name: `VH-${String(index + 1).padStart(3, "0")}`,
+    deviceId: mockDeviceId(index),
+    vehicleName: `VH-${String(index + 1).padStart(3, "0")}`,
     status: index % 2 === 0 ? "online" : "offline",
     lastSeenAt: "2026-07-10T10:00:00Z",
     lastSpeedKmh: 40,
@@ -105,8 +107,8 @@ describe("FleetStatusPanel truncated semantics", () => {
   it("Panel_no_mezcla_activos_locales_con_total_global", () => {
     const vehicles = [
       {
-        vehicleId: "VH-001",
-        name: "VH-001",
+        deviceId: "00000000-0000-4000-8000-000000000001",
+        vehicleName: "VH-001",
         status: "online",
         lastSeenAt: "2026-07-10T10:00:00Z",
         lastSpeedKmh: 40,
@@ -114,8 +116,8 @@ describe("FleetStatusPanel truncated semantics", () => {
         lastLongitude: -74.0,
       },
       {
-        vehicleId: "VH-002",
-        name: "VH-002",
+        deviceId: "00000000-0000-4000-8000-000000000002",
+        vehicleName: "VH-002",
         status: "online",
         lastSeenAt: "2026-07-10T10:00:00Z",
         lastSpeedKmh: 40,

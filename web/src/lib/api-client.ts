@@ -1,5 +1,6 @@
 /** Cliente HTTP para comunicarse con el backend .NET. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
+import { normalizeAlerts } from "@/lib/fleet-normalize";
 import { getApiBaseUrl } from "@/lib/utils";
 import {
   fetchFleetSnapshot,
@@ -85,7 +86,8 @@ export const apiClient = {
     return fetchFleetSnapshot(options);
   },
   async fetchAlertsLive(): Promise<FleetAlert[]> {
-    return fetchJson<FleetAlert[]>("/api/alerts");
+    const alerts = await fetchJson<Record<string, unknown>[]>("/api/alerts");
+    return normalizeAlerts(alerts);
   },
 
   async fetchOpsSummary(): Promise<{
@@ -101,8 +103,8 @@ export const apiClient = {
     return summary;
   },
 
-  async fetchTelemetryLive(vehicleId: string): Promise<TelemetrySnapshotResult> {
-    return fetchTelemetrySnapshot(vehicleId);
+  async fetchTelemetryLive(deviceId: string): Promise<TelemetrySnapshotResult> {
+    return fetchTelemetrySnapshot(deviceId);
   },
 
   async queryAi(question: string): Promise<AiQueryResponse> {

@@ -1,6 +1,6 @@
 import type { CursorPage } from "@/types/pagination";
 import type { TelemetryEvent, VehicleStatus } from "@/types/fleet";
-import { normalizeVehicles } from "@/lib/fleet-normalize";
+import { normalizeTelemetryEvents, normalizeVehicles } from "@/lib/fleet-normalize";
 import { getApiBaseUrl } from "@/lib/utils";
 import { ApiError, readRetryAfterSeconds } from "@/lib/http-error";
 import { resolveFleetFetchError } from "@/lib/fleet-fetch-error";
@@ -22,7 +22,7 @@ type FleetSnapshotOptions = {
 };
 
 type TelemetryPageParams = {
-  vehicleId: string;
+  deviceId: string;
   from?: string;
   to?: string;
   pageSize?: number;
@@ -155,9 +155,9 @@ export async function fetchFleetSnapshot(options: FleetSnapshotOptions = {}): Pr
       let addedFromPage = 0;
 
       for (const vehicle of page.items) {
-        if (seenIds.has(vehicle.vehicleId)) continue;
+        if (seenIds.has(vehicle.deviceId)) continue;
         if (addedFromPage >= slotsRemaining) break;
-        seenIds.add(vehicle.vehicleId);
+        seenIds.add(vehicle.deviceId);
         vehicles.push(vehicle);
         addedFromPage += 1;
       }
@@ -197,12 +197,17 @@ export async function fetchTelemetryPage(params: TelemetryPageParams): Promise<C
   if (params.pageSize) search.set("pageSize", String(params.pageSize));
   if (params.cursor) search.set("cursor", params.cursor);
   const query = search.toString();
-  const path = `/api/telemetry/${encodeURIComponent(params.vehicleId)}${query ? `?${query}` : ""}`;
-  return fetchJson<CursorPage<TelemetryEvent>>(path, { signal: params.signal });
+  const path = `/api/telemetry/${encodeURIComponent(params.deviceId)}${query ? `?${query}` : ""}`;
+  const page = await fetchJson<CursorPage<Record<string, unknown>>>(path, { signal: params.signal });
+  return {
+    items: normalizeTelemetryEvents(page.items as Parameters<typeof normalizeTelemetryEvents>[0]),
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+  };
 }
 
 export async function fetchTelemetrySnapshot(
-  vehicleId: string,
+  deviceId: string,
   options: TelemetrySnapshotOptions = {},
 ): Promise<TelemetrySnapshotResult> {
   const pageSize = options.pageSize ?? 200;
@@ -229,7 +234,7 @@ export async function fetchTelemetrySnapshot(
 
     try {
       const page = await fetchTelemetryPage({
-        vehicleId,
+        deviceId,
         from: options.from,
         to: options.to,
         pageSize,

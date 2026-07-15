@@ -10,7 +10,7 @@ export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
       return normalizeVehicles(parsed as RawVehicle[]);
     }
     const vehicle = normalizeVehicle(parsed as RawVehicle);
-    return vehicle.vehicleId ? [vehicle] : null;
+    return vehicle.deviceId ? [vehicle] : null;
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[SSE] Payload fleet-update inválido:", error);
@@ -23,7 +23,7 @@ export function parseVehicleUpdatePayload(raw: string): VehicleStatus | null {
   try {
     const parsed = JSON.parse(raw) as RawVehicle;
     const vehicle = normalizeVehicle(parsed);
-    return vehicle.vehicleId ? vehicle : null;
+    return vehicle.deviceId ? vehicle : null;
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[SSE] Payload vehicle-update inválido:", error);

@@ -1,7 +1,7 @@
 /** Crea icono SVG de auto para marcadores del mapa. */
 import L from "leaflet";
 import type { VehicleStatus } from "@/types/fleet";
-import { esVehiculoEnLinea } from "@/lib/labels";
+import { esVehiculoEnLinea, formatVehicleDisplayName } from "@/lib/labels";
 import { normalizeHeading } from "@/lib/geo-bearing";
 
 /** Icono de auto visto desde arriba; la punta del vehículo apunta al rumbo (0° = norte) */
@@ -28,7 +28,7 @@ export function createCarMarkerIcon(vehicle: VehicleStatus, selected: boolean): 
         margin-top:2px;padding:1px 7px;border-radius:9999px;
         background:rgba(255,255,255,0.95);font-size:10px;font-weight:700;
         color:#334155;border:1px solid #e2e8f0;white-space:nowrap;
-      ">${vehicle.vehicleId}</span>
+      ">${formatVehicleDisplayName(vehicle)}</span>
     </div>
   `;
 

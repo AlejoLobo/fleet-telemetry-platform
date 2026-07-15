@@ -109,8 +109,8 @@ describe("useSseStream FT-001", () => {
       handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
         data: JSON.stringify({
-          vehicleId: "VH-KAFKA",
-          name: "VH-KAFKA",
+          deviceId: "00000000-0000-4000-8000-000000000094",
+          vehicleName: "00000000-0000-4000-8000-000000000094",
           status: "online",
           lastSeenAt: "2026-07-10T10:05:00Z",
           lastSpeedKmh: 88,
@@ -125,7 +125,7 @@ describe("useSseStream FT-001", () => {
 
     await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1));
     expect(onFleetUpdate.mock.calls[0]?.[0]).toEqual([
-      expect.objectContaining({ vehicleId: "VH-KAFKA", lastSpeedKmh: 88 }),
+      expect.objectContaining({ deviceId: "00000000-0000-4000-8000-000000000094", lastSpeedKmh: 88 }),
     ]);
   });
 
@@ -134,8 +134,8 @@ describe("useSseStream FT-001", () => {
       handlers.onEvent({
         event: REALTIME_EVENTS.fleetUpdate,
         data: JSON.stringify([
-          { vehicleId: "VH-001", status: "online", lastSeenAt: "2026-07-10T10:00:00Z" },
-          { vehicleId: "VH-002", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z" },
+          { deviceId: "00000000-0000-4000-8000-000000000001", status: "online", lastSeenAt: "2026-07-10T10:00:00Z" },
+          { deviceId: "00000000-0000-4000-8000-000000000002", status: "offline", lastSeenAt: "2026-07-10T09:00:00Z" },
         ]),
       });
     });
@@ -149,8 +149,8 @@ describe("useSseStream FT-001", () => {
 
   it("SSE_merge_real_no_reemplaza_snapshot_completo", async () => {
     const baseFleet: VehicleStatus[] = [
-      { vehicleId: "VH-001", name: "VH-001", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 10, lastLatitude: 1, lastLongitude: 1 },
-      { vehicleId: "VH-002", name: "VH-002", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
+      { deviceId: "00000000-0000-4000-8000-000000000001", vehicleName: "00000000-0000-4000-8000-000000000001", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 10, lastLatitude: 1, lastLongitude: 1 },
+      { deviceId: "00000000-0000-4000-8000-000000000002", vehicleName: "00000000-0000-4000-8000-000000000002", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
     ];
 
     let patches: VehicleStatus[] = [];
@@ -162,8 +162,8 @@ describe("useSseStream FT-001", () => {
       handlers.onEvent({
         event: REALTIME_EVENTS.vehicleUpdate,
         data: JSON.stringify({
-          vehicleId: "VH-001",
-          name: "VH-001",
+          deviceId: "00000000-0000-4000-8000-000000000001",
+          vehicleName: "00000000-0000-4000-8000-000000000001",
           status: "offline",
           lastSeenAt: "2026-07-10T10:05:00Z",
           lastSpeedKmh: 0,
@@ -179,21 +179,21 @@ describe("useSseStream FT-001", () => {
 
     const displayVehicles = mergeVehicleUpdates(baseFleet, patches);
     expect(displayVehicles).toHaveLength(2);
-    expect(displayVehicles.find((v) => v.vehicleId === "VH-001")?.status).toBe("offline");
-    expect(displayVehicles.find((v) => v.vehicleId === "VH-002")?.status).toBe("online");
+    expect(displayVehicles.find((v) => v.deviceId === "00000000-0000-4000-8000-000000000001")?.status).toBe("offline");
+    expect(displayVehicles.find((v) => v.deviceId === "00000000-0000-4000-8000-000000000002")?.status).toBe("online");
   });
 
   it("procesa fleet-update y alert desde eventos SSE", async () => {
     vi.spyOn(sseClient, "consumeSseFetchStream").mockImplementation(async (_url, _init, handlers) => {
       handlers.onEvent({
         event: REALTIME_EVENTS.fleetUpdate,
-        data: JSON.stringify([{ vehicleId: "VH-001", status: "online" }]),
+        data: JSON.stringify([{ deviceId: "00000000-0000-4000-8000-000000000001", status: "online" }]),
       });
       handlers.onEvent({
         event: REALTIME_EVENTS.alert,
         data: JSON.stringify({
           alertId: "a1",
-          vehicleId: "VH-001",
+          deviceId: "00000000-0000-4000-8000-000000000001",
           alertType: "overspeed",
           severity: "critical",
           message: "x",
@@ -241,8 +241,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "88",
         data: JSON.stringify({
-          vehicleId: "VH-ID",
-          name: "VH-ID",
+          deviceId: "00000000-0000-4000-8000-000000000092",
+          vehicleName: "00000000-0000-4000-8000-000000000092",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -300,8 +300,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "101",
         data: JSON.stringify({
-          vehicleId: "VH-CUTOVER",
-          name: "VH-CUTOVER",
+          deviceId: "00000000-0000-4000-8000-000000000091",
+          vehicleName: "00000000-0000-4000-8000-000000000091",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -350,8 +350,8 @@ describe("useSseStream FT-005", () => {
     const onFleetUpdate = vi.fn();
     let connection = 0;
     const vehiclePayload = {
-      vehicleId: "VH-UNMOUNT",
-      name: "VH-UNMOUNT",
+      deviceId: "00000000-0000-4000-8000-000000000090",
+      vehicleName: "00000000-0000-4000-8000-000000000090",
       status: "online",
       lastSeenAt: "2026-07-10T10:00:00Z",
       lastSpeedKmh: 40,
@@ -495,8 +495,8 @@ describe("useSseStream FT-005", () => {
     const onStreamReset = vi.fn(async () => undefined);
     const onFleetUpdate = vi.fn();
     const vehiclePayload = {
-      vehicleId: "VH-RECONNECT",
-      name: "VH-RECONNECT",
+      deviceId: "00000000-0000-4000-8000-000000000089",
+      vehicleName: "00000000-0000-4000-8000-000000000089",
       status: "online",
       lastSeenAt: "2026-07-10T10:00:00Z",
       lastSpeedKmh: 40,
@@ -560,8 +560,8 @@ describe("useSseStream FT-005", () => {
     const onStreamReset = vi.fn(async () => undefined);
     const onFleetUpdate = vi.fn();
     const vehiclePayload = {
-      vehicleId: "VH-INIT",
-      name: "VH-INIT",
+      deviceId: "00000000-0000-4000-8000-000000000088",
+      vehicleName: "00000000-0000-4000-8000-000000000088",
       status: "online",
       lastSeenAt: "2026-07-10T10:00:00Z",
       lastSpeedKmh: 40,
@@ -665,8 +665,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "301",
         data: JSON.stringify({
-          vehicleId: "VH-GAP",
-          name: "VH-GAP",
+          deviceId: "00000000-0000-4000-8000-000000000087",
+          vehicleName: "00000000-0000-4000-8000-000000000087",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -746,8 +746,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "77",
         data: JSON.stringify({
-          vehicleId: "VH-SEQ",
-          name: "VH-SEQ",
+          deviceId: "00000000-0000-4000-8000-000000000086",
+          vehicleName: "00000000-0000-4000-8000-000000000086",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -778,8 +778,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "91",
         data: JSON.stringify({
-          vehicleId: "VH-FAIL",
-          name: "VH-FAIL",
+          deviceId: "00000000-0000-4000-8000-000000000085",
+          vehicleName: "00000000-0000-4000-8000-000000000085",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -811,8 +811,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "92",
         data: JSON.stringify({
-          vehicleId: "VH-BLOCK",
-          name: "VH-BLOCK",
+          deviceId: "00000000-0000-4000-8000-000000000084",
+          vehicleName: "00000000-0000-4000-8000-000000000084",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,
@@ -864,8 +864,8 @@ describe("useSseStream FT-005", () => {
         event: REALTIME_EVENTS.vehicleUpdate,
         id: "93",
         data: JSON.stringify({
-          vehicleId: "VH-CURSOR",
-          name: "VH-CURSOR",
+          deviceId: "00000000-0000-4000-8000-000000000083",
+          vehicleName: "00000000-0000-4000-8000-000000000083",
           status: "online",
           lastSeenAt: "2026-07-10T10:00:00Z",
           lastSpeedKmh: 40,

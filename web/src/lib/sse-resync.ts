@@ -56,6 +56,6 @@ export function parseStreamResetPayload(data: string): StreamResetPayload | null
 }
 
 export type ResyncSnapshotResult = {
-  resolvedVehicleId: string | null;
+  resolvedDeviceId: string | null;
   applied: true;
 };

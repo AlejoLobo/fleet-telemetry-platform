@@ -28,8 +28,8 @@ describe("local-connectivity", () => {
     const vehicles = applyLocalConnectivity(
       [
         {
-          vehicleId: "VH-001",
-          name: "VH-001",
+          deviceId: "00000000-0000-4000-8000-000000000001",
+          vehicleName: "00000000-0000-4000-8000-000000000001",
           status: "online",
           lastSeenAt: "2026-07-15T10:00:00Z",
           lastSpeedKmh: 10,
@@ -40,7 +40,7 @@ describe("local-connectivity", () => {
       now,
     );
     expect(vehicles[0].status).toBe("offline");
-    expect(vehicles[0].vehicleId).toBe("VH-001");
+    expect(vehicles[0].deviceId).toBe("00000000-0000-4000-8000-000000000001");
   });
 });
 
