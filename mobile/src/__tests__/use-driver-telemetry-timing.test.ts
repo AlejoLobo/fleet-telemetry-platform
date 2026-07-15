@@ -201,15 +201,31 @@ describe("captura desacoplada de sincronización lenta", () => {
     jest.useRealTimers();
     mockSyncPendingQueue.mockResolvedValue({ ...SYNC_OK });
     await mount();
+    // Esperar a que termine el sync de montaje/resume antes de inyectar el fallo.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
     mockSyncPendingQueue.mockImplementation(async () => {
       throw new Error("boom de red");
     });
 
-    const result = await latest!.syncNow();
+    let result!: Awaited<ReturnType<HookApi["syncNow"]>>;
+    await act(async () => {
+      result = await latest!.syncNow();
+    });
 
     expect(result.status).toBe("failed");
     expect(result.status).not.toBe("completed");
-    expect(latest!.error).toContain("boom de red");
+    expect(result.remaining).toBeGreaterThanOrEqual(0);
+    // El hook actualiza el mensaje de error en el siguiente render.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(latest!.lastSync?.status).toBe("failed");
+    expect(latest!.error).toEqual(expect.stringContaining("boom de red"));
   });
 });
+
 
