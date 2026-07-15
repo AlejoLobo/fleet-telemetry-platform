@@ -11,8 +11,7 @@ import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
 import { mockDeviceId } from "@/mocks/fleet-data";
 import {
-  DEMO_REALTIME_REFRESH_MS,
-  REALTIME_SELECTED_TELEMETRY_MS,
+  DEFAULT_MONITOR_REFRESH_RATE,
   loadMonitorRefreshRate,
   monitorRefreshRateToMs,
   saveMonitorRefreshRate,
@@ -56,12 +55,10 @@ export default function DashboardPage() {
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
   const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
   // Valor determinista en SSR/hidratación; se restaura tras montar.
-  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>("realtime");
+  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>(DEFAULT_MONITOR_REFRESH_RATE);
   const [refreshRateReady, setRefreshRateReady] = useState(false);
 
   const pendingVehicleUpdatesRef = useRef<Map<string, VehicleStatus>>(new Map());
-  const refreshRateRef = useRef(refreshRate);
-  refreshRateRef.current = refreshRate;
 
   const refreshAuthState = async () => {
     try {
@@ -134,10 +131,6 @@ export default function DashboardPage() {
     enabled: dataSource === "api",
     authToken,
     onFleetUpdate: (updates) => {
-      if (refreshRateRef.current === "realtime") {
-        applyVehicleUpdates(updates);
-        return;
-      }
       bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, updates);
     },
     onAlert: (alert) => {
@@ -158,11 +151,9 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!refreshRateReady) return;
 
+    const ms = monitorRefreshRateToMs(refreshRate);
+
     if (dataSource === "demo") {
-      const ms =
-        refreshRate === "realtime"
-          ? DEMO_REALTIME_REFRESH_MS
-          : (monitorRefreshRateToMs(refreshRate) ?? DEMO_REALTIME_REFRESH_MS);
       const timer = window.setInterval(() => {
         void loadDemoDataRef.current();
       }, ms);
@@ -172,17 +163,6 @@ export default function DashboardPage() {
     if (dataSource !== "api") {
       return;
     }
-
-    if (refreshRate === "realtime") {
-      flushPendingVehicleUpdatesRef.current();
-      const timer = window.setInterval(() => {
-        void refreshSelectedTelemetryRef.current();
-      }, REALTIME_SELECTED_TELEMETRY_MS);
-      return () => window.clearInterval(timer);
-    }
-
-    const ms = monitorRefreshRateToMs(refreshRate);
-    if (ms == null) return;
 
     const timer = window.setInterval(() => {
       flushPendingVehicleUpdatesRef.current();
@@ -225,9 +205,6 @@ export default function DashboardPage() {
   const handleRefreshRateChange = (rate: MonitorRefreshRate) => {
     saveMonitorRefreshRate(rate);
     setRefreshRate(rate);
-    if (rate === "realtime") {
-      flushPendingVehicleUpdates();
-    }
   };
 
   const handleManualRefresh = async () => {
