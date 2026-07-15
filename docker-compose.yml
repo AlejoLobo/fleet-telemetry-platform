@@ -98,7 +98,8 @@ services:
       Auth__Enabled: "false"
       QueryLimits__OnlineThresholdMinutes: ${QueryLimits__OnlineThresholdMinutes:-1}
       QueryLimits__OnlineThresholdSeconds: ${QueryLimits__OnlineThresholdSeconds:-45}
-      # El dashboard pagina flota/telemetría; 100/min se agota con healthchecks + refresh.
+      # Local/MVP: el monitor pagina flota+telemetría; desactivar rate limit en Development.
+      RateLimiting__Enabled: ${RateLimiting__Enabled:-false}
       RateLimiting__PermitLimit: ${RateLimiting__PermitLimit:-600}
       RateLimiting__WindowSeconds: ${RateLimiting__WindowSeconds:-60}
     depends_on:

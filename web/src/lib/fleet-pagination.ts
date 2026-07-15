@@ -51,9 +51,9 @@ export type TelemetrySnapshotResult = {
   error?: string;
 };
 
-const DEFAULT_MAX_VEHICLES = 5000;
+const DEFAULT_MAX_VEHICLES = 500;
 const DEFAULT_FLEET_PAGE_SIZE = 100;
-const DEFAULT_MAX_TELEMETRY_EVENTS = 5000;
+const DEFAULT_MAX_TELEMETRY_EVENTS = 500;
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};

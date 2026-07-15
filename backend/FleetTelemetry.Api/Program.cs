@@ -9,6 +9,8 @@ using FleetTelemetry.Infrastructure.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,13 +77,30 @@ if (rateLimitOptions.Enabled)
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         options.OnRejected = async (context, cancellationToken) =>
         {
+            var retryAfterSeconds = rateLimitOptions.WindowSeconds;
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-                context.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds).ToString();
+            {
+                retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+                context.HttpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString();
+            }
+
+            var path = context.HttpContext.Request.Path.Value ?? "";
+            var method = context.HttpContext.Request.Method;
+            var ip = context.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var logger = context.HttpContext.RequestServices
+                .GetService<ILoggerFactory>()
+                ?.CreateLogger("RateLimiting");
+            logger?.LogWarning(
+                "Rate limit 429 path={Path} method={Method} ip={Ip} retryAfterSeconds={RetryAfter}",
+                path,
+                method,
+                ip,
+                retryAfterSeconds);
 
             await context.HttpContext.Response.WriteAsJsonAsync(new
             {
                 error = "Demasiadas solicitudes. Intente de nuevo más tarde.",
-                retryAfterSeconds = retryAfter.TotalSeconds
+                retryAfterSeconds
             }, cancellationToken);
         };
 
@@ -92,6 +111,12 @@ if (rateLimitOptions.Enabled)
             if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
             {
                 return RateLimitPartition.GetNoLimiter("health");
+            }
+
+            // El stream SSE es una conexión larga; no debe gastar la ventana fija.
+            if (path.StartsWith("/api/events/stream", StringComparison.OrdinalIgnoreCase))
+            {
+                return RateLimitPartition.GetNoLimiter("sse");
             }
 
             return RateLimitPartition.GetFixedWindowLimiter(
