@@ -77,7 +77,10 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    setRefreshRate(loadMonitorRefreshRate());
+    // Normaliza y reescribe valores legados (realtime/30/60) como "5" en localStorage.
+    const restored = loadMonitorRefreshRate();
+    setRefreshRate(restored);
+    saveMonitorRefreshRate(restored);
     setRefreshRateReady(true);
   }, []);
 
