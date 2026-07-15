@@ -50,6 +50,7 @@ export function DriverDashboard() {
   const [identityError, setIdentityError] = useState<string | null>(null);
 
   const auth = useAuthSession();
+  const canSync = auth.canSyncForDevice(deviceId);
   const {
     tracking,
     pendingCount,
@@ -66,7 +67,7 @@ export function DriverDashboard() {
   } = useDriverTelemetry(
     deviceId ?? "",
     driverId.trim(),
-    auth.canSync,
+    canSync,
   );
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export function DriverDashboard() {
 
   // Registro remoto cuando hay red y sync permitido; el backend asigna VH-###.
   useEffect(() => {
-    if (!deviceId || identityError || !auth.canSync || !isOnline) return;
+    if (!deviceId || identityError || !canSync || !isOnline) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -125,7 +126,7 @@ export function DriverDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, identityError, auth.canSync, isOnline]);
+  }, [deviceId, identityError, canSync, isOnline]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -138,12 +139,16 @@ export function DriverDashboard() {
 
   const handleLogin = async () => {
     setLoginError(null);
+    if (!deviceId) {
+      setLoginError("DeviceId no disponible para enrolamiento");
+      return;
+    }
     setBusy(true);
     try {
-      await auth.login(username.trim(), password);
+      await auth.enrollDevice(deviceId, username.trim(), password);
       setPassword("");
     } catch (e) {
-      setLoginError(e instanceof Error ? e.message : "Error de login");
+      setLoginError(e instanceof Error ? e.message : "Error de enrolamiento");
     } finally {
       setBusy(false);
     }
@@ -164,7 +169,7 @@ export function DriverDashboard() {
     }
   };
 
-  const syncPausedByAuth = auth.enabled && !auth.canSync;
+  const syncPausedByAuth = auth.enabled && !canSync;
   const deviceConfigLoading = !deviceIdReady;
   const startDisabled = isStartTrackingDisabled({
     busy,
@@ -172,7 +177,7 @@ export function DriverDashboard() {
     deviceId,
   });
   const nameDirty = vehicleNameDraft.trim() !== vehicleName.trim();
-  const canEditName = Boolean(deviceId) && auth.canSync && isOnline && !tracking;
+  const canEditName = Boolean(deviceId) && canSync && isOnline && !tracking;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -186,13 +191,20 @@ export function DriverDashboard() {
         {auth.statusMessage && <Text style={styles.meta}>{auth.statusMessage}</Text>}
         {syncPausedByAuth && <Text style={styles.warn}>Sincronización pausada por autenticación</Text>}
 
-        {auth.status === "auth_required" || auth.status === "session_expired" ? (
+        {auth.status === "auth_required" || auth.status === "session_expired" || auth.status === "forbidden" ? (
           <>
+            <Text style={styles.hint}>
+              Enrolamiento: emite un token ligado a este DeviceId (no usa el token de operador).
+            </Text>
             <Text style={styles.label}>Usuario</Text>
             <TextInput style={styles.input} value={username} onChangeText={setUsername} autoCapitalize="none" />
             <Text style={styles.label}>Contraseña</Text>
             <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry />
-            <Button title="Iniciar sesión" onPress={handleLogin} disabled={busy || !username || !password} />
+            <Button
+              title="Enrolar dispositivo"
+              onPress={handleLogin}
+              disabled={busy || !username || !password || !deviceId}
+            />
             {loginError && <Text style={styles.error}>{loginError}</Text>}
           </>
         ) : null}
@@ -264,7 +276,7 @@ export function DriverDashboard() {
         <Button
           title="Sincronizar cola"
           onPress={() => run(async () => { await syncNow(); })}
-          disabled={busy || !isOnline || !auth.canSync || !deviceId}
+          disabled={busy || !isOnline || !canSync || !deviceId}
         />
       </View>
 
