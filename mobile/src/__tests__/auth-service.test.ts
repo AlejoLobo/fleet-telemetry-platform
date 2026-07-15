@@ -16,6 +16,7 @@ import {
   logout,
   markForbiddenFromApi,
   resetAuthServiceForTests,
+  validateSessionForLocalDevice,
 } from "@/services/auth-service";
 import { InMemoryAuthTokenStore } from "@/services/auth-token-store";
 import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
@@ -239,5 +240,52 @@ describe("enrolamiento de dispositivo", () => {
     expect(getAuthSessionSnapshot().status).toBe("auth_required");
     expect(await store.load()).toBeNull();
     expect(canSyncTelemetryForDevice(DEVICE_ID)).toBe(false);
+  });
+
+  it("token A + DeviceId B invalida sesión y conserva la cola", async () => {
+    const store = new InMemoryAuthTokenStore();
+    configureAuthTokenStore(store);
+    const foreignDeviceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    await store.save({
+      token: makeDeviceJwt(foreignDeviceId),
+      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
+    });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
+    await initializeAuthSession();
+    expect(getAuthSessionSnapshot().status).toBe("authenticated");
+    expect(canSyncTelemetryForDevice(DEVICE_ID)).toBe(false);
+
+    await enqueueEvent(queueEvent, "simulated");
+    expect(await getQueueEventByEventId(queueEvent.eventId)).not.toBeNull();
+
+    const snapshot = await validateSessionForLocalDevice(DEVICE_ID);
+    expect(snapshot.status).toBe("auth_required");
+    expect(snapshot.statusMessage).toMatch(/otro dispositivo/i);
+    expect(await store.load()).toBeNull();
+    expect(canSyncTelemetryForDevice(DEVICE_ID)).toBe(false);
+    expect(await getQueueEventByEventId(queueEvent.eventId)).not.toBeNull();
+  });
+
+  it("token A + DeviceId A permanece válido", async () => {
+    const store = new InMemoryAuthTokenStore();
+    configureAuthTokenStore(store);
+    await store.save({
+      token: makeDeviceJwt(DEVICE_ID),
+      expiresAtIso: new Date(Date.now() + 60_000).toISOString(),
+    });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
+    await initializeAuthSession();
+    const snapshot = await validateSessionForLocalDevice(DEVICE_ID);
+    expect(snapshot.status).toBe("authenticated");
+    expect(await store.load()).not.toBeNull();
+    expect(canSyncTelemetryForDevice(DEVICE_ID)).toBe(true);
+  });
+
+  it("auth deshabilitada continúa funcionando sin invalidar", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: false }) });
+    await initializeAuthSession();
+    const snapshot = await validateSessionForLocalDevice(DEVICE_ID);
+    expect(snapshot.status).toBe("auth_disabled");
+    expect(canSyncTelemetryForDevice(DEVICE_ID)).toBe(true);
   });
 });

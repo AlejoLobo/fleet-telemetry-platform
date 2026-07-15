@@ -7,22 +7,21 @@ import {
   login,
   logout,
   subscribeAuthSession,
+  validateSessionForLocalDevice,
   type AuthSessionSnapshot,
 } from "@/services/auth-service";
 
 type AuthSessionContextValue = AuthSessionSnapshot & {
-  /** Enrola el DeviceId local y guarda JWT de dispositivo. */
   enrollDevice: (
     deviceId: string,
     username: string,
     password: string,
   ) => Promise<AuthSessionSnapshot>;
-  /** Login de operador (portal); no habilita sync de telemetría. */
   login: (username: string, password: string) => Promise<AuthSessionSnapshot>;
   logout: () => Promise<AuthSessionSnapshot>;
   refresh: () => Promise<AuthSessionSnapshot>;
+  validateSessionForLocalDevice: (deviceId: string | null) => Promise<AuthSessionSnapshot>;
   isAuthenticated: boolean;
-  /** Compat: false si el token no es de dispositivo. Preferir canSyncForDevice. */
   canSync: boolean;
   canSyncForDevice: (deviceId: string | null) => boolean;
 };
@@ -47,8 +46,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       refresh: initializeAuthSession,
+      validateSessionForLocalDevice,
       isAuthenticated: snapshot.status === "authenticated",
-      // Sin DeviceId local aún: solo auth_disabled permite sync anónima.
       canSync:
         snapshot.status === "auth_disabled"
         || (
