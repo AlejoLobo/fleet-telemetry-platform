@@ -1219,10 +1219,8 @@ public static class DatabaseInitializer
         // Identidad de fila huérfana: PK estable por tabla (nunca ctid solo en hypertable).
         var (orphanSelectSql, orphanUpdateWhereSql) = ResolveOrphanRowIdentitySql(tableName);
 
-        await ExecuteSqlAsync(
-            connection,
-            transaction,
-            $"""
+        // Plantilla sin interpolación C#: evita conflicto con {n} del regex PostgreSQL.
+        var orphanMigrationSql = """
             DO $$
             DECLARE
                 r RECORD;
@@ -1232,7 +1230,7 @@ public static class DatabaseInitializer
             BEGIN
                 FOR r IN
                     SELECT DISTINCT "VehicleId" AS legacy
-                    FROM {tableName}
+                    FROM __TABLE_NAME__
                     WHERE device_id IS NULL
                       AND "VehicleId" IS NOT NULL
                       AND btrim("VehicleId") <> ''
@@ -1244,7 +1242,7 @@ public static class DatabaseInitializer
                     LIMIT 1;
 
                     IF assigned IS NULL
-                       AND r.legacy ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$' THEN
+                       AND r.legacy ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
                         assigned := r.legacy::uuid;
                     END IF;
 
@@ -1280,7 +1278,7 @@ public static class DatabaseInitializer
                         END LOOP;
                     END IF;
 
-                    UPDATE {tableName}
+                    UPDATE __TABLE_NAME__
                     SET device_id = assigned
                     WHERE device_id IS NULL
                       AND "VehicleId" = r.legacy;
@@ -1288,7 +1286,7 @@ public static class DatabaseInitializer
 
                 -- Filas restantes (VehicleId nulo/vacío): actualizar por clave estable de la tabla.
                 FOR r IN
-                    {orphanSelectSql}
+                    __ORPHAN_SELECT__
                 LOOP
                     assigned := gen_random_uuid();
                     candidate := 'orphan-' || substr(assigned::text, 1, 8);
@@ -1308,13 +1306,21 @@ public static class DatabaseInitializer
                         END;
                     END LOOP;
 
-                    UPDATE {tableName}
+                    UPDATE __TABLE_NAME__
                     SET device_id = assigned
                     WHERE device_id IS NULL
-                      AND {orphanUpdateWhereSql};
+                      AND __ORPHAN_WHERE__;
                 END LOOP;
             END $$;
-            """,
+            """
+            .Replace("__TABLE_NAME__", tableName, StringComparison.Ordinal)
+            .Replace("__ORPHAN_SELECT__", orphanSelectSql, StringComparison.Ordinal)
+            .Replace("__ORPHAN_WHERE__", orphanUpdateWhereSql, StringComparison.Ordinal);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            orphanMigrationSql,
             cancellationToken);
     }
 
@@ -1332,14 +1338,14 @@ public static class DatabaseInitializer
                 FROM telemetry_events
                 WHERE device_id IS NULL
                 """,
-                """"EventId" = r.k_event_id AND "Timestamp" = r.k_timestamp"""),
+                "\"EventId\" = r.k_event_id AND \"Timestamp\" = r.k_timestamp"),
             "fleet_alerts" => (
                 """
                 SELECT "AlertId" AS k_alert_id
                 FROM fleet_alerts
                 WHERE device_id IS NULL
                 """,
-                """"AlertId" = r.k_alert_id"""),
+                "\"AlertId\" = r.k_alert_id"),
             // Último recurso documentado: tableoid + ctid en tablas heap (nunca ctid solo; no usar en hypertables).
             _ => (
                 $"""
