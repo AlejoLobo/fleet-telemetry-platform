@@ -40,48 +40,6 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
         await EnsureSchemaInitializedAsync();
     }
 
-    /// <summary>
-    /// Arranca TimescaleDB sin aplicar migraciones (útil para interrumpir v7 a mitad).
-    /// </summary>
-    public async Task InitializeEmptyAsync()
-    {
-        var externalConnection = Environment.GetEnvironmentVariable(ConnectionStringEnvVar);
-        if (!string.IsNullOrWhiteSpace(externalConnection))
-        {
-            ConnectionString = externalConnection.Trim();
-            return;
-        }
-
-        _container = new PostgreSqlBuilder()
-            .WithImage("timescale/timescaledb:2.17.2-pg16")
-            .WithDatabase("fleet")
-            .WithUsername("fleet")
-            .WithPassword("fleet")
-            .Build();
-
-        await _container.StartAsync();
-        ConnectionString = _container.GetConnectionString();
-    }
-
-    /// <summary>
-    /// Deja public vacío (sin schema_versions). Necesario en CI con DB compartida
-    /// para poder reaplicar migraciones e interrumpir v7.
-    /// </summary>
-    public async Task ResetPublicSchemaAsync()
-    {
-        await using var connection = new Npgsql.NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            DROP SCHEMA IF EXISTS public CASCADE;
-            CREATE SCHEMA public;
-            GRANT ALL ON SCHEMA public TO CURRENT_USER;
-            GRANT ALL ON SCHEMA public TO public;
-            -- timescaledb ya está cargado a nivel de base; no recrear la extensión.
-            """;
-        await command.ExecuteNonQueryAsync();
-    }
-
     public async Task DisposeAsync()
     {
         if (_container is not null)
