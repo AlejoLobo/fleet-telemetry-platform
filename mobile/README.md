@@ -63,6 +63,26 @@ La identidad del vehículo es el `DeviceId` UUID generado en el dispositivo (Sec
 
 No usar `EXPO_PUBLIC_JWT` ni credenciales en variables públicas.
 
+## Captura de telemetría
+
+Intervalo fijo de **5 segundos** (`TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS`). No hay selector ni configuración de frecuencia en la UI.
+
+Texto informativo: “Captura automática cada 5 segundos.”
+
+## Cola SQLite
+
+La apertura y migración del esquema se ejecutan **una sola vez** por proceso. Detalle de migración `device_id` y validación en dispositivo: [../docs/mobile-sqlite-migration.md](../docs/mobile-sqlite-migration.md).
+
+Limpieza de cache en desarrollo:
+
+```bash
+cd mobile
+npx expo start -c
+npx expo export --clear
+```
+
+Si se usa APK o development build antigua, reconstruir e reinstalar/actualizar la app.
+
 ## Comandos
 
 ```bash
