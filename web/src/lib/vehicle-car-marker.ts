@@ -2,6 +2,7 @@
 import L from "leaflet";
 import type { VehicleStatus } from "@/types/fleet";
 import { esVehiculoEnLinea } from "@/lib/labels";
+import { getVehicleDisplayName } from "@/lib/vehicle-display";
 import { normalizeHeading } from "@/lib/geo-bearing";
 
 /** Icono de auto visto desde arriba; la punta del vehículo apunta al rumbo (0° = norte) */
@@ -12,6 +13,7 @@ export function createCarMarkerIcon(vehicle: VehicleStatus, selected: boolean): 
   const heading = normalizeHeading(vehicle.headingDegrees);
   const scale = selected ? 1.12 : 1;
   const ring = selected ? "filter:drop-shadow(0 0 4px #38bdf8);" : "filter:drop-shadow(0 2px 4px rgba(15,23,42,0.2));";
+  const label = getVehicleDisplayName(vehicle).replace(/[<>&]/g, "");
 
   const html = `
     <div style="display:flex;flex-direction:column;align-items:center;">
@@ -28,7 +30,7 @@ export function createCarMarkerIcon(vehicle: VehicleStatus, selected: boolean): 
         margin-top:2px;padding:1px 7px;border-radius:9999px;
         background:rgba(255,255,255,0.95);font-size:10px;font-weight:700;
         color:#334155;border:1px solid #e2e8f0;white-space:nowrap;
-      ">${vehicle.vehicleId}</span>
+      ">${label}</span>
     </div>
   `;
 

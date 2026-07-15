@@ -444,4 +444,22 @@ describe("useFleetData refreshForResync", () => {
     expect(fetchTelemetrySnapshot).not.toHaveBeenCalled();
     expect(result.current.telemetry).toHaveLength(0);
   });
+
+  it("refresh_con_liveOnly_consulta_solo_flota_en_vivo", async () => {
+    fetchFleetLive.mockResolvedValue({
+      vehicles: [vehicle],
+      partial: false,
+      truncated: false,
+    });
+    fetchAlertsLive.mockResolvedValue([]);
+    fetchTelemetrySnapshot.mockResolvedValue({ events: [], partial: false, truncated: false });
+
+    const { result } = renderHook(() => useFleetData("VH-001"));
+    await waitFor(() => expect(result.current.fleetLoading).toBe(false));
+
+    fetchFleetLive.mockClear();
+    await result.current.refresh({ liveOnly: true });
+
+    expect(fetchFleetLive).toHaveBeenCalledWith({ liveOnly: true });
+  });
 });

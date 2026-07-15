@@ -156,3 +156,37 @@ describe("Dashboard page aggregation wiring", () => {
     expect(screen.queryByText(/agregados globales/i)).toBeNull();
   });
 });
+
+describe("FleetStatusPanel vehicle labels", () => {
+  it("Panel_muestra_nombre_y_id_separados", () => {
+    render(
+      <FleetStatusPanel
+        vehicles={[
+          {
+            vehicleId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            name: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            status: "online",
+            lastSeenAt: "2026-07-10T10:00:00Z",
+            lastSpeedKmh: 40,
+            lastLatitude: 4.6,
+            lastLongitude: -74.0,
+          },
+          {
+            vehicleId: "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
+            name: "Camión norte",
+            status: "online",
+            lastSeenAt: "2026-07-10T10:00:00Z",
+            lastSpeedKmh: 40,
+            lastLatitude: 4.6,
+            lastLongitude: -74.0,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Sin nombre")).toBeTruthy();
+    expect(screen.getByText("Camión norte")).toBeTruthy();
+    expect(screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
+    expect(screen.getByText("ID: bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
+  });
+});

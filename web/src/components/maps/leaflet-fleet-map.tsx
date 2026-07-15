@@ -9,6 +9,7 @@ import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-conf
 import { createCarMarkerIcon } from "@/lib/vehicle-car-marker";
 import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
 import { etiquetaEstadoVehiculo } from "@/lib/labels";
+import { getVehicleDisplayName } from "@/lib/vehicle-display";
 import "leaflet/dist/leaflet.css";
 
 export type MapFocusTarget = {
@@ -123,13 +124,9 @@ export function LeafletFleetMap({
             icon={createCarMarkerIcon(vehicle, vehicle.vehicleId === selectedVehicleId)}
           >
             <Popup>
-              <strong>{vehicle.vehicleId}</strong>
-              {vehicle.name && (
-                <>
-                  <br />
-                  <span className="text-slate-600">{vehicle.name}</span>
-                </>
-              )}
+              <strong>{getVehicleDisplayName(vehicle)}</strong>
+              <br />
+              <span className="text-slate-600">ID: {vehicle.vehicleId}</span>
               <br />
               <span className="text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</span>
               <br />

@@ -73,7 +73,10 @@ export function useFleetData(selectedVehicleId: string | null) {
   const isCurrentGeneration = (generation: number) =>
     generation === snapshotGenerationRef.current;
 
-  const loadFleetAndAlerts = useCallback(async (generation: number): Promise<boolean> => {
+  const loadFleetAndAlerts = useCallback(async (
+    generation: number,
+    options?: { liveOnly?: boolean },
+  ): Promise<boolean> => {
     setState((prev) => ({
       ...prev,
       fleetLoading: true,
@@ -84,7 +87,7 @@ export function useFleetData(selectedVehicleId: string | null) {
 
     try {
       const [fleetSnapshot, alerts] = await Promise.all([
-        apiClient.fetchFleetLive(),
+        apiClient.fetchFleetLive(options?.liveOnly ? { liveOnly: true } : undefined),
         apiClient.fetchAlertsLive(),
       ]);
 
@@ -218,9 +221,9 @@ export function useFleetData(selectedVehicleId: string | null) {
     }));
   }, []);
 
-  const loadFromApi = useCallback(async () => {
+  const loadFromApi = useCallback(async (options?: { liveOnly?: boolean }) => {
     const generation = ++snapshotGenerationRef.current;
-    const fleetOk = await loadFleetAndAlerts(generation);
+    const fleetOk = await loadFleetAndAlerts(generation, options);
     if (!fleetOk || !isCurrentGeneration(generation)) return;
 
     const vehicleId = selectedVehicleId
@@ -280,11 +283,11 @@ export function useFleetData(selectedVehicleId: string | null) {
     dataSourceRef.current = "demo";
   }, [selectedVehicleId]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { liveOnly?: boolean }) => {
     if (dataSourceRef.current === "demo") {
       await loadDemoData();
     } else {
-      await loadFromApi();
+      await loadFromApi(options);
     }
   }, [loadDemoData, loadFromApi]);
 

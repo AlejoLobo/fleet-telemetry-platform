@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useFleetData } from "@/hooks/use-fleet-data";
@@ -8,7 +8,7 @@ import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
 import { applyConnectivityFreshness } from "@/lib/vehicle-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
-import { esSeveridadCritica } from "@/lib/labels";
+import { esSeveridadCritica, esVehiculoEnLinea } from "@/lib/labels";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -95,25 +95,14 @@ export default function DashboardPage() {
     },
   });
 
-  useEffect(() => {
-    if (vehicles.length === 0) {
-      if (selectedVehicleId !== null) setSelectedVehicleId(null);
-      return;
-    }
-
-    if (!selectedVehicleId || !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
-      setSelectedVehicleId(vehicles[0].vehicleId);
-    }
-  }, [vehicles, selectedVehicleId]);
-
-  const resetLiveViewState = () => {
+  const resetLiveViewState = useCallback(() => {
     setLiveVehiclePatches([]);
     setLiveAlerts([]);
     setAlertsAttention(false);
     setAuthNotice(null);
     setMapAutoFit(true);
     setMapFocus(null);
-  };
+  }, []);
 
   const handleLoadApi = async () => {
     resetLiveViewState();
@@ -124,6 +113,12 @@ export default function DashboardPage() {
     resetLiveViewState();
     await loadDemoData();
   };
+
+  /** Actualizar: limpia parches SSE y recarga solo vehículos dentro de la ventana online. */
+  const handleManualRefresh = useCallback(async () => {
+    resetLiveViewState();
+    await refresh({ liveOnly: true });
+  }, [refresh, resetLiveViewState]);
 
   useEffect(() => {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
@@ -138,9 +133,23 @@ export default function DashboardPage() {
           : mergeVehicleUpdates(vehicles, liveVehiclePatches);
 
     if (dataSource === "demo") return merged;
-    return applyConnectivityFreshness(merged, connectivityNowMs);
+
+    // El monitor operativo no mantiene desconectados en mapa ni en estado de flota.
+    return applyConnectivityFreshness(merged, connectivityNowMs).filter((vehicle) =>
+      esVehiculoEnLinea(vehicle.status),
+    );
   }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
 
+  useEffect(() => {
+    if (displayVehicles.length === 0) {
+      if (selectedVehicleId !== null) setSelectedVehicleId(null);
+      return;
+    }
+
+    if (!selectedVehicleId || !displayVehicles.some((v) => v.vehicleId === selectedVehicleId)) {
+      setSelectedVehicleId(displayVehicles[0].vehicleId);
+    }
+  }, [displayVehicles, selectedVehicleId]);
   const displayAlerts = useMemo(() => {
     if (dataSource === "demo") return alerts;
     const merged = [...liveAlerts, ...alerts];
@@ -194,7 +203,9 @@ export default function DashboardPage() {
         }}
         onLoadApi={handleLoadApi}
         onLoadDemo={handleLoadDemo}
-        onRefresh={refresh}
+        onRefresh={() => {
+          void handleManualRefresh();
+        }}
       />
 
       <AlertsModal

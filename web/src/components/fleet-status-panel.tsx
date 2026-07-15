@@ -5,6 +5,7 @@ import type { VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
+import { getVehicleDisplayName } from "@/lib/vehicle-display";
 import { cn } from "@/lib/utils";
 
 type FleetStatusPanelProps = {
@@ -129,9 +130,7 @@ export function FleetStatusPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate font-semibold text-slate-800">
-                      {vehicle.name && vehicle.name !== vehicle.vehicleId
-                        ? vehicle.name
-                        : vehicle.vehicleId}
+                      {getVehicleDisplayName(vehicle)}
                     </p>
                     <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
                       {etiquetaEstadoVehiculo(vehicle.status)}
@@ -140,9 +139,7 @@ export function FleetStatusPanel({
                       <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
                     )}
                   </div>
-                  {vehicle.name && vehicle.name !== vehicle.vehicleId && (
-                    <p className="truncate text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
-                  )}
+                  <p className="truncate text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
                   {vehicle.driverId && (
                     <p className="truncate text-xs text-slate-500">Conductor: {vehicle.driverId}</p>
                   )}
