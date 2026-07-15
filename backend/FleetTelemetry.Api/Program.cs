@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using FleetTelemetry.Api.Exceptions;
@@ -75,18 +76,51 @@ if (rateLimitOptions.Enabled)
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         options.OnRejected = async (context, cancellationToken) =>
         {
+            var path = context.HttpContext.Request.Path.Value ?? string.Empty;
+            var isTelemetryIngest = HttpMethods.IsPost(context.HttpContext.Request.Method)
+                && path.StartsWith("/api/telemetry", StringComparison.OrdinalIgnoreCase);
+            var retryAfterSeconds = isTelemetryIngest
+                ? rateLimitOptions.TelemetryWindowSeconds
+                : rateLimitOptions.WindowSeconds;
+
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-                context.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds).ToString();
+                retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+
+            context.HttpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString();
 
             await context.HttpContext.Response.WriteAsJsonAsync(new
             {
                 error = "Demasiadas solicitudes. Intente de nuevo más tarde.",
-                retryAfterSeconds = retryAfter.TotalSeconds
+                retryAfterSeconds
             }, cancellationToken);
         };
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
+        {
+            var path = httpContext.Request.Path.Value ?? string.Empty;
+
+            if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+                return RateLimitPartition.GetNoLimiter("health");
+
+            if (path.StartsWith("/api/events/stream", StringComparison.OrdinalIgnoreCase))
+                return RateLimitPartition.GetNoLimiter("sse");
+
+            if (HttpMethods.IsPost(httpContext.Request.Method)
+                && path.StartsWith("/api/telemetry", StringComparison.OrdinalIgnoreCase))
+            {
+                var partitionKey = ResolveTelemetryPartitionKey(httpContext);
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey,
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = rateLimitOptions.TelemetryPermitLimit,
+                        Window = TimeSpan.FromSeconds(rateLimitOptions.TelemetryWindowSeconds),
+                        QueueLimit = rateLimitOptions.QueueLimit,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+                    });
+            }
+
+            return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
@@ -94,7 +128,8 @@ if (rateLimitOptions.Enabled)
                     Window = TimeSpan.FromSeconds(rateLimitOptions.WindowSeconds),
                     QueueLimit = rateLimitOptions.QueueLimit,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst
-                }));
+                });
+        });
     });
 }
 
@@ -125,5 +160,27 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 
 app.Run();
+
+static string ResolveTelemetryPartitionKey(HttpContext httpContext)
+{
+    var user = httpContext.User;
+    if (user?.Identity?.IsAuthenticated == true)
+    {
+        var sub = user.FindFirstValue("sub")
+            ?? user.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? user.FindFirstValue("device_id");
+        if (!string.IsNullOrWhiteSpace(sub))
+            return $"user:{sub.Trim()}";
+    }
+
+    if (httpContext.Request.Headers.TryGetValue("X-Device-Id", out var deviceHeader))
+    {
+        var deviceId = deviceHeader.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(deviceId))
+            return $"device:{deviceId}";
+    }
+
+    return $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+}
 
 public partial class Program;
