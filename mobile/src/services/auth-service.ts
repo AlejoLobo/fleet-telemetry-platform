@@ -220,6 +220,35 @@ export async function initializeAuthSession(): Promise<AuthSessionSnapshot> {
 }
 
 /**
+ * Invalida sesión de dispositivo si el JWT no coincide con el DeviceId local.
+ * Conserva la cola SQLite (solo limpia el token).
+ */
+export async function validateSessionForLocalDevice(
+  localDeviceId: string | null | undefined,
+): Promise<AuthSessionSnapshot> {
+  const normalized = localDeviceId?.trim() ?? "";
+  if (!normalized) return session;
+  if (session.status === "auth_disabled" || session.status === "checking" || session.status === "status_error") {
+    return session;
+  }
+  if (session.status !== "authenticated" || session.sessionKind !== "device") {
+    return session;
+  }
+  if (isDeviceTelemetrySyncEligible(parseJwtClaims(cachedToken), normalized)) {
+    return session;
+  }
+
+  await clearInvalidStoredToken();
+  publish({
+    status: "auth_required",
+    enabled: true,
+    statusMessage: "El token pertenece a otro dispositivo",
+    ...emptySessionFields(),
+  });
+  return session;
+}
+
+/**
  * Enrolamiento MVP: intercambia credenciales + DeviceId por JWT de dispositivo.
  * No usa el token de operador para sincronizar telemetría.
  */
