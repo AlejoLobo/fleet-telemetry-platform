@@ -11,13 +11,22 @@ import {
 
 /** Datos sintéticos para el modo demostración del dashboard (sin backend). */
 
-const VEHICLE_NAMES = [
-  "Camión reparto",
-  "Furgoneta urbana",
-  "Van refrigerada",
-  "Camioneta ligera",
-  "Moto carga",
-  "Trailer corto",
+const VEHICLE_TYPES = [
+  "Furgón",
+  "Moto",
+  "Camión",
+  "Van",
+  "Camioneta",
+  "Trailer",
+];
+
+const DRIVER_NAMES = [
+  "Miguel",
+  "Ana López",
+  "Carlos Ruiz",
+  "Laura Méndez",
+  "Diego Soto",
+  "María Peña",
 ];
 
 const ALERT_TYPES = [
@@ -98,12 +107,13 @@ function generateVehicleBundle(
   index: number,
   coord: { lat: number; lng: number },
 ): { vehicle: VehicleStatus; events: TelemetryEvent[] } {
-  const id = `VH-${String(index + 1).padStart(3, "0")}`;
-  const zone = zoneForVehicleIndex(index);
+  const fleetCode = `VH-${String(index + 1).padStart(3, "0")}`;
+  const deviceId = randomId();
   const online = randomOnlineFlag();
   const travelHeading = randomBetween(0, 360);
   const eventCount = randomInt(6, 14);
   const events: TelemetryEvent[] = [];
+  const driverName = DRIVER_NAMES[index % DRIVER_NAMES.length];
 
   let lat = coord.lat;
   let lng = coord.lng;
@@ -113,8 +123,8 @@ function generateVehicleBundle(
     const eventOnline = isLatest ? online : Math.random() > 0.35;
     events.push({
       eventId: randomId(),
-      vehicleId: id,
-      driverId: `DRV-${id.replace("VH-", "")}`,
+      vehicleId: fleetCode,
+      driverId: driverName,
       timestamp: isLatest
         ? randomTelemetryTimestamp(online)
         : randomTelemetryTimestamp(eventOnline),
@@ -140,8 +150,11 @@ function generateVehicleBundle(
       : travelHeading;
 
   const vehicle: VehicleStatus = {
-    vehicleId: id,
-    name: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
+    vehicleId: fleetCode,
+    name: fleetCode,
+    deviceId,
+    vehicleType: VEHICLE_TYPES[index % VEHICLE_TYPES.length],
+    driverId: driverName,
     status: online ? "online" : "offline",
     lastSeenAt: latest.timestamp,
     lastSpeedKmh: latest.speedKmh,

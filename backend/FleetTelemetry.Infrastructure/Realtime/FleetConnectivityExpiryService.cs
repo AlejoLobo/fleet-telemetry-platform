@@ -153,9 +153,11 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         DateTimeOffset evaluatedAt)
     {
         var name = string.IsNullOrWhiteSpace(state.DisplayName)
-            || string.Equals(state.DisplayName, state.VehicleId, StringComparison.OrdinalIgnoreCase)
             ? string.Empty
-            : state.DisplayName!;
+            : Guid.TryParse(state.DisplayName, out _)
+                && string.Equals(state.DisplayName, state.VehicleId, StringComparison.OrdinalIgnoreCase)
+                ? string.Empty
+                : state.DisplayName!;
 
         return new(
             state.VehicleId,

@@ -46,10 +46,11 @@ public sealed class TelemetryEvent
         _batteryLevel = batteryLevel;
         LocationSource = locationSource;
         VehicleName = string.IsNullOrWhiteSpace(vehicleName) ? null : vehicleName.Trim();
+        // Solo anula si el "nombre" es el UUID del dispositivo.
         if (VehicleName is not null
+            && Guid.TryParse(VehicleName, out _)
             && string.Equals(VehicleName, _vehicleId.Value, StringComparison.OrdinalIgnoreCase))
         {
-            // Evita persistir el ID de dispositivo como nombre visible.
             VehicleName = null;
         }
     }

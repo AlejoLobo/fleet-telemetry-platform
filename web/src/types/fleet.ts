@@ -2,8 +2,14 @@
 
 /** Estado actual de un vehículo en la flota. */
 export type VehicleStatus = {
+  /** Clave técnica (en tiempo real suele ser el deviceId). */
   vehicleId: string;
+  /** Nombre operativo del vehículo, ej. VH-001. */
   name: string;
+  /** ID estable del dispositivo, si difiere de vehicleId (modo demo). */
+  deviceId?: string | null;
+  /** Tipo de vehículo, ej. Furgón, Moto. */
+  vehicleType?: string | null;
   driverId?: string | null;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;

@@ -263,7 +263,9 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                         .FirstOrDefaultAsync(cancellationToken);
                 }
 
-                if (string.Equals(publishedName, telemetryEvent.VehicleId, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(publishedName)
+                    && Guid.TryParse(publishedName, out _)
+                    && string.Equals(publishedName, telemetryEvent.VehicleId, StringComparison.OrdinalIgnoreCase))
                 {
                     publishedName = null;
                 }

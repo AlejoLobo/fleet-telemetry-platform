@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  getVehicleDeviceId,
   getVehicleDisplayName,
+  isDeviceUuid,
   isMeaningfulVehicleName,
   resolveVehicleName,
 } from "@/lib/vehicle-display";
 
 describe("vehicle-display", () => {
-  it("no usa el id de dispositivo como nombre", () => {
+  it("usa VH-001 como nombre aunque el deviceId sea un UUID", () => {
+    expect(
+      getVehicleDisplayName({
+        vehicleId: "11111111-1111-1111-1111-111111111111",
+        name: "VH-001",
+      }),
+    ).toBe("VH-001");
+  });
+
+  it("no usa un UUID como nombre del vehículo", () => {
     expect(
       getVehicleDisplayName({
         vehicleId: "11111111-1111-1111-1111-111111111111",
@@ -15,43 +26,23 @@ describe("vehicle-display", () => {
     ).toBe("Sin nombre");
   });
 
-  it("usa el nombre cuando es distinto del id", () => {
+  it("en demo usa deviceId explícito para la línea ID", () => {
     expect(
-      getVehicleDisplayName({
-        vehicleId: "11111111-1111-1111-1111-111111111111",
-        name: "Camión norte",
+      getVehicleDeviceId({
+        vehicleId: "VH-004",
+        deviceId: "df32fdsf-43gf-fr32-f34f-4aaaaaaa0001",
       }),
-    ).toBe("Camión norte");
+    ).toBe("df32fdsf-43gf-fr32-f34f-4aaaaaaa0001");
   });
 
-  it("resolveVehicleName conserva el nombre útil ante un fallback igual al id", () => {
-    expect(
-      resolveVehicleName(
-        "11111111-1111-1111-1111-111111111111",
-        "Camión norte",
-        "11111111-1111-1111-1111-111111111111",
-      ),
-    ).toBe("Camión norte");
+  it("isMeaningfulVehicleName acepta códigos de flota", () => {
+    expect(isMeaningfulVehicleName("VH-001")).toBe(true);
+    expect(isMeaningfulVehicleName("Camión norte")).toBe(true);
+    expect(isMeaningfulVehicleName("")).toBe(false);
+    expect(isDeviceUuid("11111111-1111-1111-1111-111111111111")).toBe(true);
   });
 
-  it("isMeaningfulVehicleName rechaza vacíos e ids", () => {
-    expect(isMeaningfulVehicleName("", "VH-001")).toBe(false);
-    expect(isMeaningfulVehicleName("VH-001", "VH-001")).toBe(false);
-    expect(isMeaningfulVehicleName("Camión", "VH-001")).toBe(true);
-  });
-
-  it("rechaza UUID aunque no coincida byte a byte con el id", () => {
-    expect(
-      isMeaningfulVehicleName(
-        "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
-        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-      ),
-    ).toBe(false);
-    expect(
-      getVehicleDisplayName({
-        vehicleId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-        name: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
-      }),
-    ).toBe("Sin nombre");
+  it("resolveVehicleName prioriza el nombre operativo", () => {
+    expect(resolveVehicleName("VH-002", "11111111-1111-1111-1111-111111111111")).toBe("VH-002");
   });
 });

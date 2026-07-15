@@ -142,12 +142,19 @@ export default function DashboardPage() {
     await loadDemoData();
   };
 
-  /** Actualizar: limpia parches SSE y recarga solo vehículos dentro de la ventana online. */
+  /** Actualizar: en tiempo real limpia y deja solo vivos; en demo recarga ejemplos. */
   const handleManualRefresh = useCallback(async () => {
+    if (dataSource === "demo") {
+      resetLiveViewState();
+      setAfterLiveRefresh(false);
+      await loadDemoData();
+      return;
+    }
+
     resetLiveViewState();
     setAfterLiveRefresh(true);
     await refresh({ liveOnly: true });
-  }, [refresh, resetLiveViewState]);
+  }, [dataSource, loadDemoData, refresh, resetLiveViewState]);
 
   // Captura periódica de flota/telemetría al ritmo del monitor (sin spinner).
   useEffect(() => {

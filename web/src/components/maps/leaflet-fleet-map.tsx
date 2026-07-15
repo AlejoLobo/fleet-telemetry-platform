@@ -9,7 +9,7 @@ import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-conf
 import { createCarMarkerIcon } from "@/lib/vehicle-car-marker";
 import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
 import { etiquetaEstadoVehiculo } from "@/lib/labels";
-import { getVehicleDisplayName } from "@/lib/vehicle-display";
+import { getVehicleDeviceId, getVehicleDisplayName } from "@/lib/vehicle-display";
 import "leaflet/dist/leaflet.css";
 
 export type MapFocusTarget = {
@@ -128,9 +128,19 @@ export function LeafletFleetMap({
             <Popup>
               <div className="space-y-0.5 text-sm">
                 <p className="font-semibold text-slate-800">{displayName}</p>
-                <p className="text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
+                <p className="text-xs text-slate-500">ID: {getVehicleDeviceId(vehicle)}</p>
                 <p className="text-xs text-slate-500">
                   Conductor: {vehicle.driverId?.trim() ? vehicle.driverId : "—"}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {(vehicle.lastSpeedKmh ?? 0).toFixed(0)} km/h
+                  {" · "}
+                  {vehicle.lastSeenAt
+                    ? new Date(vehicle.lastSeenAt).toLocaleTimeString("es-CO", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—"}
                 </p>
                 <p className="text-xs text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</p>
                 <p className="text-xs text-slate-400">

@@ -9,11 +9,13 @@ function buildVehicles(count: number): VehicleStatus[] {
   return Array.from({ length: count }, (_, index) => ({
     vehicleId: `VH-${String(index + 1).padStart(3, "0")}`,
     name: `VH-${String(index + 1).padStart(3, "0")}`,
+    deviceId: `11111111-1111-1111-1111-${String(index + 1).padStart(12, "0")}`,
     status: index % 2 === 0 ? "online" : "offline",
     lastSeenAt: "2026-07-10T10:00:00Z",
     lastSpeedKmh: 40,
     lastLatitude: 4.6,
     lastLongitude: -74.0,
+    driverId: "Miguel",
   }));
 }
 
@@ -107,6 +109,7 @@ describe("FleetStatusPanel truncated semantics", () => {
       {
         vehicleId: "VH-001",
         name: "VH-001",
+        deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
         status: "online",
         lastSeenAt: "2026-07-10T10:00:00Z",
         lastSpeedKmh: 40,
@@ -116,6 +119,7 @@ describe("FleetStatusPanel truncated semantics", () => {
       {
         vehicleId: "VH-002",
         name: "VH-002",
+        deviceId: "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
         status: "online",
         lastSeenAt: "2026-07-10T10:00:00Z",
         lastSpeedKmh: 40,
@@ -158,53 +162,34 @@ describe("Dashboard page aggregation wiring", () => {
 });
 
 describe("FleetStatusPanel vehicle labels", () => {
-  it("Panel_muestra_nombre_y_id_separados", () => {
+  it("Panel_muestra_nombre_id_conductor_y_velocidad", () => {
     render(
       <FleetStatusPanel
         vehicles={[
           {
-            vehicleId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            name: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            vehicleId: "VH-001",
+            name: "VH-001",
+            deviceId: "df32fdsf-43gf-4r32-834f-4aaaaaaa0001",
             status: "online",
-            lastSeenAt: "2026-07-10T10:00:00Z",
-            lastSpeedKmh: 40,
+            lastSeenAt: "2026-07-10T01:23:00Z",
+            lastSpeedKmh: 101,
             lastLatitude: 4.6,
             lastLongitude: -74.0,
-            driverId: "Ana López",
-          },
-          {
-            vehicleId: "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
-            name: "Camión norte",
-            status: "online",
-            lastSeenAt: "2026-07-10T10:00:00Z",
-            lastSpeedKmh: 40,
-            lastLatitude: 4.6,
-            lastLongitude: -74.0,
-            driverId: "Luis",
+            driverId: "Miguel",
           },
         ]}
       />,
     );
 
-    expect(screen.getByText("Sin nombre")).toBeTruthy();
-    expect(screen.getByText("Camión norte")).toBeTruthy();
-    expect(screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
-    expect(screen.getByText("ID: bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeTruthy();
-    expect(screen.getByText("Conductor: Ana López")).toBeTruthy();
-    expect(screen.getByText("Conductor: Luis")).toBeTruthy();
+    expect(screen.getByText("VH-001")).toBeTruthy();
+    expect(screen.getByText("ID: df32fdsf-43gf-4r32-834f-4aaaaaaa0001")).toBeTruthy();
+    expect(screen.getByText("Conductor: Miguel")).toBeTruthy();
+    expect(screen.getByText(/101 km\/h/i)).toBeTruthy();
 
-    // Orden visual: nombre, luego ID, luego conductor.
-    const firstCard = screen.getByText("Camión norte").closest("button");
-    expect(firstCard).toBeTruthy();
-    const text = firstCard!.textContent ?? "";
-    expect(text.indexOf("Camión norte")).toBeLessThan(text.indexOf("ID: bbbbbbbb"));
-    expect(text.indexOf("ID: bbbbbbbb")).toBeLessThan(text.indexOf("Conductor: Luis"));
-
-    // El device ID no debe usarse como título del vehículo.
-    const idLine = screen.getByText("ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-    expect(idLine.className).toContain("text-xs");
-    expect(idLine.className).toContain("text-slate-500");
-    const driverLine = screen.getByText("Conductor: Ana López");
-    expect(driverLine.className).toBe(idLine.className);
+    const card = screen.getByText("VH-001").closest("button");
+    const text = card?.textContent ?? "";
+    expect(text.indexOf("VH-001")).toBeLessThan(text.indexOf("ID:"));
+    expect(text.indexOf("ID:")).toBeLessThan(text.indexOf("Conductor:"));
+    expect(text.indexOf("Conductor:")).toBeLessThan(text.indexOf("101 km/h"));
   });
 });

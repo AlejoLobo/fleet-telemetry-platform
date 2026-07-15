@@ -5,7 +5,7 @@ import type { VehicleStatus } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
-import { getVehicleDisplayName } from "@/lib/vehicle-display";
+import { getVehicleDeviceId, getVehicleDisplayName } from "@/lib/vehicle-display";
 import { cn } from "@/lib/utils";
 
 type FleetStatusPanelProps = {
@@ -129,25 +129,19 @@ export function FleetStatusPanel({
 
                 <div className="min-w-0 flex-1">
                   {/* 1) Nombre del vehículo */}
-                  <div className="flex items-center gap-2">
-                    <p className="truncate font-semibold text-slate-800">
-                      {getVehicleDisplayName(vehicle)}
-                    </p>
-                    <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
-                      {etiquetaEstadoVehiculo(vehicle.status)}
-                    </Badge>
-                    {vehicle.lastLocationSource === "simulated" && (
-                      <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
-                    )}
-                  </div>
-                  {/* 2) ID de dispositivo */}
-                  <p className="truncate text-xs text-slate-500">ID: {vehicle.vehicleId}</p>
+                  <p className="truncate font-semibold text-slate-800">
+                    {getVehicleDisplayName(vehicle)}
+                  </p>
+                  {/* 2) ID del dispositivo */}
+                  <p className="truncate text-xs text-slate-500">
+                    ID: {getVehicleDeviceId(vehicle)}
+                  </p>
                   {/* 3) Conductor */}
                   <p className="truncate text-xs text-slate-500">
                     Conductor: {vehicle.driverId?.trim() ? vehicle.driverId : "—"}
                   </p>
                   {/* 4) Velocidad y hora */}
-                  <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                     <span className="flex items-center gap-1">
                       <Gauge className="h-3 w-3" />
                       {speed.toFixed(0)} km/h
@@ -161,6 +155,12 @@ export function FleetStatusPanel({
                           })
                         : "—"}
                     </span>
+                    <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
+                      {etiquetaEstadoVehiculo(vehicle.status)}
+                    </Badge>
+                    {vehicle.lastLocationSource === "simulated" && (
+                      <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
+                    )}
                   </div>
                 </div>
 

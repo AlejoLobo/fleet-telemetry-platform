@@ -23,17 +23,17 @@ function vehicle(
 }
 
 describe("mergeVehicleUpdates", () => {
-  it("SSE_con_Name_igual_a_VehicleId_no_borra_nombre_operativo", () => {
+  it("SSE_con_UUID_como_Name_no_borra_nombre_operativo", () => {
     const snapshot = [
-      vehicle("device-1", {
-        name: "Camión norte",
+      vehicle("11111111-1111-1111-1111-111111111111", {
+        name: "VH-001",
         lastSeenAt: "2026-07-10T10:00:00Z",
         driverId: "Ana",
       }),
     ];
     const updates = [
-      vehicle("device-1", {
-        name: "device-1",
+      vehicle("11111111-1111-1111-1111-111111111111", {
+        name: "11111111-1111-1111-1111-111111111111",
         lastSeenAt: "2026-07-10T10:05:00Z",
         lastSpeedKmh: 60,
         driverId: null,
@@ -41,9 +41,9 @@ describe("mergeVehicleUpdates", () => {
     ];
 
     const merged = mergeVehicleUpdates(snapshot, updates);
-    expect(merged.find((v) => v.vehicleId === "device-1")?.name).toBe("Camión norte");
-    expect(merged.find((v) => v.vehicleId === "device-1")?.driverId).toBe("Ana");
-    expect(merged.find((v) => v.vehicleId === "device-1")?.lastSpeedKmh).toBe(60);
+    expect(merged.find((v) => v.vehicleId === "11111111-1111-1111-1111-111111111111")?.name).toBe("VH-001");
+    expect(merged.find((v) => v.vehicleId === "11111111-1111-1111-1111-111111111111")?.driverId).toBe("Ana");
+    expect(merged.find((v) => v.vehicleId === "11111111-1111-1111-1111-111111111111")?.lastSpeedKmh).toBe(60);
   });
 
   it("Actualizacion_no_elimina_los_demas_vehiculos", () => {

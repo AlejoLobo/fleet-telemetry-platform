@@ -4,6 +4,8 @@ import type { VehicleStatus } from "@/types/fleet";
 type RawVehicle = Partial<VehicleStatus> & {
   VehicleId?: string;
   Name?: string;
+  DeviceId?: string | null;
+  VehicleType?: string | null;
   DriverId?: string | null;
   Status?: string;
   LastSeenAt?: string | null;
@@ -21,16 +23,16 @@ type RawVehicle = Partial<VehicleStatus> & {
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   const vehicleId = vehicle.vehicleId ?? vehicle.VehicleId ?? "";
   const rawName = (vehicle.name ?? vehicle.Name ?? "").trim();
-  // Nunca promover UUID/device ID a name.
+  // Nombre operativo (VH-001); un UUID no es nombre de vehículo.
   const name =
-    rawName &&
-    rawName.toLowerCase() !== vehicleId.toLowerCase() &&
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawName)
+    rawName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawName)
       ? rawName
       : "";
   return {
     vehicleId,
     name,
+    deviceId: vehicle.deviceId ?? vehicle.DeviceId ?? null,
+    vehicleType: vehicle.vehicleType ?? vehicle.VehicleType ?? null,
     driverId: vehicle.driverId ?? vehicle.DriverId ?? null,
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,

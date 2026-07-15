@@ -163,10 +163,19 @@ public class TimescaleFleetQueryService : IFleetQueryService
     private static string ResolvePublicVehicleName(string? displayName, string vehicleId)
     {
         if (string.IsNullOrWhiteSpace(displayName)) return string.Empty;
-        return string.Equals(displayName, vehicleId, StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : displayName;
+
+        // Solo descarta el nombre si es el UUID del dispositivo (no códigos tipo VH-001).
+        if (LooksLikeDeviceUuid(displayName)
+            && string.Equals(displayName, vehicleId, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return displayName.Trim();
     }
+
+    private static bool LooksLikeDeviceUuid(string value) =>
+        Guid.TryParse(value.Trim(), out _);
 
     private static void ValidatePageSize(int pageSize, int maxPageSize)
     {

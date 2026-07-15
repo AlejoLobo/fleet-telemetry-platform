@@ -61,7 +61,9 @@ function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): Vehi
   // SSE a veces manda Name=VehicleId; no debe borrar el nombre operativo ya conocido.
   return {
     ...newer,
-    name: resolveVehicleName(newer.name, older.name, newer.vehicleId),
+    name: resolveVehicleName(newer.name, older.name) || newer.name || older.name || "",
+    deviceId: newer.deviceId ?? older.deviceId,
+    vehicleType: newer.vehicleType ?? older.vehicleType,
     driverId: newer.driverId ?? older.driverId,
   };
 }
