@@ -13,6 +13,7 @@ public static class DatabaseInitializer
     private const int ReadModelVerificationSchemaVersion = 3;
     private const int AlertStateSchemaVersion = 4;
     private const int TimescaleMaintenanceSchemaVersion = 5;
+    private const int FleetDevicesSchemaVersion = 6;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -60,9 +61,15 @@ public static class DatabaseInitializer
                     logger,
                     migrationHooks,
                     cancellationToken);
+                await ApplyFleetDevicesMigrationV6Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
                 await using var ensureTransaction = await connection.BeginTransactionAsync(cancellationToken);
                 await EnsureFleetVehicleStateSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await EnsureFleetAlertStatesSchemaAsync(connection, ensureTransaction, cancellationToken);
+                await EnsureFleetDevicesSchemaAsync(connection, ensureTransaction, cancellationToken);
                 await ensureTransaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
@@ -655,6 +662,90 @@ public static class DatabaseInitializer
             await transaction.RollbackAsync(cancellationToken);
             throw;
         }
+    }
+
+    // Registro de dispositivos estables y secuencia de nombres VH-###.
+    private static async Task ApplyFleetDevicesMigrationV6Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, FleetDevicesSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Fleet devices migration v{Version} already applied; preserving registry.",
+                FleetDevicesSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetDevicesSchemaAsync(connection, transaction, cancellationToken);
+
+            await migrationHooks.OnBeforeRegisterVersionAsync(
+                FleetDevicesSchemaVersion,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (
+                    6,
+                    NOW(),
+                    'Fleet devices registry: fleet_devices + fleet_vehicle_name_seq for VH-### allocation');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation(
+                "Fleet devices migration v{Version} applied successfully.",
+                FleetDevicesSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task EnsureFleetDevicesSchemaAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE TABLE IF NOT EXISTS fleet_devices (
+                device_id UUID NOT NULL,
+                vehicle_name VARCHAR(100) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                CONSTRAINT "PK_fleet_devices" PRIMARY KEY (device_id),
+                CONSTRAINT "UQ_fleet_devices_vehicle_name" UNIQUE (vehicle_name)
+            );
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            CREATE SEQUENCE IF NOT EXISTS fleet_vehicle_name_seq
+                AS BIGINT
+                START WITH 1
+                INCREMENT BY 1
+                NO MINVALUE
+                NO MAXVALUE
+                CACHE 1;
+            """,
+            cancellationToken);
     }
 
     private static async Task<bool> ContinuousAggregateExistsAsync(
