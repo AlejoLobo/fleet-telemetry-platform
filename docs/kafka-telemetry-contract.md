@@ -86,7 +86,7 @@ Con `Kafka:UseEventEnvelope = false` (default), el mensaje es JSON plano:
 ```json
 {
   "eventId": "...",
-  "vehicleId": "VH-001",
+  "deviceId": "11111111-1111-1111-1111-111111111111",
   "driverId": "DRV-001",
   "timestamp": "2026-07-12T08:30:00Z",
   "latitude": 4.6533,
