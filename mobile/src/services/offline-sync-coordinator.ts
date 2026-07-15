@@ -10,6 +10,7 @@ import {
 } from "@/db/offline-queue";
 import { handleUnauthorizedFromApi, markForbiddenFromApi } from "@/services/auth-service";
 import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { ensureDeviceRegistered } from "@/services/device-registry";
 import { sendBatchEvents, sendSingleEvent, TelemetryApiError } from "@/services/telemetry-api";
 import {
   classifySyncError,
@@ -119,6 +120,15 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
   const accumulator = emptyAccumulator();
   await purgeSyncedOlderThan(7);
 
+  try {
+    await ensureDeviceRegistered(deviceId);
+  } catch (error) {
+    return toSyncResult(
+      await applyRegistrationFailure(accumulator, error),
+      await countPendingEvents(),
+    );
+  }
+
   while (true) {
     const batch = await claimNextBatch(batchSize, new Date().toISOString());
     if (!batch.length) break;
@@ -134,6 +144,33 @@ async function runSync(deviceId: string, batchSize: number): Promise<SyncResult>
   }
 
   return toSyncResult(accumulator, await countPendingEvents());
+}
+
+async function applyRegistrationFailure(
+  accumulator: SyncAccumulator,
+  error: unknown,
+): Promise<SyncAccumulator> {
+  const classification = classifySyncError(error);
+  if (classification.action === "stop_auth_required") {
+    await handleUnauthorizedFromApi();
+    accumulator.status = "auth_required";
+    return accumulator;
+  }
+  if (classification.action === "stop_forbidden") {
+    markForbiddenFromApi(sanitizeError(error));
+    accumulator.status = "forbidden";
+    return accumulator;
+  }
+  if (classification.action === "stop_configuration" || classification.action === "isolate_validation") {
+    accumulator.status = "configuration_error";
+    return accumulator;
+  }
+  if (classification.action === "stop_transient") {
+    accumulator.status = "deferred";
+    return accumulator;
+  }
+  accumulator.status = "failed";
+  return accumulator;
 }
 
 function buildStoppedOutcome(

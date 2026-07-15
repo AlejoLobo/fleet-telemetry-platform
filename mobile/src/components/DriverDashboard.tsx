@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getDefaultDriverId, getDefaultVehicleId } from "@/config/env";
+import { getDefaultDriverId } from "@/config/env";
 import {
   DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
   TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS,
@@ -22,6 +22,8 @@ import {
   saveCaptureIntervalSeconds,
 } from "@/services/capture-interval-store";
 import { loadOrCreateDeviceId } from "@/services/device-id-store";
+import { loadCachedVehicleName } from "@/services/device-profile-store";
+import { ensureDeviceRegistered, updateVehicleDisplayName } from "@/services/device-registry";
 
 const AUTH_STATUS_LABELS: Record<string, string> = {
   checking: "Comprobando autenticación...",
@@ -57,12 +59,14 @@ export function isStartTrackingDisabled(options: {
 }
 
 export function DriverDashboard() {
-  const [vehicleId, setVehicleId] = useState(getDefaultVehicleId());
   const [driverId, setDriverId] = useState(getDefaultDriverId());
+  const [vehicleName, setVehicleName] = useState("");
+  const [vehicleNameDraft, setVehicleNameDraft] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [captureIntervalSeconds, setCaptureIntervalSeconds] =
     useState<TelemetryCaptureIntervalSeconds>(DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS);
   const [intervalReady, setIntervalReady] = useState(false);
@@ -85,7 +89,6 @@ export function DriverDashboard() {
     syncNow,
   } = useDriverTelemetry(
     deviceId ?? "",
-    vehicleId.trim(),
     driverId.trim(),
     auth.canSync,
     captureIntervalSeconds,
@@ -94,21 +97,49 @@ export function DriverDashboard() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [loadedInterval, loadedDeviceId] = await Promise.all([
+      const [loadedInterval, loadedDeviceId, cachedName] = await Promise.all([
         loadCaptureIntervalSeconds(),
         loadOrCreateDeviceId(),
+        loadCachedVehicleName(),
       ]);
       if (!cancelled) {
         setCaptureIntervalSeconds(loadedInterval);
         setIntervalReady(true);
         setDeviceId(loadedDeviceId);
         setDeviceIdReady(true);
+        if (cachedName) {
+          setVehicleName(cachedName);
+          setVehicleNameDraft(cachedName);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Registro remoto cuando hay red y sync permitido; el backend asigna VH-###.
+  useEffect(() => {
+    if (!deviceId || !auth.canSync || !isOnline) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const profile = await ensureDeviceRegistered(deviceId);
+        if (!cancelled) {
+          setVehicleName(profile.vehicleName);
+          setVehicleNameDraft((prev) => (prev.trim() ? prev : profile.vehicleName));
+          setNameError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setNameError(e instanceof Error ? e.message : "No se pudo registrar el dispositivo");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceId, auth.canSync, isOnline]);
 
   const handleCaptureIntervalChange = async (seconds: TelemetryCaptureIntervalSeconds) => {
     if (tracking || !intervalReady) return;
@@ -138,6 +169,21 @@ export function DriverDashboard() {
     }
   };
 
+  const handleSaveVehicleName = async () => {
+    if (!deviceId) return;
+    setNameError(null);
+    setBusy(true);
+    try {
+      const profile = await updateVehicleDisplayName(deviceId, vehicleNameDraft);
+      setVehicleName(profile.vehicleName);
+      setVehicleNameDraft(profile.vehicleName);
+    } catch (e) {
+      setNameError(e instanceof Error ? e.message : "No se pudo renombrar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const syncPausedByAuth = auth.enabled && !auth.canSync;
   const deviceConfigLoading = !intervalReady || !deviceIdReady;
   const startDisabled = isStartTrackingDisabled({
@@ -146,6 +192,8 @@ export function DriverDashboard() {
     deviceIdReady,
     deviceId,
   });
+  const nameDirty = vehicleNameDraft.trim() !== vehicleName.trim();
+  const canEditName = Boolean(deviceId) && auth.canSync && isOnline && !tracking;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -175,14 +223,28 @@ export function DriverDashboard() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Vehículo</Text>
+        <Text style={styles.section}>Identidad del dispositivo</Text>
+        <Text style={styles.label}>DeviceId (inmutable)</Text>
+        <Text style={styles.metaReadonly} selectable>
+          {deviceIdReady && deviceId ? deviceId : "Cargando…"}
+        </Text>
+        <Text style={styles.hint}>
+          La identidad técnica no cambia al renombrar. El nombre visible lo asigna el backend.
+        </Text>
+        <Text style={styles.label}>Nombre del vehículo</Text>
         <TextInput
           style={styles.input}
-          value={vehicleId}
-          onChangeText={setVehicleId}
-          autoCapitalize="characters"
-          editable={!tracking}
+          value={vehicleNameDraft}
+          onChangeText={setVehicleNameDraft}
+          placeholder={vehicleName || "Se asigna al registrar"}
+          editable={canEditName && !busy}
         />
+        <Button
+          title="Guardar nombre"
+          onPress={() => void handleSaveVehicleName()}
+          disabled={busy || !canEditName || !nameDirty || vehicleNameDraft.trim().length < 2}
+        />
+        {nameError && <Text style={styles.error}>{nameError}</Text>}
         <Text style={styles.label}>Conductor</Text>
         <TextInput
           style={styles.input}
@@ -190,10 +252,6 @@ export function DriverDashboard() {
           onChangeText={setDriverId}
           editable={!tracking}
         />
-        <Text style={styles.label}>ID estable del dispositivo</Text>
-        <Text style={styles.metaReadonly} selectable>
-          {deviceIdReady && deviceId ? deviceId : "Cargando…"}
-        </Text>
       </View>
 
       <View style={styles.card}>
@@ -345,6 +403,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontFamily: "monospace",
   },
+  hint: { fontSize: 12, color: "#64748b", marginBottom: 4 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   intervalRow: { gap: 8 },
   intervalChip: {

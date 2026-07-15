@@ -11,9 +11,11 @@
 | `GET` | `/api/ops/summary` | Si Auth on | Resumen operativo |
 | `POST` | `/api/telemetry` | Si Auth on | Ingesta un evento → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Si Auth on | Lote (sync mobile) |
-| `GET` | `/api/telemetry/{vehicleId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
+| `POST` | `/api/devices/register` | Si Auth on | Registra DeviceId; asigna `vehicleName` (`VH-###`) |
+| `PATCH` | `/api/devices/{deviceId}/name` | Si Auth on | Renombra sin cambiar identidad |
+| `GET` | `/api/telemetry/{deviceId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
 | `GET` | `/api/fleet` | No | Flota paginada (`?pageSize=&cursor=&liveOnly=&excludeSimulated=`) |
-| `GET` | `/api/fleet/{vehicleId}` | No | Estado de un vehículo |
+| `GET` | `/api/fleet/{deviceId}` | No | Estado de un vehículo |
 | `GET` | `/api/alerts` | No | Alertas abiertas |
 | `PATCH` | `/api/alerts/{id}/acknowledge` | Si Auth on | Confirmar alerta |
 | `GET` | `/api/events/stream` | No | SSE |
@@ -64,9 +66,10 @@ curl http://localhost:5000/api/ops/summary
 ```bash
 curl -X POST http://localhost:5000/api/telemetry \
   -H "Content-Type: application/json" \
+  -H "X-Device-Id: 11111111-1111-1111-1111-111111111111" \
   -d "{
-    \"eventId\": \"11111111-1111-1111-1111-111111111111\",
-    \"vehicleId\": \"VH-001\",
+    \"eventId\": \"22222222-2222-2222-2222-222222222222\",
+    \"deviceId\": \"11111111-1111-1111-1111-111111111111\",
     \"driverId\": \"DRV-001\",
     \"timestamp\": \"2026-07-08T22:00:00Z\",
     \"latitude\": 4.6533,
@@ -77,7 +80,20 @@ curl -X POST http://localhost:5000/api/telemetry \
   }"
 ```
 
-Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y publica en `telemetry.raw`.
+Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y publica en `telemetry.raw`. `X-Device-Id` debe coincidir con `deviceId`.
+
+### Registro de dispositivo
+
+```bash
+curl -X POST http://localhost:5000/api/devices/register \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"11111111-1111-1111-1111-111111111111"}'
+# → { "deviceId": "...", "vehicleName": "VH-001" }
+
+curl -X PATCH http://localhost:5000/api/devices/11111111-1111-1111-1111-111111111111/name \
+  -H "Content-Type: application/json" \
+  -d '{"vehicleName":"Camión Norte"}'
+```
 
 ### Consulta
 
@@ -85,14 +101,14 @@ Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y pu
 curl "http://localhost:5000/api/fleet?pageSize=100"
 curl "http://localhost:5000/api/fleet?pageSize=100&cursor=<opaco>"
 curl http://localhost:5000/api/alerts
-curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z&pageSize=200"
+curl "http://localhost:5000/api/telemetry/11111111-1111-1111-1111-111111111111?from=2026-07-08T00:00:00Z&pageSize=200"
 ```
 
 #### Paginación por cursor
 
 - `GET /api/fleet` devuelve `CursorPage<VehicleLatestStatusResponse>`: `{ items, nextCursor, hasMore }`.
 - Cada ítem incluye `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
-- Orden estable: `VehicleId` ascendente. `pageSize` default 100, máximo 500.
+- Orden estable: `DeviceId` ascendente. `pageSize` default 100, máximo 500.
 - `liveOnly`: filtra en SQL `LastTimestamp >= now - OnlineThresholdMinutes`.
 - `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).
 - El cursor es opaco (Base64URL + JSON validado). Reutilizarlo con filtros distintos → `400`.

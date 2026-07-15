@@ -42,10 +42,19 @@ import {
   getQueueEventByEventId,
   resetOfflineQueueForTests,
 } from "@/db/offline-queue";
+
+jest.mock("@/services/device-registry", () => ({
+  ensureDeviceRegistered: jest.fn(async (deviceId: string) => ({
+    deviceId,
+    vehicleName: "VH-001",
+  })),
+  updateVehicleDisplayName: jest.fn(),
+}));
+
 import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
 
 const base = {
-  vehicleId: "VH-001",
+  deviceId: "11111111-1111-1111-1111-111111111111",
   driverId: "DRV-001",
   timestamp: "2026-07-10T10:00:00Z",
   latitude: 4.65,

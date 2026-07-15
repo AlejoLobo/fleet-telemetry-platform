@@ -21,7 +21,7 @@ describe("telemetry-api auth", () => {
     await sendBatchEvents([
       {
         eventId: "11111111-1111-1111-1111-111111111111",
-        vehicleId: "VH-001",
+        deviceId: "11111111-1111-1111-1111-111111111111",
         driverId: "DRV-001",
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,
@@ -45,7 +45,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: "DRV-001",
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -63,7 +63,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: "DRV-001",
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -80,7 +80,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -96,7 +96,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "unknown", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -117,7 +117,7 @@ describe("telemetry-api auth", () => {
     });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -145,7 +145,7 @@ describe("telemetry-api auth", () => {
     try {
       await sendSingleEvent({
         eventId: "11111111-1111-1111-1111-111111111111",
-        vehicleId: "VH-001",
+        deviceId: "11111111-1111-1111-1111-111111111111",
         driverId: null,
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,
@@ -159,12 +159,13 @@ describe("telemetry-api auth", () => {
     }
   });
 
-  it("X-Device-Id contiene el ID estable y no el vehicleId", async () => {
+  it("X-Device-Id coincide con el DeviceId del payload", async () => {
     setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
+    const deviceId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-VEHICLE-ONLY",
+      deviceId,
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -172,10 +173,11 @@ describe("telemetry-api auth", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "phys-device-stable-01");
+    }, deviceId);
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
-    expect(headers["X-Device-Id"]).toBe("phys-device-stable-01");
-    expect(headers["X-Device-Id"]).not.toBe("VH-VEHICLE-ONLY");
+    const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string) as { deviceId: string };
+    expect(headers["X-Device-Id"]).toBe(deviceId);
+    expect(body.deviceId).toBe(deviceId);
   });
 
   it("batch utiliza el mismo ID estable", async () => {
@@ -183,7 +185,7 @@ describe("telemetry-api auth", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendBatchEvents([{
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -200,7 +202,7 @@ describe("telemetry-api auth", () => {
     setAuthRuntimeSnapshot({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "11111111-1111-1111-1111-111111111111",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,

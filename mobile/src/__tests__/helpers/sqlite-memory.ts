@@ -2,6 +2,7 @@ type QueueRow = {
   local_id: number;
   event_id: string;
   vehicle_id: string;
+  device_id: string;
   driver_id: string | null;
   timestamp: string;
   latitude: number;
@@ -86,18 +87,21 @@ export function createSqliteMemoryDb() {
     }),
     runAsync: jest.fn(async (sql: string, ...params: unknown[]) => {
       if (sql.includes("INSERT INTO telemetry_queue")) {
+        // event_id, vehicle_id, device_id, driver_id, timestamp, lat, lon, speed, fuel, battery, source, created_at
+        const deviceId = params[2] as string;
         const row: QueueRow = {
           local_id: nextLocalId++,
           event_id: params[0] as string,
           vehicle_id: params[1] as string,
-          driver_id: (params[2] as string | null) ?? null,
-          timestamp: params[3] as string,
-          latitude: params[4] as number,
-          longitude: params[5] as number,
-          speed_kmh: params[6] as number,
-          fuel_level_percent: (params[7] as number | null) ?? null,
-          battery_percent: (params[8] as number | null) ?? null,
-          source: params[9] as string,
+          device_id: deviceId,
+          driver_id: (params[3] as string | null) ?? null,
+          timestamp: params[4] as string,
+          latitude: params[5] as number,
+          longitude: params[6] as number,
+          speed_kmh: params[7] as number,
+          fuel_level_percent: (params[8] as number | null) ?? null,
+          battery_percent: (params[9] as number | null) ?? null,
+          source: params[10] as string,
           status: "pending",
           retry_count: 0,
           next_attempt_at: null,
@@ -105,7 +109,7 @@ export function createSqliteMemoryDb() {
           last_error: null,
           locked_at: null,
           synced_at: null,
-          created_at: params[10] as string,
+          created_at: params[11] as string,
         };
         rows.push(row);
         return { lastInsertRowId: row.local_id, changes: 1 };

@@ -15,7 +15,6 @@ const SYNC_INTERVAL_MILLISECONDS = 10_000;
 
 export function useDriverTelemetry(
   deviceId: string,
-  vehicleId: string,
   driverId: string,
   canSync: boolean,
   captureIntervalSeconds: TelemetryCaptureIntervalSeconds = DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS,
@@ -53,9 +52,15 @@ export function useDriverTelemetry(
   }, []);
 
   const captureEvent = useCallback(async (reading: LocationReading) => {
+    const resolvedDeviceId = deviceIdRef.current.trim();
+    if (!resolvedDeviceId) {
+      setState((p) => ({ ...p, error: "deviceId no disponible" }));
+      return;
+    }
+
     const event = {
       eventId: await generateEventId(),
-      vehicleId,
+      deviceId: resolvedDeviceId,
       driverId: driverId || null,
       timestamp: new Date().toISOString(),
       latitude: reading.latitude,
@@ -68,7 +73,7 @@ export function useDriverTelemetry(
     await enqueueEvent(event, reading.source);
     await refreshPendingCount();
     setState((p) => ({ ...p, lastReading: reading, lastCapturedAt: event.timestamp, error: null }));
-  }, [vehicleId, driverId, refreshPendingCount]);
+  }, [driverId, refreshPendingCount]);
 
   const syncNow = useCallback(async () => {
     const result = await syncPendingQueue(isOnlineRef.current, deviceIdRef.current);

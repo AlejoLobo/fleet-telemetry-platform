@@ -20,6 +20,14 @@ Al iniciar la app:
 4. `POST /api/auth/login` guarda JWT y expiración; habilita sync pendiente.
 5. Logout elimina token; **la cola SQLite no se borra**.
 
+## Identidad de dispositivo
+
+1. `DeviceId` UUID estable en SecureStore (`fleet.device.id`).
+2. Antes del sync, `POST /api/devices/register` (idempotente) obtiene `vehicleName` del backend.
+3. Los eventos de telemetría llevan `deviceId` (no `vehicleId` / `VH-###`).
+4. Header `X-Device-Id` debe coincidir con el payload.
+5. Renombrar en UI actualiza solo el nombre visible.
+
 ### Comportamiento ante errores de auth
 
 | HTTP | Acción |
@@ -49,8 +57,9 @@ cp .env.example .env
 | Variable | Descripción |
 |----------|-------------|
 | `EXPO_PUBLIC_API_URL` | Backend .NET |
-| `EXPO_PUBLIC_VEHICLE_ID` | Vehículo por defecto |
 | `EXPO_PUBLIC_DRIVER_ID` | Conductor por defecto |
+
+La identidad del vehículo es el `DeviceId` UUID generado en el dispositivo (SecureStore). Mobile **no** genera nombres `VH-###`; el backend los asigna en `POST /api/devices/register`. El nombre visible se puede editar con `PATCH /api/devices/{deviceId}/name` sin cambiar la identidad ni la partición Kafka.
 
 No usar `EXPO_PUBLIC_JWT` ni credenciales en variables públicas.
 
