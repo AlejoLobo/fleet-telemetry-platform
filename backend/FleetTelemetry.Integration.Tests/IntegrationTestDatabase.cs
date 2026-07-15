@@ -77,7 +77,7 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
             CREATE SCHEMA public;
             GRANT ALL ON SCHEMA public TO CURRENT_USER;
             GRANT ALL ON SCHEMA public TO public;
-            CREATE EXTENSION IF NOT EXISTS timescaledb;
+            -- timescaledb ya está cargado a nivel de base; no recrear la extensión.
             """;
         await command.ExecuteNonQueryAsync();
     }
