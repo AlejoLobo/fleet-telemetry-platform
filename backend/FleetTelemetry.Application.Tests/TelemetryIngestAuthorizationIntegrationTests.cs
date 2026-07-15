@@ -1,9 +1,6 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
@@ -14,7 +11,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Microsoft.IdentityModel.Tokens;
 
 namespace FleetTelemetry.Application.Tests;
 
@@ -24,6 +20,8 @@ public class TelemetryIngestAuthorizationIntegrationTests
     {
         PropertyNameCaseInsensitive = true,
     };
+
+    private static readonly Guid DefaultDeviceId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     [Fact]
     public async Task Batch_auth_disabled_without_token_returns_202()
@@ -60,16 +58,29 @@ public class TelemetryIngestAuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task Batch_auth_enabled_with_valid_token_returns_202()
+    public async Task Batch_auth_enabled_with_device_token_returns_202()
     {
         using var factory = CreateFactory(authEnabled: true);
         using var client = factory.CreateClient();
-        var token = await LoginAsync(client, factory);
+        var token = CreateDeviceToken(factory, DefaultDeviceId);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await PostBatchAsync(client, CreateValidBatch());
+        using var response = await PostBatchAsync(client, CreateValidBatch(DefaultDeviceId), DefaultDeviceId);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.True(factory.Publisher.PublishCount > 0);
+    }
+
+    [Fact]
+    public async Task Batch_auth_enabled_with_operator_token_returns_403()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        var token = await LoginOperatorAsync(client, factory);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await PostBatchAsync(client, CreateValidBatch(), DefaultDeviceId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
     }
 
     [Fact]
@@ -77,9 +88,24 @@ public class TelemetryIngestAuthorizationIntegrationTests
     {
         using var factory = CreateFactory(authEnabled: true);
         using var client = factory.CreateClient();
-        var token = CreateJwtWithoutTelemetryWrite(factory);
+        var token = CreateOperatorToken(factory);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await PostBatchAsync(client, CreateValidBatch());
+        using var response = await PostBatchAsync(client, CreateValidBatch(), DefaultDeviceId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
+    }
+
+    [Fact]
+    public async Task Batch_auth_enabled_device_token_mismatched_device_id_returns_403()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        var tokenDevice = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var payloadDevice = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var token = CreateDeviceToken(factory, tokenDevice);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await PostBatchAsync(client, CreateValidBatch(payloadDevice), payloadDevice);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, factory.Publisher.PublishCount);
@@ -124,37 +150,65 @@ public class TelemetryIngestAuthorizationIntegrationTests
     {
         using var factory = CreateFactory(authEnabled: true);
         using var client = factory.CreateClient();
-        var token = CreateJwtWithoutTelemetryWrite(factory);
+        var token = CreateOperatorToken(factory);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await PostSingleAsync(client, CreateValidEvent());
+        using var response = await PostSingleAsync(client, CreateValidEvent(), DefaultDeviceId);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, factory.Publisher.PublishCount);
     }
 
     [Fact]
-    public async Task Single_auth_enabled_with_valid_token_returns_202()
+    public async Task Single_auth_enabled_with_device_token_returns_202()
     {
         using var factory = CreateFactory(authEnabled: true);
         using var client = factory.CreateClient();
-        var token = await LoginAsync(client, factory);
+        var token = CreateDeviceToken(factory, DefaultDeviceId);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await PostSingleAsync(client, CreateValidEvent());
+        using var response = await PostSingleAsync(client, CreateValidEvent(DefaultDeviceId), DefaultDeviceId);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.Equal(1, factory.Publisher.PublishCount);
     }
 
+    [Fact]
+    public async Task Single_auth_enabled_operator_with_device_manage_cannot_write_telemetry()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        var token = CreateOperatorToken(factory, canManageDevices: true);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await PostSingleAsync(client, CreateValidEvent(DefaultDeviceId), DefaultDeviceId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
+    }
+
+    [Fact]
+    public async Task Single_auth_enabled_device_token_header_mismatch_returns_400()
+    {
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        var payload = DefaultDeviceId;
+        var header = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var token = CreateDeviceToken(factory, payload);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await PostSingleAsync(client, CreateValidEvent(payload), header);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, factory.Publisher.PublishCount);
+    }
+
     private static TelemetryIngestAuthorizationWebApplicationFactory CreateFactory(bool authEnabled) =>
         new() { AuthEnabled = authEnabled };
 
-    private static TelemetryBatchRequest CreateValidBatch() =>
-        new([CreateValidEvent()]);
+    private static TelemetryBatchRequest CreateValidBatch(Guid? deviceId = null) =>
+        new([CreateValidEvent(deviceId)]);
 
-    private static TelemetryEventRequest CreateValidEvent() =>
+    private static TelemetryEventRequest CreateValidEvent(Guid? deviceId = null) =>
         new(
             Guid.NewGuid(),
-            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            deviceId ?? DefaultDeviceId,
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,
@@ -164,39 +218,62 @@ public class TelemetryIngestAuthorizationIntegrationTests
             90,
             "gps");
 
-    private static async Task<HttpResponseMessage> PostBatchAsync(HttpClient client, TelemetryBatchRequest batch) =>
-        await client.PostAsJsonAsync("/api/telemetry/batch", batch);
-
-    private static async Task<HttpResponseMessage> PostSingleAsync(HttpClient client, TelemetryEventRequest request) =>
-        await client.PostAsJsonAsync("/api/telemetry", request);
-
-    private static async Task<string> LoginAsync(HttpClient client, TelemetryIngestAuthorizationWebApplicationFactory factory)
+    private static async Task<HttpResponseMessage> PostBatchAsync(
+        HttpClient client,
+        TelemetryBatchRequest batch,
+        Guid? headerDeviceId = null)
     {
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(factory.DemoUsername, factory.DemoPassword));
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/telemetry/batch")
+        {
+            Content = JsonContent.Create(batch)
+        };
+        if (headerDeviceId is { } id)
+            request.Headers.TryAddWithoutValidation("X-Device-Id", id.ToString("D"));
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> PostSingleAsync(
+        HttpClient client,
+        TelemetryEventRequest body,
+        Guid? headerDeviceId = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/telemetry")
+        {
+            Content = JsonContent.Create(body)
+        };
+        if (headerDeviceId is { } id)
+            request.Headers.TryAddWithoutValidation("X-Device-Id", id.ToString("D"));
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<string> LoginOperatorAsync(
+        HttpClient client,
+        TelemetryIngestAuthorizationWebApplicationFactory factory)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(factory.DemoUsername, factory.DemoPassword));
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
         return body!.Token;
     }
 
-    private static string CreateJwtWithoutTelemetryWrite(TelemetryIngestAuthorizationWebApplicationFactory factory)
+    private static string CreateDeviceToken(
+        TelemetryIngestAuthorizationWebApplicationFactory factory,
+        Guid deviceId)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("integration-test-secret-with-32-chars-min"));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.Name, factory.DemoUsername),
-            new Claim(ClaimTypes.Role, "operator"),
-            new Claim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.FleetRead),
-        };
+        using var scope = factory.Services.CreateScope();
+        var jwt = scope.ServiceProvider.GetRequiredService<JwtTokenService>();
+        return jwt.GenerateDeviceToken(deviceId);
+    }
 
-        var token = new JwtSecurityToken(
-            issuer: "fleet-telemetry",
-            audience: "fleet-clients",
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(30),
-            signingCredentials: credentials);
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+    private static string CreateOperatorToken(
+        TelemetryIngestAuthorizationWebApplicationFactory factory,
+        bool canManageDevices = false)
+    {
+        using var scope = factory.Services.CreateScope();
+        var jwt = scope.ServiceProvider.GetRequiredService<JwtTokenService>();
+        return jwt.GenerateOperatorToken(factory.DemoUsername, canManageDevices);
     }
 }
 

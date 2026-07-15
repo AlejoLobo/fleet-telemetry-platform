@@ -25,5 +25,16 @@ public static class AuthorizationPolicyRegistrar
         options.AddPolicy(AuthorizationPolicies.OperationsRead, policy =>
             policy.RequireAuthenticatedUser()
                 .RequireClaim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.OperationsRead));
+
+        options.AddPolicy(AuthorizationPolicies.DeviceManage, policy =>
+            policy.RequireAuthenticatedUser()
+                .RequireClaim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.DeviceManage));
+
+        // Rename: token de dispositivo (telemetry:write) O operador con device:manage.
+        options.AddPolicy(AuthorizationPolicies.DeviceRename, policy =>
+            policy.RequireAuthenticatedUser()
+                .RequireAssertion(context =>
+                    context.User.HasClaim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.TelemetryWrite)
+                    || context.User.HasClaim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.DeviceManage)));
     }
 }
