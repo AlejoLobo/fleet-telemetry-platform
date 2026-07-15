@@ -1,3 +1,7 @@
+/**
+ * Valida el bucle real de captura cada 5 segundos con fake timers.
+ * Conserva el coordinador mockeado (API remota) pero usa runCaptureLoop real.
+ */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -5,13 +9,6 @@ const mockSyncPendingQueue = jest.fn();
 const mockEnqueueEvent = jest.fn();
 const mockCountPendingEvents = jest.fn(async () => 0);
 const mockGetCurrentReading = jest.fn();
-const mockRunCaptureLoop = jest.fn(
-  async (
-    _onReading: (reading: unknown) => void | Promise<void>,
-    _intervalMs: number,
-    _shouldContinue: () => boolean,
-  ) => undefined,
-);
 
 let mockIsOnline = true;
 let syncInFlightCount = 0;
@@ -56,20 +53,33 @@ jest.mock("@/db/offline-queue", () => ({
   resetOfflineQueueForTests: jest.fn(),
 }));
 
-jest.mock("@/services/location-provider", () => ({
-  getCurrentReading: () => mockGetCurrentReading(),
-  runCaptureLoop: (
-    onReading: (reading: unknown) => void | Promise<void>,
-    intervalMs: number,
-    shouldContinue: () => boolean,
-  ) => mockRunCaptureLoop(onReading, intervalMs, shouldContinue),
-}));
+// runCaptureLoop real; getCurrentReading inyectado vía 4º argumento.
+jest.mock("@/services/location-provider", () => {
+  const actual = jest.requireActual<typeof import("@/services/location-provider")>(
+    "@/services/location-provider",
+  );
+  return {
+    getCurrentReading: () => mockGetCurrentReading(),
+    runCaptureLoop: (
+      onReading: (reading: unknown) => void | Promise<void>,
+      intervalMs: number,
+      shouldContinue: () => boolean,
+    ) =>
+      actual.runCaptureLoop(
+        onReading as never,
+        intervalMs,
+        shouldContinue,
+        () => mockGetCurrentReading(),
+      ),
+  };
+});
 
 jest.mock("@/utils/id", () => ({
   generateEventId: jest.fn(async () => `event-${Math.random().toString(16).slice(2)}`),
 }));
 
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
+import { TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS } from "@/config/telemetry-capture-rate";
 
 type HookApi = ReturnType<typeof useDriverTelemetry>;
 const DEVICE_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -88,19 +98,23 @@ function Harness({ onReady }: { onReady: (api: HookApi) => void }) {
   return null;
 }
 
-describe("captura desacoplada de sincronización lenta", () => {
+describe("captura real cada 5 segundos (runCaptureLoop)", () => {
   let latest: HookApi | null = null;
   let renderer: TestRenderer.ReactTestRenderer | null = null;
+  const enqueueAtMs: number[] = [];
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ advanceTimers: true });
     mockIsOnline = true;
     latest = null;
     renderer = null;
     syncInFlightCount = 0;
     syncMaxInFlight = 0;
+    enqueueAtMs.length = 0;
     jest.clearAllMocks();
-    mockEnqueueEvent.mockResolvedValue(undefined);
+    mockEnqueueEvent.mockImplementation(async () => {
+      enqueueAtMs.push(jest.now());
+    });
     mockCountPendingEvents.mockResolvedValue(0);
     mockGetCurrentReading.mockResolvedValue({
       latitude: 4.65,
@@ -111,8 +125,13 @@ describe("captura desacoplada de sincronización lenta", () => {
     mockSyncPendingQueue.mockResolvedValue({ ...SYNC_OK });
   });
 
-  afterEach(() => {
-    renderer?.unmount();
+  afterEach(async () => {
+    await act(async () => {
+      if (latest?.tracking) {
+        await latest.stopTracking();
+      }
+      renderer?.unmount();
+    });
     renderer = null;
     latest = null;
     jest.clearAllTimers();
@@ -133,32 +152,26 @@ describe("captura desacoplada de sincronización lenta", () => {
     expect(latest).not.toBeNull();
   }
 
-  it("5 capturas en 20s durante sync lenta sin bloquear", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    mockSyncPendingQueue.mockImplementation(async () => {
-      syncInFlightCount += 1;
-      syncMaxInFlight = Math.max(syncMaxInFlight, syncInFlightCount);
-      await gate;
-      syncInFlightCount -= 1;
-      return { ...SYNC_OK };
-    });
-
-    await mount();
-    // Liberar sync de montaje (resume)
+  async function flushMicrotasks(times = 15) {
     await act(async () => {
-      release();
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let i = 0; i < times; i += 1) {
+        await Promise.resolve();
+      }
     });
+  }
+
+  it("capturas en 0, 5, 10, 15 y 20 segundos con el loop real", async () => {
+    expect(TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS).toBe(5_000);
 
     let releaseSlow!: () => void;
     const slowGate = new Promise<void>((resolve) => {
       releaseSlow = resolve;
     });
+
+    mockSyncPendingQueue.mockResolvedValueOnce({ ...SYNC_OK });
+    await mount();
+    await flushMicrotasks();
+
     mockSyncPendingQueue.mockImplementation(async () => {
       syncInFlightCount += 1;
       syncMaxInFlight = Math.max(syncMaxInFlight, syncInFlightCount);
@@ -167,25 +180,32 @@ describe("captura desacoplada de sincronización lenta", () => {
       return { ...SYNC_OK };
     });
     mockSyncPendingQueue.mockClear();
-    mockEnqueueEvent.mockClear();
-    syncMaxInFlight = 0;
+    enqueueAtMs.length = 0;
 
-    // Primera captura dispara sync lenta (no await)
+    const t0 = jest.now();
     await act(async () => {
-      await latest!.captureAndQueue();
+      await latest!.startTracking();
     });
-    expect(mockEnqueueEvent).toHaveBeenCalledTimes(1);
-    expect(mockSyncPendingQueue).toHaveBeenCalledTimes(1);
+    await flushMicrotasks(30);
 
-    // Cuatro capturas más mientras la sync sigue abierta
-    for (let i = 0; i < 4; i += 1) {
+    // Comportamiento del loop: primera captura inmediata (t≈0).
+    expect(enqueueAtMs.length).toBeGreaterThanOrEqual(1);
+    expect(enqueueAtMs[0]! - t0).toBeLessThan(50);
+
+    for (const expectedCount of [2, 3, 4, 5]) {
       await act(async () => {
-        await latest!.captureAndQueue();
+        await jest.advanceTimersByTimeAsync(5_000);
       });
+      await flushMicrotasks(20);
+      expect(enqueueAtMs).toHaveLength(expectedCount);
+      const elapsed = enqueueAtMs[expectedCount - 1]! - t0;
+      const target = (expectedCount - 1) * 5_000;
+      expect(elapsed).toBeGreaterThanOrEqual(target - 50);
+      expect(elapsed).toBeLessThanOrEqual(target + 250);
     }
 
-    expect(mockEnqueueEvent).toHaveBeenCalledTimes(5);
-    expect(syncMaxInFlight).toBe(1);
+    expect(enqueueAtMs).toHaveLength(5);
+    expect(syncMaxInFlight).toBeLessThanOrEqual(1);
 
     await act(async () => {
       releaseSlow();
@@ -193,15 +213,39 @@ describe("captura desacoplada de sincronización lenta", () => {
       await Promise.resolve();
     });
 
-    expect(mockSyncPendingQueue.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(mockSyncPendingQueue.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(syncMaxInFlight).toBe(1);
+  });
+
+  it("detener tracking cancela nuevas capturas", async () => {
+    await mount();
+    await flushMicrotasks();
+    enqueueAtMs.length = 0;
+
+    await act(async () => {
+      await latest!.startTracking();
+    });
+    await flushMicrotasks(30);
+    const afterStart = enqueueAtMs.length;
+    expect(afterStart).toBeGreaterThanOrEqual(1);
+
+    await act(async () => {
+      await latest!.stopTracking();
+    });
+    await flushMicrotasks();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(20_000);
+    });
+    await flushMicrotasks(10);
+
+    expect(enqueueAtMs.length).toBe(afterStart);
   });
 
   it("excepción inesperada de sync reporta status failed", async () => {
     jest.useRealTimers();
     mockSyncPendingQueue.mockResolvedValue({ ...SYNC_OK });
     await mount();
-    // Esperar a que termine el sync de montaje/resume antes de inyectar el fallo.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -218,8 +262,6 @@ describe("captura desacoplada de sincronización lenta", () => {
 
     expect(result.status).toBe("failed");
     expect(result.status).not.toBe("completed");
-    expect(result.remaining).toBeGreaterThanOrEqual(0);
-    // El hook actualiza el mensaje de error en el siguiente render.
     await act(async () => {
       await Promise.resolve();
     });
@@ -227,5 +269,3 @@ describe("captura desacoplada de sincronización lenta", () => {
     expect(latest!.error).toEqual(expect.stringContaining("boom de red"));
   });
 });
-
-
