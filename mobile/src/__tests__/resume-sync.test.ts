@@ -17,7 +17,7 @@ import { runSyncResumeEffect } from "@/services/sync-resume-policy";
 
 const event = {
   eventId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-  vehicleId: "VH-001",
+  deviceId: "11111111-1111-1111-1111-111111111111",
   driverId: "DRV-001",
   timestamp: "2026-07-10T10:00:00Z",
   latitude: 4.65,

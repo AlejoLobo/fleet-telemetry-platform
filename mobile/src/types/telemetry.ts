@@ -2,7 +2,8 @@
 
 export type TelemetryEventPayload = {
   eventId: string;
-  vehicleId: string;
+  /** Identidad técnica inmutable (UUID); no es el nombre visible. */
+  deviceId: string;
   driverId: string | null;
   timestamp: string;
   latitude: number;

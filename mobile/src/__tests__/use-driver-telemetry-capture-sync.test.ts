@@ -43,23 +43,20 @@ import { SYNC_INTERVAL_MILLISECONDS, useDriverTelemetry } from "@/hooks/use-driv
 
 type HookApi = ReturnType<typeof useDriverTelemetry>;
 
-const DEVICE_ID = "stable-device-xyz-001";
-const VEHICLE_ID = "VH-001";
+const DEVICE_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 function Harness({
   canSync,
   interval,
   deviceId = DEVICE_ID,
-  vehicleId = VEHICLE_ID,
   onReady,
 }: {
   canSync: boolean;
   interval: 3 | 5 | 10 | 15;
   deviceId?: string;
-  vehicleId?: string;
   onReady: (api: HookApi) => void;
 }) {
-  const api = useDriverTelemetry(deviceId, vehicleId, "DRV-001", canSync, interval);
+  const api = useDriverTelemetry(deviceId, "DRV-001", canSync, interval);
   React.useEffect(() => {
     onReady(api);
   }, [api, onReady]);
@@ -422,14 +419,14 @@ describe("useDriverTelemetry captura vs sync", () => {
     process.off("unhandledRejection", onUnhandled);
   });
 
-  it("usa deviceId separado de vehicleId al sincronizar", async () => {
+  it("encola y sincroniza con el mismo DeviceId estable", async () => {
+    const stableId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
     await act(async () => {
       TestRenderer.create(
         React.createElement(Harness, {
           canSync: true,
           interval: 5,
-          deviceId: "phys-device-99",
-          vehicleId: "VH-OTHER",
+          deviceId: stableId,
           onReady: (api) => {
             latest = api;
           },
@@ -445,7 +442,7 @@ describe("useDriverTelemetry captura vs sync", () => {
       jest.advanceTimersByTime(SYNC_INTERVAL_MILLISECONDS);
       await Promise.resolve();
     });
-    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true, "phys-device-99");
-    expect(mockEnqueueEvent.mock.calls[0][0].vehicleId).toBe("VH-OTHER");
+    expect(mockSyncPendingQueue).toHaveBeenCalledWith(true, stableId);
+    expect(mockEnqueueEvent.mock.calls[0][0].deviceId).toBe(stableId);
   });
 });

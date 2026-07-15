@@ -1,7 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/telemetry";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 /** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
@@ -38,8 +38,14 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   `);
 
   const versionRow = await db.getFirstAsync<{ value: string }>(`SELECT value FROM schema_meta WHERE key = 'version'`);
-  if (Number(versionRow?.value ?? 1) < SCHEMA_VERSION) {
+  const currentVersion = Number(versionRow?.value ?? 1);
+  if (currentVersion < 2) {
     await migrateToV2(db);
+  }
+  if (currentVersion < 3) {
+    await migrateToV3(db);
+  }
+  if (currentVersion < SCHEMA_VERSION) {
     await db.runAsync(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`, String(SCHEMA_VERSION));
   }
   return db;
@@ -58,11 +64,30 @@ async function migrateToV2(db: SQLite.SQLiteDatabase): Promise<void> {
   await add(`ALTER TABLE telemetry_queue ADD COLUMN synced_at TEXT`, "synced_at");
 }
 
+/** device_id = identidad técnica; vehicle_id se conserva por compatibilidad NOT NULL. */
+async function migrateToV3(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
+  const names = new Set(columns.map((c) => c.name));
+  if (!names.has("device_id")) {
+    await db.execAsync(`ALTER TABLE telemetry_queue ADD COLUMN device_id TEXT`);
+  }
+  await db.execAsync(
+    `UPDATE telemetry_queue
+     SET device_id = vehicle_id
+     WHERE device_id IS NULL OR TRIM(device_id) = ''`,
+  );
+}
+
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
+  const deviceId =
+    (typeof row.device_id === "string" && row.device_id.trim())
+      ? row.device_id.trim()
+      : String(row.vehicle_id ?? "");
+
   return {
     localId: row.local_id as number,
     eventId: row.event_id as string,
-    vehicleId: row.vehicle_id as string,
+    deviceId,
     driverId: (row.driver_id as string | null) ?? null,
     timestamp: row.timestamp as string,
     latitude: row.latitude as number,
@@ -90,11 +115,12 @@ function logQueueStateConflict(operation: string, expected: number, affected: nu
 
 export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" | "simulated" = "gps"): Promise<number> {
   const db = await getDb();
+  const deviceId = event.deviceId.trim();
   const result = await db.runAsync(
-    `INSERT INTO telemetry_queue (event_id, vehicle_id, driver_id, timestamp, latitude, longitude, speed_kmh,
+    `INSERT INTO telemetry_queue (event_id, vehicle_id, device_id, driver_id, timestamp, latitude, longitude, speed_kmh,
       fuel_level_percent, battery_percent, source, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    event.eventId, event.vehicleId, event.driverId, event.timestamp, event.latitude, event.longitude,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    event.eventId, deviceId, deviceId, event.driverId, event.timestamp, event.latitude, event.longitude,
     event.speedKmh, event.fuelLevelPercent, event.batteryPercent, source, new Date().toISOString(),
   );
   return result.lastInsertRowId;
@@ -268,8 +294,15 @@ export async function purgeSyncedOlderThan(days: number): Promise<number> {
 
 export function toPayload(event: QueuedTelemetryEvent): TelemetryEventPayload {
   return {
-    eventId: event.eventId, vehicleId: event.vehicleId, driverId: event.driverId, timestamp: event.timestamp,
-    latitude: event.latitude, longitude: event.longitude, speedKmh: event.speedKmh,
-    fuelLevelPercent: event.fuelLevelPercent, batteryPercent: event.batteryPercent, locationSource: event.source,
+    eventId: event.eventId,
+    deviceId: event.deviceId,
+    driverId: event.driverId,
+    timestamp: event.timestamp,
+    latitude: event.latitude,
+    longitude: event.longitude,
+    speedKmh: event.speedKmh,
+    fuelLevelPercent: event.fuelLevelPercent,
+    batteryPercent: event.batteryPercent,
+    locationSource: event.source,
   };
 }

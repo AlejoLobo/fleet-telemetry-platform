@@ -53,13 +53,22 @@ jest.mock("@/services/auth-runtime", () => ({
   getAuthRuntimeSnapshot: () => ({ mode: "disabled", token: null, expiresAtIso: null, tokenExpired: false }),
 }));
 
+
+jest.mock("@/services/device-registry", () => ({
+  ensureDeviceRegistered: jest.fn(async (deviceId: string) => ({
+    deviceId,
+    vehicleName: "VH-001",
+  })),
+  updateVehicleDisplayName: jest.fn(),
+}));
+
 import { resetSyncCoordinatorForTests, syncPendingQueue } from "@/services/offline-sync-coordinator";
 
 function buildEvent(eventId: string, retryCount = 0): QueuedTelemetryEvent {
   return {
     localId: 1,
     eventId,
-    vehicleId: "VH-001",
+    deviceId: "11111111-1111-1111-1111-111111111111",
     driverId: "DRV-001",
     timestamp: "2026-07-10T10:00:00Z",
     latitude: 4.65,
@@ -281,6 +290,9 @@ describe("offline-sync-coordinator batch policy", () => {
     mockSendSingleEvent.mockImplementation(() => new Promise(() => undefined));
     syncPendingQueue(true, "test-device-id-001");
     syncPendingQueue(true, "test-device-id-001");
+    // Registro de dispositivo + claim son microtareas encadenadas.
+    await Promise.resolve();
+    await Promise.resolve();
     await Promise.resolve();
     expect(mockClaimNextBatch).toHaveBeenCalledTimes(1);
     resetSyncCoordinatorForTests();

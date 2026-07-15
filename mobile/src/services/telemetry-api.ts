@@ -56,7 +56,8 @@ export function categorizeHttpStatus(status: number): TelemetryApiErrorCategory 
   return "protocol";
 }
 
-async function ensureTelemetryTransportReady(
+/** Construye headers de auth + X-Device-Id para llamadas al backend. */
+export async function ensureTelemetryTransportReady(
   deviceId?: string | null,
 ): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
