@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useFleetData } from "@/hooks/use-fleet-data";
@@ -10,6 +10,18 @@ import { applyLocalConnectivity } from "@/lib/local-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
 import { mockDeviceId } from "@/mocks/fleet-data";
+import {
+  DEMO_REALTIME_REFRESH_MS,
+  REALTIME_SELECTED_TELEMETRY_MS,
+  loadMonitorRefreshRate,
+  monitorRefreshRateToMs,
+  saveMonitorRefreshRate,
+  type MonitorRefreshRate,
+} from "@/lib/monitor-refresh-rate";
+import {
+  bufferPendingVehicleUpdates,
+  takePendingVehicleUpdates,
+} from "@/lib/pending-vehicle-updates";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -39,6 +51,13 @@ export default function DashboardPage() {
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
   const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
+  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>(() =>
+    loadMonitorRefreshRate(),
+  );
+
+  const pendingVehicleUpdatesRef = useRef<Map<string, VehicleStatus>>(new Map());
+  const refreshRateRef = useRef(refreshRate);
+  refreshRateRef.current = refreshRate;
 
   const refreshAuthState = async () => {
     try {
@@ -56,7 +75,7 @@ export default function DashboardPage() {
     void refreshAuthState();
   }, []);
 
-  // Solo reloj local de frescura; no dispara REST.
+  // Solo reloj local de frescura; no descarga datos ni depende del selector.
   useEffect(() => {
     setConnectivityNowMs(Date.now());
     const timer = window.setInterval(
@@ -70,7 +89,6 @@ export default function DashboardPage() {
     vehicles,
     alerts,
     telemetry,
-    analytics,
     globalAnalytics,
     selectedAnalytics,
     telemetryLoading,
@@ -79,22 +97,46 @@ export default function DashboardPage() {
     dataSource,
     fleetTruncated,
     refresh,
+    refreshSelectedTelemetry,
     refreshForResync,
     loadFromApi,
     loadDemoData,
   } = useFleetData(selectedDeviceId);
 
+  const loadDemoDataRef = useRef(loadDemoData);
+  loadDemoDataRef.current = loadDemoData;
+  const refreshSelectedTelemetryRef = useRef(refreshSelectedTelemetry);
+  refreshSelectedTelemetryRef.current = refreshSelectedTelemetry;
+
+  const applyVehicleUpdates = useCallback((updates: VehicleStatus[]) => {
+    if (updates.length === 0) return;
+    setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
+  }, []);
+
+  const flushPendingVehicleUpdates = useCallback(() => {
+    const pending = takePendingVehicleUpdates(pendingVehicleUpdatesRef.current);
+    applyVehicleUpdates(pending);
+  }, [applyVehicleUpdates]);
+
+  const flushPendingVehicleUpdatesRef = useRef(flushPendingVehicleUpdates);
+  flushPendingVehicleUpdatesRef.current = flushPendingVehicleUpdates;
+
   const { connectionState } = useSseStream({
     enabled: dataSource === "api",
     authToken,
     onFleetUpdate: (updates) => {
-      setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
+      if (refreshRateRef.current === "realtime") {
+        applyVehicleUpdates(updates);
+        return;
+      }
+      bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, updates);
     },
     onAlert: (alert) => {
       setLiveAlerts((prev) => [alert, ...prev]);
       setAlertsAttention(true);
     },
     onStreamReset: async () => {
+      pendingVehicleUpdatesRef.current.clear();
       setLiveVehiclePatches([]);
       setLiveAlerts([]);
       setAlertsAttention(false);
@@ -102,6 +144,41 @@ export default function DashboardPage() {
       setSelectedDeviceId(result.resolvedDeviceId);
     },
   });
+
+  // Ciclo visual: buffer SSE + telemetría seleccionada (API) o regeneración demo.
+  useEffect(() => {
+    if (dataSource === "demo") {
+      const ms =
+        refreshRate === "realtime"
+          ? DEMO_REALTIME_REFRESH_MS
+          : (monitorRefreshRateToMs(refreshRate) ?? DEMO_REALTIME_REFRESH_MS);
+      const timer = window.setInterval(() => {
+        void loadDemoDataRef.current();
+      }, ms);
+      return () => window.clearInterval(timer);
+    }
+
+    if (dataSource !== "api") {
+      return;
+    }
+
+    if (refreshRate === "realtime") {
+      flushPendingVehicleUpdatesRef.current();
+      const timer = window.setInterval(() => {
+        void refreshSelectedTelemetryRef.current();
+      }, REALTIME_SELECTED_TELEMETRY_MS);
+      return () => window.clearInterval(timer);
+    }
+
+    const ms = monitorRefreshRateToMs(refreshRate);
+    if (ms == null) return;
+
+    const timer = window.setInterval(() => {
+      flushPendingVehicleUpdatesRef.current();
+      void refreshSelectedTelemetryRef.current();
+    }, ms);
+    return () => window.clearInterval(timer);
+  }, [refreshRate, dataSource]);
 
   useEffect(() => {
     if (vehicles.length === 0) {
@@ -115,6 +192,7 @@ export default function DashboardPage() {
   }, [vehicles, selectedDeviceId]);
 
   const resetLiveViewState = () => {
+    pendingVehicleUpdatesRef.current.clear();
     setLiveVehiclePatches([]);
     setLiveAlerts([]);
     setAlertsAttention(false);
@@ -131,6 +209,19 @@ export default function DashboardPage() {
   const handleLoadDemo = async () => {
     resetLiveViewState();
     await loadDemoData();
+  };
+
+  const handleRefreshRateChange = (rate: MonitorRefreshRate) => {
+    saveMonitorRefreshRate(rate);
+    setRefreshRate(rate);
+    if (rate === "realtime") {
+      flushPendingVehicleUpdates();
+    }
+  };
+
+  const handleManualRefresh = async () => {
+    flushPendingVehicleUpdates();
+    await refresh();
   };
 
   useEffect(() => {
@@ -195,13 +286,17 @@ export default function DashboardPage() {
         alertCount={displayAlerts.length}
         criticalAlertCount={criticalAlertCount}
         alertsAttention={alertsAttention}
+        refreshRate={refreshRate}
+        onRefreshRateChange={handleRefreshRateChange}
         onOpenAlerts={() => {
           setAlertsAttention(false);
           setAlertsOpen(true);
         }}
         onLoadApi={handleLoadApi}
         onLoadDemo={handleLoadDemo}
-        onRefresh={refresh}
+        onRefresh={() => {
+          void handleManualRefresh();
+        }}
       />
 
       <AlertsModal

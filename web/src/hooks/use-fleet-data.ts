@@ -75,6 +75,8 @@ export function useFleetData(selectedDeviceId: string | null) {
   const telemetryRequestIdRef = useRef(0);
   const snapshotGenerationRef = useRef(0);
   const vehiclesRef = useRef<VehicleStatus[]>([]);
+  const selectedDeviceIdRef = useRef(selectedDeviceId);
+  selectedDeviceIdRef.current = selectedDeviceId;
 
   const isCurrentGeneration = (generation: number) =>
     generation === snapshotGenerationRef.current;
@@ -306,6 +308,17 @@ export function useFleetData(selectedDeviceId: string | null) {
     }
   }, [loadDemoData, loadFromApi]);
 
+  /** Solo historial del dispositivo seleccionado; no recarga flota ni alertas. */
+  const refreshSelectedTelemetry = useCallback(async () => {
+    if (dataSourceRef.current !== "api") return;
+
+    const deviceId = selectedDeviceIdRef.current;
+    if (!deviceId) return;
+    if (!vehiclesRef.current.some((v) => v.deviceId === deviceId)) return;
+
+    await loadTelemetryForDevice(deviceId, snapshotGenerationRef.current);
+  }, [loadTelemetryForDevice]);
+
   const refreshForResync = useCallback(async (deviceId: string | null): Promise<ResyncSnapshotResult> => {
     telemetryAbortRef.current?.abort();
     const generation = ++snapshotGenerationRef.current;
@@ -494,6 +507,7 @@ export function useFleetData(selectedDeviceId: string | null) {
     dataSource: state.dataSource,
     lastSuccessfulFleetAt: state.lastSuccessfulFleetAt,
     refresh,
+    refreshSelectedTelemetry,
     refreshForResync,
     loadFromApi,
     loadDemoData,
