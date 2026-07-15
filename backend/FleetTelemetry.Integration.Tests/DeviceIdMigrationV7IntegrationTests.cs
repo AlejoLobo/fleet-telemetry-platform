@@ -155,6 +155,20 @@ public class DeviceIdMigrationV7IntegrationTests : IAsyncLifetime
         await using (var prepare = connection.CreateCommand())
         {
             prepare.CommandText = """
+                DO $$
+                BEGIN
+                    BEGIN
+                        PERFORM remove_compression_policy('telemetry_events', if_exists => TRUE);
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                    BEGIN
+                        ALTER TABLE telemetry_events SET (timescaledb.compress = false);
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END $$;
+
                 ALTER TABLE telemetry_events ALTER COLUMN device_id DROP NOT NULL;
                 DELETE FROM telemetry_events
                 WHERE "EventId" IN (@e1, @e2);
