@@ -4,6 +4,10 @@
 # Stack completo en contenedores (API + Worker + Web):
 #   docker compose --profile app up -d --build
 #
+# Borrar contenedores NO limpia TimescaleDB: el volumen `timescale_data` conserva
+# flota/telemetría de sesiones anteriores. Para DB limpia:
+#   docker compose --profile app down -v
+#
 # Defaults de credenciales solo para desarrollo local.
 # Connection strings derivan POSTGRES_USER, POSTGRES_PASSWORD y POSTGRES_DB.
 

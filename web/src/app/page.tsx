@@ -6,9 +6,9 @@ import { AlertCircle } from "lucide-react";
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
-import { applyConnectivityFreshness } from "@/lib/vehicle-connectivity";
+import { resolveDisplayVehicles } from "@/lib/fleet-display";
 import { apiClient, ApiError } from "@/lib/api-client";
-import { esSeveridadCritica, esVehiculoEnLinea } from "@/lib/labels";
+import { esSeveridadCritica } from "@/lib/labels";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -36,6 +36,8 @@ export default function DashboardPage() {
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
   const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
+  /** Activo solo tras Actualizar: elimina desconectados previos sin ocultarlos en operación normal. */
+  const [afterLiveRefresh, setAfterLiveRefresh] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setConnectivityNowMs(Date.now()), 5_000);
@@ -106,17 +108,20 @@ export default function DashboardPage() {
 
   const handleLoadApi = async () => {
     resetLiveViewState();
+    setAfterLiveRefresh(false);
     await loadFromApi();
   };
 
   const handleLoadDemo = async () => {
     resetLiveViewState();
+    setAfterLiveRefresh(false);
     await loadDemoData();
   };
 
   /** Actualizar: limpia parches SSE y recarga solo vehículos dentro de la ventana online. */
   const handleManualRefresh = useCallback(async () => {
     resetLiveViewState();
+    setAfterLiveRefresh(true);
     await refresh({ liveOnly: true });
   }, [refresh, resetLiveViewState]);
 
@@ -124,22 +129,17 @@ export default function DashboardPage() {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
   }, [vehicles]);
 
-  const displayVehicles = useMemo(() => {
-    const merged =
-      dataSource === "demo"
-        ? vehicles
-        : liveVehiclePatches.length === 0
-          ? vehicles
-          : mergeVehicleUpdates(vehicles, liveVehiclePatches);
-
-    if (dataSource === "demo") return merged;
-
-    // El monitor operativo no mantiene desconectados en mapa ni en estado de flota.
-    return applyConnectivityFreshness(merged, connectivityNowMs).filter((vehicle) =>
-      esVehiculoEnLinea(vehicle.status),
-    );
-  }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
-
+  const displayVehicles = useMemo(
+    () =>
+      resolveDisplayVehicles({
+        vehicles,
+        livePatches: liveVehiclePatches,
+        dataSource,
+        connectivityNowMs,
+        afterLiveRefresh,
+      }),
+    [vehicles, liveVehiclePatches, dataSource, connectivityNowMs, afterLiveRefresh],
+  );
   useEffect(() => {
     if (displayVehicles.length === 0) {
       if (selectedVehicleId !== null) setSelectedVehicleId(null);

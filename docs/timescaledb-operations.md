@@ -2,7 +2,18 @@
 
 Políticas aplicadas por la migración `schema_versions` **v5** (`DatabaseInitializer`). Son una base defendible para telemetría de alta frecuencia; deben recalibrarse con métricas reales de tamaño de chunks, memoria y tasa de ingestión.
 
-## Supuestos de volumen (MVP)
+## Desarrollo local (Docker)
+
+El servicio `timescaledb` monta el volumen nombrado `timescale_data`. **Eliminar solo contenedores** (`docker compose down` o Remove-Item de `node_modules`) **no** borra flota ni telemetría previas.
+
+Para reinicio limpio de datos:
+
+```bash
+docker compose --profile app down -v
+docker compose --profile app up -d --build
+```
+
+En el monitor web, el botón **Actualizar** recarga con `liveOnly=true` y deja de mostrar vehículos desconectados de sesiones anteriores (sin borrar la base).
 
 | Parámetro | Valor |
 |-----------|--------|
