@@ -125,20 +125,34 @@ async function postJson(
   }
 }
 
-export async function sendSingleEvent(event: TelemetryEventPayload): Promise<void> {
+function assertDeviceId(deviceId: string): string {
+  const normalized = deviceId.trim();
+  if (!normalized) {
+    throw new TelemetryApiError(0, "protocol", "deviceId vacío");
+  }
+  return normalized;
+}
+
+export async function sendSingleEvent(
+  event: TelemetryEventPayload,
+  deviceId: string,
+): Promise<void> {
   await postJson(
     "/api/telemetry",
     { ...event, locationSource: event.locationSource ?? "gps" },
-    event.vehicleId,
+    assertDeviceId(deviceId),
   );
 }
 
-export async function sendBatchEvents(events: TelemetryEventPayload[]): Promise<void> {
+export async function sendBatchEvents(
+  events: TelemetryEventPayload[],
+  deviceId: string,
+): Promise<void> {
   await postJson(
     "/api/telemetry/batch",
     {
       events: events.map((event) => ({ ...event, locationSource: event.locationSource ?? "gps" })),
     },
-    events[0]?.vehicleId,
+    assertDeviceId(deviceId),
   );
 }

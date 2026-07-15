@@ -21,6 +21,7 @@ import {
   loadCaptureIntervalSeconds,
   saveCaptureIntervalSeconds,
 } from "@/services/capture-interval-store";
+import { loadOrCreateDeviceId } from "@/services/device-id-store";
 
 const AUTH_STATUS_LABELS: Record<string, string> = {
   checking: "Comprobando autenticación...",
@@ -40,6 +41,21 @@ const CAPTURE_INTERVAL_LABELS: Record<TelemetryCaptureIntervalSeconds, string> =
   15: "Cada 15 segundos",
 };
 
+/** Reglas de habilitación del botón de tracking (comprobables en tests). */
+export function isStartTrackingDisabled(options: {
+  busy: boolean;
+  intervalReady: boolean;
+  deviceIdReady: boolean;
+  deviceId: string | null;
+}): boolean {
+  return (
+    options.busy
+    || !options.intervalReady
+    || !options.deviceIdReady
+    || !options.deviceId
+  );
+}
+
 export function DriverDashboard() {
   const [vehicleId, setVehicleId] = useState(getDefaultVehicleId());
   const [driverId, setDriverId] = useState(getDefaultDriverId());
@@ -50,6 +66,8 @@ export function DriverDashboard() {
   const [captureIntervalSeconds, setCaptureIntervalSeconds] =
     useState<TelemetryCaptureIntervalSeconds>(DEFAULT_TELEMETRY_CAPTURE_INTERVAL_SECONDS);
   const [intervalReady, setIntervalReady] = useState(false);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [deviceIdReady, setDeviceIdReady] = useState(false);
 
   const auth = useAuthSession();
   const {
@@ -66,6 +84,7 @@ export function DriverDashboard() {
     captureOnce,
     syncNow,
   } = useDriverTelemetry(
+    deviceId ?? "",
     vehicleId.trim(),
     driverId.trim(),
     auth.canSync,
@@ -75,10 +94,15 @@ export function DriverDashboard() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const loaded = await loadCaptureIntervalSeconds();
+      const [loadedInterval, loadedDeviceId] = await Promise.all([
+        loadCaptureIntervalSeconds(),
+        loadOrCreateDeviceId(),
+      ]);
       if (!cancelled) {
-        setCaptureIntervalSeconds(loaded);
+        setCaptureIntervalSeconds(loadedInterval);
         setIntervalReady(true);
+        setDeviceId(loadedDeviceId);
+        setDeviceIdReady(true);
       }
     })();
     return () => {
@@ -87,7 +111,7 @@ export function DriverDashboard() {
   }, []);
 
   const handleCaptureIntervalChange = async (seconds: TelemetryCaptureIntervalSeconds) => {
-    if (tracking) return;
+    if (tracking || !intervalReady) return;
     setCaptureIntervalSeconds(seconds);
     await saveCaptureIntervalSeconds(seconds);
   };
@@ -115,6 +139,13 @@ export function DriverDashboard() {
   };
 
   const syncPausedByAuth = auth.enabled && !auth.canSync;
+  const deviceConfigLoading = !intervalReady || !deviceIdReady;
+  const startDisabled = isStartTrackingDisabled({
+    busy,
+    intervalReady,
+    deviceIdReady,
+    deviceId,
+  });
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -145,9 +176,24 @@ export function DriverDashboard() {
 
       <View style={styles.card}>
         <Text style={styles.label}>Vehículo</Text>
-        <TextInput style={styles.input} value={vehicleId} onChangeText={setVehicleId} autoCapitalize="characters" />
+        <TextInput
+          style={styles.input}
+          value={vehicleId}
+          onChangeText={setVehicleId}
+          autoCapitalize="characters"
+          editable={!tracking}
+        />
         <Text style={styles.label}>Conductor</Text>
-        <TextInput style={styles.input} value={driverId} onChangeText={setDriverId} />
+        <TextInput
+          style={styles.input}
+          value={driverId}
+          onChangeText={setDriverId}
+          editable={!tracking}
+        />
+        <Text style={styles.label}>ID estable del dispositivo</Text>
+        <Text style={styles.metaReadonly} selectable>
+          {deviceIdReady && deviceId ? deviceId : "Cargando…"}
+        </Text>
       </View>
 
       <View style={styles.card}>
@@ -155,21 +201,24 @@ export function DriverDashboard() {
         <Text style={styles.meta}>
           Seleccionado: {CAPTURE_INTERVAL_LABELS[captureIntervalSeconds]}
         </Text>
-        {!intervalReady && <Text style={styles.meta}>Cargando preferencia…</Text>}
+        {deviceConfigLoading && (
+          <Text style={styles.meta}>Cargando configuración del dispositivo…</Text>
+        )}
         <View style={styles.intervalRow}>
           {TELEMETRY_CAPTURE_INTERVAL_OPTIONS_SECONDS.map((seconds) => {
             const selected = seconds === captureIntervalSeconds;
+            const chipDisabled = tracking || busy || !intervalReady;
             return (
               <Pressable
                 key={seconds}
-                disabled={tracking || busy}
+                disabled={chipDisabled}
                 onPress={() => {
                   void handleCaptureIntervalChange(seconds);
                 }}
                 style={[
                   styles.intervalChip,
                   selected && styles.intervalChipSelected,
-                  (tracking || busy) && styles.intervalChipDisabled,
+                  chipDisabled && styles.intervalChipDisabled,
                 ]}
               >
                 <Text style={[styles.intervalChipText, selected && styles.intervalChipTextSelected]}>
@@ -197,15 +246,19 @@ export function DriverDashboard() {
 
       <View style={styles.actions}>
         {!tracking ? (
-          <Button title="Iniciar tracking" onPress={() => run(startTracking)} disabled={busy} />
+          <Button title="Iniciar tracking" onPress={() => run(startTracking)} disabled={startDisabled} />
         ) : (
           <Button title="Detener tracking" onPress={() => run(async () => { await stopTracking(); })} variant="danger" disabled={busy} />
         )}
-        <Button title="Capturar ahora" onPress={() => run(captureOnce)} disabled={busy} />
+        <Button
+          title="Capturar ahora"
+          onPress={() => run(captureOnce)}
+          disabled={busy || deviceConfigLoading || !deviceId}
+        />
         <Button
           title="Sincronizar cola"
           onPress={() => run(async () => { await syncNow(); })}
-          disabled={busy || !isOnline || !auth.canSync}
+          disabled={busy || !isOnline || !auth.canSync || !deviceId}
         />
       </View>
 
@@ -283,6 +336,15 @@ const styles = StyleSheet.create({
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#e2e8f0", gap: 8 },
   label: { fontSize: 13, fontWeight: "600", color: "#334155" },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8, backgroundColor: "#fff" },
+  metaReadonly: {
+    fontSize: 12,
+    color: "#475569",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: "monospace",
+  },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   intervalRow: { gap: 8 },
   intervalChip: {
