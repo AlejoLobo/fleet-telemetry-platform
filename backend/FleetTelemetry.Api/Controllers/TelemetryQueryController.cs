@@ -11,10 +11,10 @@ namespace FleetTelemetry.Api.Controllers;
 
 public partial class TelemetryController
 {
-    [HttpGet("{vehicleId}")]
+    [HttpGet("{deviceId:guid}")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.FleetRead)]
     public async Task<ActionResult<CursorPage<TelemetryEventResponse>>> GetByVehicle(
-        string vehicleId,
+        Guid deviceId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] int? pageSize,
@@ -44,7 +44,7 @@ public partial class TelemetryController
                 var cursorPayload = CursorCodec.Decode<TelemetryHistoryCursorPayload>(cursor);
                 CursorValidators.ValidateHistoryCursor(
                     cursorPayload,
-                    vehicleId,
+                    deviceId,
                     cursorPayload.From,
                     cursorPayload.To,
                     limits.HistoryMaxRangeDays);
@@ -82,7 +82,7 @@ public partial class TelemetryController
         try
         {
             var page = await telemetryRepository.GetVehicleHistoryPageAsync(
-                vehicleId,
+                deviceId,
                 fromValue,
                 toValue,
                 resolvedPageSize,
@@ -92,14 +92,15 @@ public partial class TelemetryController
             var response = new CursorPage<TelemetryEventResponse>(
                 page.Items.Select(e => new TelemetryEventResponse(
                     e.EventId,
-                    e.VehicleId,
+                    e.DeviceId,
                     e.DriverId,
                     e.Timestamp,
                     e.Latitude,
                     e.Longitude,
                     e.SpeedKmh,
                     e.FuelLevelPercent,
-                    e.BatteryPercent)).ToList(),
+                    e.BatteryPercent,
+                    e.LocationSource)).ToList(),
                 page.NextCursor,
                 page.HasMore);
 

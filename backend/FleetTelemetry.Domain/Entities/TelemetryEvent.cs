@@ -2,11 +2,11 @@ using FleetTelemetry.Domain.ValueObjects;
 
 namespace FleetTelemetry.Domain.Entities;
 
-// Evento de telemetría vehicular con invariantes encapsulados.
+// Evento de telemetría con DeviceId como identidad estable del dispositivo.
 public sealed class TelemetryEvent
 {
     public Guid EventId => _eventId.Value;
-    public string VehicleId => _vehicleId.Value;
+    public Guid DeviceId => _deviceId.Value;
     public string? DriverId { get; }
     public DateTimeOffset Timestamp { get; }
     public double Latitude => _coordinate.Latitude;
@@ -17,7 +17,7 @@ public sealed class TelemetryEvent
     public string LocationSource { get; }
 
     private readonly EventId _eventId;
-    private readonly VehicleId _vehicleId;
+    private readonly DeviceId _deviceId;
     private readonly GeoCoordinate _coordinate;
     private readonly SpeedKmh _speed;
     private readonly PercentLevel? _fuelLevel;
@@ -25,7 +25,7 @@ public sealed class TelemetryEvent
 
     private TelemetryEvent(
         EventId eventId,
-        VehicleId vehicleId,
+        DeviceId deviceId,
         string? driverId,
         DateTimeOffset timestamp,
         GeoCoordinate coordinate,
@@ -35,7 +35,7 @@ public sealed class TelemetryEvent
         string locationSource)
     {
         _eventId = eventId;
-        _vehicleId = vehicleId;
+        _deviceId = deviceId;
         DriverId = string.IsNullOrWhiteSpace(driverId) ? null : driverId.Trim();
         Timestamp = timestamp;
         _coordinate = coordinate;
@@ -47,7 +47,7 @@ public sealed class TelemetryEvent
 
     public static bool TryCreate(
         Guid eventId,
-        string vehicleId,
+        Guid deviceId,
         string? driverId,
         DateTimeOffset timestamp,
         double latitude,
@@ -65,7 +65,7 @@ public sealed class TelemetryEvent
         if (!ValueObjects.EventId.TryCreate(eventId, out var domainEventId, out error))
             return false;
 
-        if (!ValueObjects.VehicleId.TryCreate(vehicleId, out var domainVehicleId, out error))
+        if (!ValueObjects.DeviceId.TryCreate(deviceId, out var domainDeviceId, out error))
             return false;
 
         if (timestamp == default)
@@ -91,7 +91,7 @@ public sealed class TelemetryEvent
 
         telemetryEvent = new TelemetryEvent(
             domainEventId!,
-            domainVehicleId!,
+            domainDeviceId!,
             driverId,
             timestamp,
             coordinate!,
@@ -105,7 +105,7 @@ public sealed class TelemetryEvent
 
     public static TelemetryEvent Create(
         Guid eventId,
-        string vehicleId,
+        Guid deviceId,
         string? driverId,
         DateTimeOffset timestamp,
         double latitude,
@@ -116,7 +116,7 @@ public sealed class TelemetryEvent
         string? locationSource = null) =>
         TryCreate(
             eventId,
-            vehicleId,
+            deviceId,
             driverId,
             timestamp,
             latitude,
@@ -132,7 +132,7 @@ public sealed class TelemetryEvent
 
     public static TelemetryEvent FromPersistence(
         Guid eventId,
-        string vehicleId,
+        Guid deviceId,
         string? driverId,
         DateTimeOffset timestamp,
         double latitude,
@@ -143,7 +143,7 @@ public sealed class TelemetryEvent
         string? locationSource = null) =>
         new(
             ValueObjects.EventId.Create(eventId),
-            ValueObjects.VehicleId.Create(vehicleId),
+            ValueObjects.DeviceId.Create(deviceId),
             driverId,
             timestamp,
             GeoCoordinate.Create(latitude, longitude),
@@ -151,6 +151,37 @@ public sealed class TelemetryEvent
             PercentLevel.CreateOptional(fuelLevelPercent),
             PercentLevel.CreateOptional(batteryPercent),
             NormalizeLocationSource(locationSource));
+
+    /// <summary>Compatibilidad temporal: columna "VehicleId" guarda Guid como string.</summary>
+    public static TelemetryEvent FromPersistence(
+        Guid eventId,
+        string deviceIdStorage,
+        string? driverId,
+        DateTimeOffset timestamp,
+        double latitude,
+        double longitude,
+        double speedKmh,
+        double? fuelLevelPercent,
+        double? batteryPercent,
+        string? locationSource = null)
+    {
+        if (!Guid.TryParse(deviceIdStorage, out var deviceId))
+            throw new ArgumentException("DeviceId storage value is not a valid Guid.", nameof(deviceIdStorage));
+
+        return FromPersistence(
+            eventId,
+            deviceId,
+            driverId,
+            timestamp,
+            latitude,
+            longitude,
+            speedKmh,
+            fuelLevelPercent,
+            batteryPercent,
+            locationSource);
+    }
+
+    public string DeviceIdStorage => DeviceId.ToString("D");
 
     private static bool TryNormalizeLocationSource(string? source, out string? normalized, out string? error)
     {

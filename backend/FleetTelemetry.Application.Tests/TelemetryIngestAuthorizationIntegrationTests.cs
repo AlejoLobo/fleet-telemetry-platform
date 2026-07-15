@@ -154,7 +154,7 @@ public class TelemetryIngestAuthorizationIntegrationTests
     private static TelemetryEventRequest CreateValidEvent() =>
         new(
             Guid.NewGuid(),
-            "VH-001",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

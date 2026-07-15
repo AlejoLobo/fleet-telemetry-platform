@@ -13,7 +13,7 @@ public class AiQuestionParserTests
     [InlineData("vehículos detenidos", AiQueryIntent.StoppedVehicles, null, false)]
     [InlineData("alertas críticas abiertas", AiQueryIntent.CriticalAlerts, null, false)]
     [InlineData("exceso de velocidad 95 km/h", AiQueryIntent.SpeedAbove, null, false)]
-    [InlineData("estado de VH-003", AiQueryIntent.VehicleStatus, null, false)]
+    [InlineData("estado de 33333333-3333-3333-3333-333333333333", AiQueryIntent.VehicleStatus, null, false)]
     public void Parse_detects_intent(
         string question,
         AiQueryIntent expectedIntent,

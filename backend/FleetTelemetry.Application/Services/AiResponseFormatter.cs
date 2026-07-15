@@ -21,27 +21,28 @@ public static class AiResponseFormatter
             _ => alertType.Replace('_', ' ')
         };
 
-    public static string TraducirMensajeAlerta(string vehicleId, string message)
+    public static string TraducirMensajeAlerta(Guid deviceId, string message)
     {
+        var id = deviceId.ToString("D");
         var exceso = Regex.Match(message, @"exceeded speed limit:\s*([\d.,]+)\s*km/h", RegexOptions.IgnoreCase);
         if (exceso.Success)
         {
             var speed = exceso.Groups[1].Value.Replace(',', '.');
-            return $"El vehículo {vehicleId} superó el límite de velocidad: {speed} km/h";
+            return $"El vehículo {id} superó el límite de velocidad: {speed} km/h";
         }
 
         var combustible = Regex.Match(message, @"has low fuel:\s*([\d.,]+)%", RegexOptions.IgnoreCase);
         if (combustible.Success)
         {
             var level = combustible.Groups[1].Value.Replace(',', '.');
-            return $"El vehículo {vehicleId} tiene combustible bajo: {level}%";
+            return $"El vehículo {id} tiene combustible bajo: {level}%";
         }
 
         var bateria = Regex.Match(message, @"has low battery:\s*([\d.,]+)%", RegexOptions.IgnoreCase);
         if (bateria.Success)
         {
             var level = bateria.Groups[1].Value.Replace(',', '.');
-            return $"El vehículo {vehicleId} tiene batería baja: {level}%";
+            return $"El vehículo {id} tiene batería baja: {level}%";
         }
 
         return message;

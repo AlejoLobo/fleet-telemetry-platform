@@ -17,13 +17,13 @@ public class FleetSseBrokerFt005Tests
         var subA = replicaA.SubscribeFrom(new SseLastEventId.Missing());
         var subB = replicaB.SubscribeFrom(new SseLastEventId.Missing());
 
-        Assert.Equal(ExternalPublishResult.Accepted, replicaA.PublishExternal(501, "vehicle-update", new { vehicleId = "VH-001" }));
-        Assert.Equal(ExternalPublishResult.Accepted, replicaB.PublishExternal(501, "vehicle-update", new { vehicleId = "VH-001" }));
+        Assert.Equal(ExternalPublishResult.Accepted, replicaA.PublishExternal(501, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" }));
+        Assert.Equal(ExternalPublishResult.Accepted, replicaB.PublishExternal(501, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" }));
 
         Assert.True(subA.LiveReader.TryRead(out var eventA));
         Assert.True(subB.LiveReader.TryRead(out var eventB));
-        Assert.Equal("VH-001", ((dynamic)eventA.Data).vehicleId);
-        Assert.Equal("VH-001", ((dynamic)eventB.Data).vehicleId);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", (string)((dynamic)eventA.Data).deviceId);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", (string)((dynamic)eventB.Data).deviceId);
     }
 
     [Fact]
@@ -98,15 +98,15 @@ public class FleetSseBrokerFt005Tests
     public void Replay_y_live_no_duplican_evento_en_cutover()
     {
         var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 20, replayBufferSize: 20);
-        broker.PublishExternal(40, "vehicle-update", new { vehicleId = "VH-A" });
-        broker.PublishExternal(41, "vehicle-update", new { vehicleId = "VH-B" });
+        broker.PublishExternal(40, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" });
+        broker.PublishExternal(41, "vehicle-update", new { deviceId = "22222222-2222-2222-2222-222222222222" });
 
         var subscription = broker.SubscribeFrom(Valid(39));
 
         Assert.Equal(2, subscription.ReplayEvents.Count);
         Assert.Equal(41, subscription.CutoverId);
 
-        broker.PublishExternal(42, "vehicle-update", new { vehicleId = "VH-C" });
+        broker.PublishExternal(42, "vehicle-update", new { deviceId = "33333333-3333-3333-3333-333333333333" });
 
         var delivered = subscription.ReplayEvents.Select(evt => evt.StreamId).ToList();
         while (subscription.LiveReader.TryRead(out var liveEvent))
@@ -163,7 +163,7 @@ public class FleetSseBrokerFt005Tests
     public void Connected_solo_llega_al_cliente_nuevo()
     {
         var broker = new FleetSseBroker(TimeProvider.System);
-        broker.PublishExternal(5, "vehicle-update", new { vehicleId = "VH-001" });
+        broker.PublishExternal(5, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" });
 
         var subscription = broker.SubscribeFrom(Valid(4));
         Assert.DoesNotContain(
@@ -207,9 +207,9 @@ public class FleetSseBrokerFt005Tests
     public void Missing_con_evento_previo_al_subscribe_usa_cutover_actual()
     {
         var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
-        broker.PublishExternal(100, "vehicle-update", new { vehicleId = "VH-100" });
+        broker.PublishExternal(100, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" });
         // Snapshot REST simbólico en offset 100; 101 llega al broker antes del SSE.
-        broker.PublishExternal(101, "vehicle-update", new { vehicleId = "VH-101" });
+        broker.PublishExternal(101, "vehicle-update", new { deviceId = "22222222-2222-2222-2222-222222222222" });
 
         var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
@@ -226,14 +226,14 @@ public class FleetSseBrokerFt005Tests
     public void Missing_durante_snapshot_retiene_live_posteriores_en_orden()
     {
         var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
-        broker.PublishExternal(100, "vehicle-update", new { vehicleId = "VH-100" });
+        broker.PublishExternal(100, "vehicle-update", new { deviceId = "11111111-1111-1111-1111-111111111111" });
 
         var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
         Assert.Equal(100, subscription.CutoverId);
         Assert.Equal("initial-snapshot", subscription.ResetReason);
 
-        broker.PublishExternal(101, "vehicle-update", new { vehicleId = "VH-101" });
-        broker.PublishExternal(102, "vehicle-update", new { vehicleId = "VH-102" });
+        broker.PublishExternal(101, "vehicle-update", new { deviceId = "22222222-2222-2222-2222-222222222222" });
+        broker.PublishExternal(102, "vehicle-update", new { deviceId = "33333333-3333-3333-3333-333333333333" });
 
         var liveIds = new List<long>();
         while (subscription.LiveReader.TryRead(out var live))

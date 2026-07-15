@@ -31,7 +31,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         var record = new TelemetryEventRecord
         {
             EventId = telemetryEvent.EventId,
-            VehicleId = telemetryEvent.VehicleId,
+            VehicleId = telemetryEvent.DeviceIdStorage,
             DriverId = telemetryEvent.DriverId,
             Timestamp = telemetryEvent.Timestamp,
             Latitude = telemetryEvent.Latitude,
@@ -48,14 +48,15 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
     }
 
     public async Task<CursorPage<TelemetryEvent>> GetVehicleHistoryPageAsync(
-        string vehicleId,
+        Guid deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
         int pageSize,
         string? cursor,
         CancellationToken cancellationToken = default)
     {
-        ValidateHistoryQuery(vehicleId, from, to, pageSize);
+        ValidateHistoryQuery(deviceId, from, to, pageSize);
+        var deviceIdStorage = deviceId.ToString("D");
 
         TelemetryHistoryCursorPayload? cursorPayload = null;
         if (!string.IsNullOrWhiteSpace(cursor))
@@ -63,7 +64,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
             cursorPayload = CursorCodec.Decode<TelemetryHistoryCursorPayload>(cursor);
             CursorValidators.ValidateHistoryCursor(
                 cursorPayload,
-                vehicleId,
+                deviceId,
                 from,
                 to,
                 _queryLimits.HistoryMaxRangeDays);
@@ -72,7 +73,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         var take = pageSize + 1;
         var query = _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == vehicleId && e.Timestamp >= from && e.Timestamp <= to);
+            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp >= from && e.Timestamp <= to);
 
         if (cursorPayload?.LastTimestamp is DateTimeOffset cursorTimestamp
             && cursorPayload.LastEventId is Guid cursorEventId)
@@ -98,7 +99,7 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
             var last = pageRecords[^1];
             nextCursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(
                 TelemetryHistoryCursorPayload.CurrentVersion,
-                vehicleId,
+                deviceId,
                 from,
                 to,
                 last.Timestamp,
@@ -108,10 +109,10 @@ public class TimescaleTelemetryRepository : ITelemetryRepository
         return new CursorPage<TelemetryEvent>(items, nextCursor, hasMore);
     }
 
-    private void ValidateHistoryQuery(string vehicleId, DateTimeOffset from, DateTimeOffset to, int pageSize)
+    private void ValidateHistoryQuery(Guid deviceId, DateTimeOffset from, DateTimeOffset to, int pageSize)
     {
-        if (string.IsNullOrWhiteSpace(vehicleId))
-            throw new ArgumentException("vehicleId es obligatorio.", nameof(vehicleId));
+        if (deviceId == Guid.Empty)
+            throw new ArgumentException("deviceId es obligatorio.", nameof(deviceId));
 
         if (from >= to)
             throw new ArgumentOutOfRangeException(nameof(from), "from debe ser anterior a to.");

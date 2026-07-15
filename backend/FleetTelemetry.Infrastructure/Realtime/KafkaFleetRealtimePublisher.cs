@@ -38,8 +38,8 @@ public sealed class KafkaFleetRealtimePublisher : IFleetRealtimePublisher, IDisp
         _producer = new ProducerBuilder<string, string>(config).Build();
     }
 
-    public Task PublishVehicleUpdateAsync(string vehicleId, string payloadJson, CancellationToken cancellationToken = default) =>
-        PublishAsync(FleetRealtimeEventTypes.VehicleUpdate, vehicleId, payloadJson, cancellationToken);
+    public Task PublishVehicleUpdateAsync(Guid deviceId, string payloadJson, CancellationToken cancellationToken = default) =>
+        PublishAsync(FleetRealtimeEventTypes.VehicleUpdate, deviceId.ToString("D"), payloadJson, cancellationToken);
 
     public Task PublishAlertAsync(string payloadJson, CancellationToken cancellationToken = default) =>
         PublishAsync(FleetRealtimeEventTypes.Alert, "alerts", payloadJson, cancellationToken);
@@ -57,7 +57,7 @@ public sealed class KafkaFleetRealtimePublisher : IFleetRealtimePublisher, IDisp
             EventType = eventType,
             Payload = payloadDoc.RootElement.Clone(),
             OccurredAt = DateTimeOffset.UtcNow,
-            VehicleId = eventType == FleetRealtimeEventTypes.VehicleUpdate ? key : null
+            DeviceId = eventType == FleetRealtimeEventTypes.VehicleUpdate ? key : null
         };
 
         var kafkaMessage = new Message<string, string>

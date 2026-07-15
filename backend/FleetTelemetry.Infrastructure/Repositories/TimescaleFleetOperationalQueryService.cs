@@ -134,7 +134,7 @@ public class TimescaleFleetOperationalQueryService : IFleetOperationalQueryServi
             var duration = row.LastSeenAt - row.StoppedSince;
             var zone = CriticalZoneCatalog.FindZoneAt(row.Latitude, row.Longitude);
             return new StoppedVehicleStatusDto(
-                row.VehicleId,
+                Guid.Parse(row.VehicleId),
                 row.LastSeenAt,
                 row.StoppedSince,
                 duration,

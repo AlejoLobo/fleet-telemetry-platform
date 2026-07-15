@@ -10,7 +10,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
 {
     private static readonly TelemetryEvent Sample = TelemetryEvent.Create(
         Guid.Parse("11111111-1111-1111-1111-111111111111"),
-        "VH-001",
+        Guid.Parse("22222222-2222-2222-2222-222222222222"),
         "DRV-001",
         new DateTimeOffset(2026, 7, 12, 8, 30, 0, TimeSpan.Zero),
         4.6533,
@@ -35,7 +35,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -62,7 +62,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -88,7 +88,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "eventId": "11111111-1111-1111-1111-111111111111",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -115,7 +115,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "0001-01-01T00:00:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -142,7 +142,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -169,7 +169,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T09:00:00Z",
                 "latitude": 4.6533,
@@ -196,7 +196,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T03:30:00-05:00",
                 "latitude": 4.6533,
@@ -224,7 +224,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -251,7 +251,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -277,7 +277,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -303,7 +303,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -330,7 +330,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,
@@ -385,7 +385,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
         var json = """
             {
               "eventId": "11111111-1111-1111-1111-111111111111",
-              "vehicleId": "VH-001",
+              "deviceId": "11111111-1111-1111-1111-111111111111",
               "driverId": "DRV-001",
               "timestamp": "2026-07-12T08:30:00Z",
               "latitude": 4.6533,
@@ -407,7 +407,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
         var json = """
             {
               "eventId": "11111111-1111-1111-1111-111111111111",
-              "vehicleId": "VH-001",
+              "deviceId": "11111111-1111-1111-1111-111111111111",
               "driverId": "DRV-001",
               "timestamp": "2026-07-12T08:30:00Z",
               "latitude": 4.6533,
@@ -417,7 +417,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "batteryPercent": 95,
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001"
+                "deviceId": "11111111-1111-1111-1111-111111111111"
               }
             }
             """;
@@ -432,7 +432,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
         var json = TelemetryEventJsonSerializer.Serialize(Sample, useEnvelope: true);
         var roundTrip = DeserializeEnvelope(json);
         Assert.Equal(Sample.EventId, roundTrip.EventId);
-        Assert.Equal(Sample.VehicleId, roundTrip.VehicleId);
+        Assert.Equal(Sample.DeviceId, roundTrip.DeviceId);
         Assert.Equal(Sample.Timestamp, roundTrip.Timestamp);
     }
 
@@ -448,7 +448,7 @@ public sealed class TelemetryEnvelopeIntegrityTests
               "correlationId": "corr-123",
               "payload": {
                 "eventId": "11111111-1111-1111-1111-111111111111",
-                "vehicleId": "VH-001",
+                "deviceId": "11111111-1111-1111-1111-111111111111",
                 "driverId": "DRV-001",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 4.6533,

@@ -48,13 +48,13 @@ public class TimescaleFleetQueryService : IFleetQueryService
 
         var now = _timeProvider.GetUtcNow();
         var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
-        var lastVehicleId = cursorPayload?.LastVehicleId;
+        var lastDeviceIdStorage = cursorPayload?.LastDeviceId.ToString("D");
         var take = pageSize + 1;
 
         var records = await _dbContext.FleetVehicleStates
             .AsNoTracking()
             .Where(state =>
-                (lastVehicleId == null || string.Compare(state.VehicleId, lastVehicleId) > 0)
+                (lastDeviceIdStorage == null || string.Compare(state.VehicleId, lastDeviceIdStorage) > 0)
                 && (!liveOnly || state.LastTimestamp >= onlineThreshold)
                 && (!excludeSimulated || state.LocationSource != "simulated"))
             .OrderBy(state => state.VehicleId)
@@ -74,7 +74,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
             var last = pageRecords[^1];
             nextCursor = CursorCodec.Encode(new FleetCursorPayload(
                 FleetCursorPayload.CurrentVersion,
-                last.VehicleId,
+                Guid.Parse(last.VehicleId),
                 liveOnly,
                 excludeSimulated));
         }
@@ -110,19 +110,20 @@ public class TimescaleFleetQueryService : IFleetQueryService
     }
 
     public async Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken = default)
     {
+        var deviceIdStorage = deviceId.ToString("D");
         var record = await _dbContext.FleetVehicleStates
             .AsNoTracking()
-            .SingleOrDefaultAsync(state => state.VehicleId == vehicleId, cancellationToken);
+            .SingleOrDefaultAsync(state => state.VehicleId == deviceIdStorage, cancellationToken);
 
         if (record is null)
             return null;
 
         var previous = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == vehicleId && e.Timestamp < record.LastTimestamp)
+            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp < record.LastTimestamp)
             .OrderByDescending(e => e.Timestamp)
             .ThenByDescending(e => e.EventId)
             .Take(1)
@@ -145,9 +146,11 @@ public class TimescaleFleetQueryService : IFleetQueryService
             now,
             _queryLimits.OnlineThresholdMinutes);
 
+        var deviceId = Guid.Parse(record.VehicleId);
+
         return new VehicleLatestStatusResponse(
-            VehicleId: record.VehicleId,
-            Name: record.VehicleId,
+            DeviceId: deviceId,
+            VehicleName: deviceId.ToString("D"),
             Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,

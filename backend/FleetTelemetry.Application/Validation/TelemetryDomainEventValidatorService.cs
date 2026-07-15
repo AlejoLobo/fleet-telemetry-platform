@@ -17,7 +17,7 @@ public sealed class TelemetryDomainEventValidatorService : ITelemetryDomainEvent
 
         if (!TelemetryEvent.TryCreate(
                 telemetryEvent.EventId,
-                telemetryEvent.VehicleId,
+                telemetryEvent.DeviceId,
                 telemetryEvent.DriverId,
                 telemetryEvent.Timestamp,
                 telemetryEvent.Latitude,
