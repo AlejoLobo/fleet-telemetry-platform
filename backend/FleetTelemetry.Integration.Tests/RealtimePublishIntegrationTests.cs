@@ -153,7 +153,7 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
 
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
@@ -201,11 +201,11 @@ public class RealtimePublishIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == deviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == deviceId);
         Assert.Equal(newer.EventId, state.LastEventId);
         Assert.Equal(newer.Timestamp, state.LastTimestamp);
         Assert.Equal(newer.SpeedKmh, state.SpeedKmh);
-        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.VehicleId == deviceIdStorage));
+        Assert.Equal(0, await db.FleetAlerts.CountAsync(a => a.DeviceId == deviceId));
     }
 
     private async Task ResetAsync()

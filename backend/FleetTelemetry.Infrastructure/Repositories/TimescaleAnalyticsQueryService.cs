@@ -24,10 +24,9 @@ public class TimescaleAnalyticsQueryService : IAnalyticsQueryService
         DateTimeOffset to,
         CancellationToken cancellationToken = default)
     {
-        var deviceIdStorage = deviceId.ToString("D");
         var speeds = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp >= from && e.Timestamp <= to)
+            .Where(e => e.DeviceId == deviceId && e.Timestamp >= from && e.Timestamp <= to)
             .Select(e => e.SpeedKmh)
             .ToListAsync(cancellationToken);
 

@@ -173,7 +173,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.DeviceIdStorage);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
         var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);

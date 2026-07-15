@@ -68,14 +68,14 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         Assert.Equal(1, await db.TelemetryEvents.CountAsync(e => e.EventId == telemetryEvent.EventId));
 
         var storedEvent = await db.TelemetryEvents.SingleAsync(e => e.EventId == telemetryEvent.EventId);
-        Assert.Equal(telemetryEvent.DeviceIdStorage, storedEvent.VehicleId);
+        Assert.Equal(telemetryEvent.DeviceId, storedEvent.DeviceId);
         Assert.Equal(telemetryEvent.SpeedKmh, storedEvent.SpeedKmh);
 
         var alerts = await db.FleetAlerts
-            .Where(a => a.VehicleId == telemetryEvent.DeviceIdStorage)
+            .Where(a => a.DeviceId == telemetryEvent.DeviceId)
             .ToListAsync();
         Assert.NotEmpty(alerts);
-        Assert.All(alerts, alert => Assert.Equal(telemetryEvent.DeviceIdStorage, alert.VehicleId));
+        Assert.All(alerts, alert => Assert.Equal(telemetryEvent.DeviceId, alert.DeviceId));
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(telemetryEvent);
 
         var overspeedAlert = await db.FleetAlerts
-            .SingleAsync(a => a.VehicleId == telemetryEvent.DeviceIdStorage && a.AlertType == "overspeed");
+            .SingleAsync(a => a.DeviceId == telemetryEvent.DeviceId && a.AlertType == "overspeed");
 
         Assert.Equal("critical", overspeedAlert.Severity);
         Assert.Contains(telemetryEvent.DeviceIdStorage, overspeedAlert.Message);

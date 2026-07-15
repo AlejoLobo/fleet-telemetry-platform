@@ -66,6 +66,7 @@ internal static class IntegrationTestServiceBootstrap
         services.AddScoped<IFleetConnectivityWatermarkRepository, TimescaleFleetConnectivityWatermarkRepository>();
         services.AddScoped<IFleetOfflinePublishMarkerRepository, TimescaleFleetOfflinePublishMarkerRepository>();
         services.AddScoped<IFleetConnectivityExpiryService, FleetConnectivityExpiryService>();
+        services.AddScoped<IDeviceRegistry, TimescaleDeviceRegistry>();
         services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
         if (configurePublisher is not null)
             services.AddSingleton<IFleetRealtimePublisher>(configurePublisher);
@@ -83,7 +84,7 @@ internal static class IntegrationTestServiceBootstrap
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         await db.Database.ExecuteSqlRawAsync(
             """
-            TRUNCATE TABLE fleet_offline_publish_markers, fleet_connectivity_watermark, fleet_alert_states, fleet_alerts, processed_events, fleet_vehicle_state, telemetry_events
+            TRUNCATE TABLE fleet_offline_publish_markers, fleet_connectivity_watermark, fleet_alert_states, fleet_alerts, processed_events, fleet_vehicle_state, telemetry_events, fleet_devices
             RESTART IDENTITY CASCADE;
             """);
     }

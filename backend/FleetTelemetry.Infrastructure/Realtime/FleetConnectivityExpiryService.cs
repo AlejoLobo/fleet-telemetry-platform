@@ -22,6 +22,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
     private readonly IFleetRealtimePublisher _realtimePublisher;
     private readonly IFleetOfflinePublishMarkerRepository _markerRepository;
     private readonly IFleetConnectivityWatermarkRepository _watermarkRepository;
+    private readonly IDeviceRegistry _deviceRegistry;
     private readonly TimeProvider _timeProvider;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly SseOptions _sseOptions;
@@ -32,6 +33,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         IFleetRealtimePublisher realtimePublisher,
         IFleetOfflinePublishMarkerRepository markerRepository,
         IFleetConnectivityWatermarkRepository watermarkRepository,
+        IDeviceRegistry deviceRegistry,
         TimeProvider timeProvider,
         IOptions<QueryLimitsOptions> queryLimits,
         IOptions<SseOptions> sseOptions,
@@ -41,6 +43,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         _realtimePublisher = realtimePublisher;
         _markerRepository = markerRepository;
         _watermarkRepository = watermarkRepository;
+        _deviceRegistry = deviceRegistry;
         _timeProvider = timeProvider;
         _queryLimits = queryLimits.Value;
         _sseOptions = sseOptions.Value;
@@ -60,7 +63,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         var pageSize = _sseOptions.ConnectivityExpiryBatchSize;
         var published = 0;
         DateTimeOffset? cursorTimestamp = null;
-        string? cursorDeviceIdStorage = null;
+        Guid? cursorDeviceId = null;
 
         while (true)
         {
@@ -68,7 +71,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 previousThreshold,
                 currentThreshold,
                 cursorTimestamp,
-                cursorDeviceIdStorage,
+                cursorDeviceId,
                 pageSize,
                 cancellationToken);
 
@@ -77,7 +80,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
             foreach (var state in page)
             {
-                var deviceId = Guid.Parse(state.VehicleId);
+                var deviceId = state.DeviceId;
                 if (!await _markerRepository.ShouldPublishOfflineAsync(
                         deviceId,
                         state.LastEventId,
@@ -86,7 +89,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                     continue;
                 }
 
-                var payload = BuildOfflinePayload(state, now);
+                var payload = await BuildOfflinePayloadAsync(state, now, cancellationToken);
                 var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
 
                 await _realtimePublisher.PublishVehicleUpdateAsync(
@@ -113,7 +116,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
 
             var last = page[^1];
             cursorTimestamp = last.LastTimestamp;
-            cursorDeviceIdStorage = last.VehicleId;
+            cursorDeviceId = last.DeviceId;
         }
 
         await _watermarkRepository.SetPreviousOnlineThresholdAsync(currentThreshold, cancellationToken);
@@ -124,7 +127,7 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
         DateTimeOffset previousThreshold,
         DateTimeOffset currentThreshold,
         DateTimeOffset? cursorTimestamp,
-        string? cursorDeviceIdStorage,
+        Guid? cursorDeviceId,
         int pageSize,
         CancellationToken cancellationToken)
     {
@@ -134,29 +137,32 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
                 state.LastTimestamp < currentThreshold
                 && state.LastTimestamp >= previousThreshold);
 
-        if (cursorTimestamp is not null && cursorDeviceIdStorage is not null)
+        if (cursorTimestamp is not null && cursorDeviceId is not null)
         {
             query = query.Where(state =>
                 state.LastTimestamp > cursorTimestamp.Value
                 || (state.LastTimestamp == cursorTimestamp.Value
-                    && string.Compare(state.VehicleId, cursorDeviceIdStorage) > 0));
+                    && state.DeviceId.CompareTo(cursorDeviceId.Value) > 0));
         }
 
         return await query
             .OrderBy(state => state.LastTimestamp)
-            .ThenBy(state => state.VehicleId)
+            .ThenBy(state => state.DeviceId)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
     }
 
-    private static VehicleLatestStatusResponse BuildOfflinePayload(
+    private async Task<VehicleLatestStatusResponse> BuildOfflinePayloadAsync(
         FleetVehicleStateRecord state,
-        DateTimeOffset evaluatedAt)
+        DateTimeOffset evaluatedAt,
+        CancellationToken cancellationToken)
     {
-        var deviceId = Guid.Parse(state.VehicleId);
+        var device = await _deviceRegistry.GetDeviceAsync(state.DeviceId, cancellationToken);
+        var vehicleName = device?.VehicleName ?? state.DeviceId.ToString("D");
+
         return new(
-            deviceId,
-            deviceId.ToString("D"),
+            state.DeviceId,
+            vehicleName,
             VehicleConnectivityStatus.Offline,
             state.LastTimestamp,
             state.SpeedKmh,

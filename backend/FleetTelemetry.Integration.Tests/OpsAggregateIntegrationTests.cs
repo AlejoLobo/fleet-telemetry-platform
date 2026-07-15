@@ -133,7 +133,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,
@@ -158,7 +158,7 @@ public class OpsAggregateIntegrationTests : IAsyncLifetime
             db.FleetAlerts.Add(new FleetAlertRecord
             {
                 AlertId = alert.AlertId,
-                VehicleId = alert.DeviceId.ToString("D"),
+                DeviceId = alert.DeviceId,
                 AlertType = "test",
                 Severity = alert.Severity,
                 Message = "test alert",

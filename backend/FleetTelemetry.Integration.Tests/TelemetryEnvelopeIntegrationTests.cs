@@ -45,7 +45,7 @@ public class TelemetryEnvelopeIntegrationTests
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var row = await db.TelemetryEvents.SingleAsync(e => e.EventId == original.EventId);
 
-        Assert.Equal(original.DeviceIdStorage, row.VehicleId);
+        Assert.Equal(original.DeviceId, row.DeviceId);
         Assert.Equal(original.DriverId, row.DriverId);
         Assert.Equal(original.Timestamp.UtcDateTime, row.Timestamp.UtcDateTime, TimeSpan.FromSeconds(1));
         Assert.Equal(original.Latitude, row.Latitude, precision: 4);

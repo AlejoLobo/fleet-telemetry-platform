@@ -48,33 +48,37 @@ public class TimescaleFleetQueryService : IFleetQueryService
 
         var now = _timeProvider.GetUtcNow();
         var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
-        var lastDeviceIdStorage = cursorPayload?.LastDeviceId.ToString("D");
+        var lastDeviceId = cursorPayload?.LastDeviceId;
         var take = pageSize + 1;
 
-        var records = await _dbContext.FleetVehicleStates
-            .AsNoTracking()
-            .Where(state =>
-                (lastDeviceIdStorage == null || string.Compare(state.VehicleId, lastDeviceIdStorage) > 0)
+        var pageRecords = await (
+            from state in _dbContext.FleetVehicleStates.AsNoTracking()
+            join device in _dbContext.FleetDevices.AsNoTracking()
+                on state.DeviceId equals device.DeviceId into devices
+            from device in devices.DefaultIfEmpty()
+            where (lastDeviceId == null || state.DeviceId.CompareTo(lastDeviceId.Value) > 0)
                 && (!liveOnly || state.LastTimestamp >= onlineThreshold)
-                && (!excludeSimulated || state.LocationSource != "simulated"))
-            .OrderBy(state => state.VehicleId)
+                && (!excludeSimulated || state.LocationSource != "simulated")
+            orderby state.DeviceId
+            select new FleetStatusJoinRow(state, device != null ? device.VehicleName : null)
+        )
             .Take(take)
             .ToListAsync(cancellationToken);
 
-        var hasMore = records.Count > pageSize;
-        var pageRecords = hasMore ? records.Take(pageSize).ToList() : records;
+        var hasMore = pageRecords.Count > pageSize;
+        var page = hasMore ? pageRecords.Take(pageSize).ToList() : pageRecords;
 
-        var items = pageRecords
-            .Select(record => MapToStatus(record, headingDegrees: null, now))
+        var items = page
+            .Select(row => MapToStatus(row.State, row.VehicleName, headingDegrees: null, now))
             .ToList();
 
         string? nextCursor = null;
-        if (hasMore && pageRecords.Count > 0)
+        if (hasMore && page.Count > 0)
         {
-            var last = pageRecords[^1];
+            var last = page[^1];
             nextCursor = CursorCodec.Encode(new FleetCursorPayload(
                 FleetCursorPayload.CurrentVersion,
-                Guid.Parse(last.VehicleId),
+                last.State.DeviceId,
                 liveOnly,
                 excludeSimulated));
         }
@@ -113,31 +117,36 @@ public class TimescaleFleetQueryService : IFleetQueryService
         Guid deviceId,
         CancellationToken cancellationToken = default)
     {
-        var deviceIdStorage = deviceId.ToString("D");
-        var record = await _dbContext.FleetVehicleStates
-            .AsNoTracking()
-            .SingleOrDefaultAsync(state => state.VehicleId == deviceIdStorage, cancellationToken);
+        var row = await (
+            from state in _dbContext.FleetVehicleStates.AsNoTracking()
+            join device in _dbContext.FleetDevices.AsNoTracking()
+                on state.DeviceId equals device.DeviceId into devices
+            from device in devices.DefaultIfEmpty()
+            where state.DeviceId == deviceId
+            select new FleetStatusJoinRow(state, device != null ? device.VehicleName : null)
+        ).SingleOrDefaultAsync(cancellationToken);
 
-        if (record is null)
+        if (row is null)
             return null;
 
         var previous = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == deviceIdStorage && e.Timestamp < record.LastTimestamp)
+            .Where(e => e.DeviceId == deviceId && e.Timestamp < row.State.LastTimestamp)
             .OrderByDescending(e => e.Timestamp)
             .ThenByDescending(e => e.EventId)
             .Take(1)
             .SingleOrDefaultAsync(cancellationToken);
 
         var heading = previous is not null
-            ? GeoBearing.ComputeHeadingDegrees(previous, ToTelemetryPoint(record))
+            ? GeoBearing.ComputeHeadingDegrees(previous, ToTelemetryPoint(row.State))
             : null;
 
-        return MapToStatus(record, heading, _timeProvider.GetUtcNow());
+        return MapToStatus(row.State, row.VehicleName, heading, _timeProvider.GetUtcNow());
     }
 
     private VehicleLatestStatusResponse MapToStatus(
         FleetVehicleStateRecord record,
+        string? vehicleName,
         double? headingDegrees,
         DateTimeOffset now)
     {
@@ -146,11 +155,11 @@ public class TimescaleFleetQueryService : IFleetQueryService
             now,
             _queryLimits.OnlineThresholdMinutes);
 
-        var deviceId = Guid.Parse(record.VehicleId);
-
         return new VehicleLatestStatusResponse(
-            DeviceId: deviceId,
-            VehicleName: deviceId.ToString("D"),
+            DeviceId: record.DeviceId,
+            VehicleName: string.IsNullOrWhiteSpace(vehicleName)
+                ? record.DeviceId.ToString("D")
+                : vehicleName,
             Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
@@ -174,4 +183,6 @@ public class TimescaleFleetQueryService : IFleetQueryService
             Latitude = record.Latitude,
             Longitude = record.Longitude
         };
+
+    private sealed record FleetStatusJoinRow(FleetVehicleStateRecord State, string? VehicleName);
 }

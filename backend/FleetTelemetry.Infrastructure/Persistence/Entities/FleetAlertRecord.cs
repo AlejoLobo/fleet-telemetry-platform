@@ -9,8 +9,8 @@ public class FleetAlertRecord
     [Key]
     public Guid AlertId { get; set; }
 
-    [MaxLength(64)]
-    public string VehicleId { get; set; } = string.Empty;
+    [Column("device_id")]
+    public Guid DeviceId { get; set; }
 
     [MaxLength(64)]
     public string AlertType { get; set; } = string.Empty;

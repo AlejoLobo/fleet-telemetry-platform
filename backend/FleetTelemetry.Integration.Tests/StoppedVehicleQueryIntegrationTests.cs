@@ -259,7 +259,7 @@ public class StoppedVehicleQueryIntegrationTests : IAsyncLifetime
             db.TelemetryEvents.Add(new TelemetryEventRecord
             {
                 EventId = Guid.NewGuid(),
-                VehicleId = item.DeviceId.ToString("D"),
+                DeviceId = item.DeviceId,
                 Timestamp = item.Timestamp,
                 CapturedAt = item.Timestamp,
                 Latitude = item.Lat,

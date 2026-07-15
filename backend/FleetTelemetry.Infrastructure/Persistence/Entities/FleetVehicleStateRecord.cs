@@ -7,8 +7,8 @@ namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 public class FleetVehicleStateRecord
 {
     [Key]
-    [MaxLength(64)]
-    public string VehicleId { get; set; } = string.Empty;
+    [Column("device_id")]
+    public Guid DeviceId { get; set; }
 
     public Guid LastEventId { get; set; }
 
