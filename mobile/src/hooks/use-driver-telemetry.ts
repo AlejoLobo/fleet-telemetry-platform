@@ -14,6 +14,7 @@ import type { LocationReading, SyncResult } from "@/types/telemetry";
 const SYNC_INTERVAL_MILLISECONDS = 10_000;
 
 export function useDriverTelemetry(
+  deviceId: string,
   vehicleId: string,
   driverId: string,
   canSync: boolean,
@@ -25,6 +26,7 @@ export function useDriverTelemetry(
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isOnlineRef = useRef(isOnline);
   const canSyncRef = useRef(canSync);
+  const deviceIdRef = useRef(deviceId);
   const [state, setState] = useState({
     tracking: false,
     pendingCount: 0,
@@ -36,13 +38,14 @@ export function useDriverTelemetry(
 
   isOnlineRef.current = isOnline;
   canSyncRef.current = canSync;
+  deviceIdRef.current = deviceId;
 
-  function clearSyncTimer(): void {
-    if (syncTimerRef.current != null) {
+  const clearSyncTimer = useCallback((): void => {
+    if (syncTimerRef.current !== null) {
       clearInterval(syncTimerRef.current);
       syncTimerRef.current = null;
     }
-  }
+  }, []);
 
   const refreshPendingCount = useCallback(async () => {
     const pendingCount = await countPendingEvents();
@@ -68,11 +71,33 @@ export function useDriverTelemetry(
   }, [vehicleId, driverId, refreshPendingCount]);
 
   const syncNow = useCallback(async () => {
-    const result = await syncPendingQueue(isOnlineRef.current);
+    const result = await syncPendingQueue(isOnlineRef.current, deviceIdRef.current);
     await refreshPendingCount();
     setState((p) => ({ ...p, lastSync: result, error: null }));
     return result;
   }, [refreshPendingCount]);
+
+  const startSyncTimer = useCallback((): void => {
+    clearSyncTimer();
+
+    if (!trackingRef.current || !canSyncRef.current) {
+      return;
+    }
+
+    syncTimerRef.current = setInterval(() => {
+      if (!trackingRef.current) return;
+      if (!isOnlineRef.current || !canSyncRef.current) return;
+
+      void syncNow().catch((error) => {
+        setState((previous) => ({
+          ...previous,
+          error: error instanceof Error
+            ? error.message
+            : "Error de sincronización",
+        }));
+      });
+    }, SYNC_INTERVAL_MILLISECONDS);
+  }, [clearSyncTimer, syncNow]);
 
   const stopTracking = useCallback(async () => {
     clearSyncTimer();
@@ -81,19 +106,14 @@ export function useDriverTelemetry(
     if (isOnlineRef.current && canSyncRef.current) {
       await syncNow();
     }
-  }, [syncNow]);
+  }, [clearSyncTimer, syncNow]);
 
   const startTracking = useCallback(async () => {
     if (trackingRef.current) return;
     trackingRef.current = true;
     setState((p) => ({ ...p, tracking: true, error: null }));
 
-    clearSyncTimer();
-    syncTimerRef.current = setInterval(() => {
-      if (!trackingRef.current) return;
-      if (!isOnlineRef.current || !canSyncRef.current) return;
-      void syncNow();
-    }, SYNC_INTERVAL_MILLISECONDS);
+    startSyncTimer();
 
     runCaptureLoop(
       async (reading) => {
@@ -110,7 +130,7 @@ export function useDriverTelemetry(
         error: e instanceof Error ? e.message : "Tracking error",
       }));
     });
-  }, [captureEvent, captureIntervalSeconds, syncNow]);
+  }, [captureEvent, captureIntervalSeconds, clearSyncTimer, startSyncTimer]);
 
   const captureOnce = useCallback(async () => {
     await captureEvent(await getCurrentReading());
@@ -134,13 +154,18 @@ export function useDriverTelemetry(
   useEffect(() => {
     if (!canSync) {
       clearSyncTimer();
+      return;
     }
-  }, [canSync]);
+
+    if (trackingRef.current) {
+      startSyncTimer();
+    }
+  }, [canSync, clearSyncTimer, startSyncTimer]);
 
   useEffect(() => () => {
     trackingRef.current = false;
     clearSyncTimer();
-  }, []);
+  }, [clearSyncTimer]);
 
   return {
     ...state,
