@@ -1,7 +1,9 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Infrastructure.Auth;
 using FleetTelemetry.Infrastructure.Configuration;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Api.Controllers;
@@ -12,17 +14,18 @@ public class AuthController : ControllerBase
 {
     private readonly AuthOptions _authOptions;
     private readonly JwtTokenService _jwtTokenService;
+    private readonly IWebHostEnvironment _environment;
 
-    public AuthController(IOptions<AuthOptions> authOptions, JwtTokenService jwtTokenService)
+    public AuthController(
+        IOptions<AuthOptions> authOptions,
+        JwtTokenService jwtTokenService,
+        IWebHostEnvironment environment)
     {
         _authOptions = authOptions.Value;
         _jwtTokenService = jwtTokenService;
+        _environment = environment;
     }
 
-    /// <summary>
-    /// Login de operador (portal). No incluye telemetry:write.
-    /// Admin demos puede recibir device:manage; el operador común no.
-    /// </summary>
     [HttpPost("login")]
     public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
     {
@@ -48,8 +51,8 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Emite un JWT de dispositivo ligado a DeviceId (role=device, telemetry:write, device_id).
-    /// MVP: requiere credenciales demo válidas (operador o admin). No es attestation de producción.
+    /// Enrolamiento MVP demo: emite JWT de dispositivo ligado a DeviceId.
+    /// No es attestation. Requiere Auth:AllowDemoDeviceEnrollment=true y no Production.
     /// </summary>
     [HttpPost("device-token")]
     public ActionResult<DeviceTokenResponse> IssueDeviceToken([FromBody] DeviceTokenRequest request)
@@ -57,13 +60,24 @@ public class AuthController : ControllerBase
         if (!_authOptions.Enabled)
             return BadRequest(new { error = "Autenticación deshabilitada en este entorno." });
 
+        if (!_authOptions.AllowDemoDeviceEnrollment)
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "Enrolamiento demo deshabilitado. Configure Auth:AllowDemoDeviceEnrollment solo en Development/Demo.",
+            });
+
+        if (_environment.IsProduction())
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "Enrolamiento demo prohibido en Production. Use attestation/mTLS/enrollment firmado.",
+            });
+
         if (request.DeviceId == Guid.Empty)
             return BadRequest(new { error = "DeviceId debe ser un UUID no vacío." });
 
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
             return Unauthorized(new { error = "Credenciales inválidas." });
 
-        // Autorización explícita MVP: solo cuentas demo configuradas pueden enrolar.
         var authorized =
             IsOperatorCredentials(request.Username, request.Password)
             || IsAdminCredentials(request.Username, request.Password);

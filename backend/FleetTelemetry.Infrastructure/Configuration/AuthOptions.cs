@@ -21,4 +21,10 @@ public class AuthOptions
     /// </summary>
     public string AdminUsername { get; set; } = string.Empty;
     public string AdminPassword { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Enrolamiento demo vía POST /api/auth/device-token.
+    /// Debe ser false en producción; solo Development/demo.
+    /// </summary>
+    public bool AllowDemoDeviceEnrollment { get; set; }
 }
