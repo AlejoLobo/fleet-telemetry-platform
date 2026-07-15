@@ -42,7 +42,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -58,7 +58,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -74,7 +74,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -95,7 +95,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "stable-device-abc")).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -117,7 +117,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    }, "stable-device-abc");
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002");
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer secret-token");
   });
@@ -146,7 +146,7 @@ describe("expiración centralizada", () => {
         speedKmh: 3,
         fuelLevelPercent: null,
         batteryPercent: null,
-      }, "stable-device-abc");
+      }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002");
     } catch (error) {
       expect((error as TelemetryApiError).sanitizedMessage).not.toContain("secret-token");
     }

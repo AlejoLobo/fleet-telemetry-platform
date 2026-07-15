@@ -102,7 +102,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "A,B") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_required");
     expect((await getQueueEventByEventId("A"))?.status).toBe("pending");
     expect((await getQueueEventByEventId("B"))?.status).toBe("pending");
@@ -119,7 +119,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "A,B") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("deferred");
     for (const id of ["A", "B", "C", "D"]) {
       const row = await getQueueEventByEventId(id);
@@ -137,7 +137,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "A,B") throw apiError(404, "protocol");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("configuration_error");
     for (const id of ["A", "B", "C", "D"]) {
       expect((await getQueueEventByEventId(id))?.status).toBe("pending");
@@ -153,7 +153,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "A,B") throw apiError(403, "forbidden");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("forbidden");
     for (const id of ["A", "B", "C", "D"]) {
       expect((await getQueueEventByEventId(id))?.status).toBe("pending");
@@ -169,7 +169,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "A,B") throw new Error("unexpected");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("failed");
     for (const id of ["A", "B", "C", "D"]) {
       expect((await getQueueEventByEventId(id))?.status).toBe("pending");
@@ -186,7 +186,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "E1,E2") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_required");
     for (let i = 1; i <= 8; i += 1) {
       expect((await getQueueEventByEventId(`E${i}`))?.status).toBe("pending");
@@ -203,7 +203,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "E1,E2") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("deferred");
     for (let i = 1; i <= 8; i += 1) {
       expect((await getQueueEventByEventId(`E${i}`))?.status).toBe("retry");
@@ -219,7 +219,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "C,D") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("deferred");
     expect((await getQueueEventByEventId("A"))?.status).toBe("synced");
     expect((await getQueueEventByEventId("B"))?.status).toBe("synced");
@@ -238,7 +238,7 @@ describe("split 413 con SQLite real", () => {
       if (key === "C,D") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_required");
     expect((await getQueueEventByEventId("BIG"))?.status).toBe("permanent_failure");
     expect((await getQueueEventByEventId("B"))?.status).toBe("synced");
