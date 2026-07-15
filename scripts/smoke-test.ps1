@@ -152,19 +152,19 @@ function Test-DeadLetterQueue {
     }
     Remove-Job $job -Force -ErrorAction SilentlyContinue
 
-    if (-not ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain)")) {
+    if (-not ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain|json)")) {
         # Fallback acotado: escanear mensajes recientes
         Start-Sleep -Seconds $WaitSeconds
         $scan = docker exec fleet-redpanda sh -c "timeout 8s rpk topic consume telemetry.dead-letter --brokers localhost:9092 -n 50 -f '%v\n'" 2>&1 | Out-String
     }
 
-    if ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain)") {
+    if ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain|json)") {
         $results["DLQ validada"] = "OK"
-        Write-Host "DLQ validada: OK (reason=invalid_domain o invalid_payload)" -ForegroundColor Green
+        Write-Host "DLQ validada: OK (reason=invalid_domain, invalid_payload o invalid_json)" -ForegroundColor Green
         return $true
     }
 
-    Write-Host "DLQ validada: FAIL (no se encontró invalid_domain/invalid_payload para el marker)" -ForegroundColor Red
+    Write-Host "DLQ validada: FAIL (no se encontró invalid_domain/invalid_payload/invalid_json para el marker)" -ForegroundColor Red
     $previewLen = [Math]::Min(400, $scan.Length)
     if ($previewLen -gt 0) {
         Write-Host "Salida DLQ (recorte): $($scan.Substring(0, $previewLen))"
