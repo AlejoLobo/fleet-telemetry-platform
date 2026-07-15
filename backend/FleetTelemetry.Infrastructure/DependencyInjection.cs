@@ -127,6 +127,8 @@ public static class DependencyInjection
             services.AddScoped<IngestTelemetryEventUseCase>();
             services.AddScoped<IngestTelemetryBatchUseCase>();
             services.AddScoped<AcknowledgeAlertUseCase>();
+            services.AddScoped<RegisterDeviceUseCase>();
+            services.AddScoped<RenameDeviceUseCase>();
         }
         else
         {
