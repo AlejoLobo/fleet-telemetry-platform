@@ -63,7 +63,11 @@ function canStartRemoteSync(): SyncStatus | null {
   return null;
 }
 
-export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE): Promise<SyncResult> {
+export async function syncPendingQueue(
+  isOnline: boolean,
+  deviceId: string,
+  batchSize = BATCH_SIZE,
+): Promise<SyncResult> {
   if (!isOnline) {
     return {
       synced: 0,
@@ -72,6 +76,18 @@ export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE
       permanentFailures: 0,
       remaining: await countPendingEvents(),
       status: "offline",
+    };
+  }
+
+  const normalizedDeviceId = deviceId.trim();
+  if (!normalizedDeviceId) {
+    return {
+      synced: 0,
+      failed: 0,
+      retried: 0,
+      permanentFailures: 0,
+      remaining: await countPendingEvents(),
+      status: "configuration_error",
     };
   }
 
@@ -88,7 +104,7 @@ export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE
   }
 
   if (syncInFlight) return syncInFlight;
-  syncInFlight = runSync(batchSize).finally(() => {
+  syncInFlight = runSync(normalizedDeviceId, batchSize).finally(() => {
     syncInFlight = null;
   });
   return syncInFlight;
@@ -99,7 +115,7 @@ export function resetSyncCoordinatorForTests(): void {
   syncInFlight = null;
 }
 
-async function runSync(batchSize: number): Promise<SyncResult> {
+async function runSync(deviceId: string, batchSize: number): Promise<SyncResult> {
   const accumulator = emptyAccumulator();
   await purgeSyncedOlderThan(7);
 
@@ -108,12 +124,12 @@ async function runSync(batchSize: number): Promise<SyncResult> {
     if (!batch.length) break;
 
     if (batch.length === 1) {
-      const outcome = await syncSingleEvent(batch[0], accumulator);
+      const outcome = await syncSingleEvent(batch[0], accumulator, deviceId);
       if (outcome.stop) break;
       continue;
     }
 
-    const outcome = await syncBatch(batch, accumulator);
+    const outcome = await syncBatch(batch, accumulator, deviceId);
     if (outcome.stop) break;
   }
 
@@ -158,19 +174,23 @@ async function resolveUnvisitedSiblings(
   );
 }
 
-async function syncBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function syncBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   try {
-    await sendBatchEvents(batch.map(toPayload));
+    await sendBatchEvents(batch.map(toPayload), deviceId);
     await markEventsSynced(batch.map((item) => item.eventId));
     accumulator.synced += batch.length;
     return { stop: false };
   } catch (error) {
     const classification = classifySyncError(error);
     if (classification.action === "isolate_validation") {
-      return isolateValidationBatch(batch, accumulator);
+      return isolateValidationBatch(batch, accumulator, deviceId);
     }
     if (classification.action === "split_payload") {
-      return splitAndSendBatch(batch, accumulator);
+      return splitAndSendBatch(batch, accumulator, deviceId);
     }
     return handleGlobalBatchFailure(batch, classification, error, accumulator);
   }
@@ -187,7 +207,11 @@ async function markIndividualPayloadTooLarge(
   accumulator.failed += 1;
 }
 
-async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function splitAndSendBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   if (batch.length === 1) {
     await markIndividualPayloadTooLarge(batch[0].eventId, new Set(), accumulator);
     return { stop: false };
@@ -197,12 +221,12 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
   const firstHalf = batch.slice(0, midpoint);
   const secondHalf = batch.slice(midpoint);
 
-  const firstOutcome = await syncBatch(firstHalf, accumulator);
+  const firstOutcome = await syncBatch(firstHalf, accumulator, deviceId);
   if (firstOutcome.stop) {
     return resolveUnvisitedSiblings(secondHalf, firstOutcome, accumulator);
   }
 
-  const secondOutcome = await syncBatch(secondHalf, accumulator);
+  const secondOutcome = await syncBatch(secondHalf, accumulator, deviceId);
   if (secondOutcome.stop) {
     return secondOutcome;
   }
@@ -210,13 +234,17 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
   return { stop: false };
 }
 
-async function isolateValidationBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function isolateValidationBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   const resolvedIds = new Set<string>();
 
   for (let index = 0; index < batch.length; index += 1) {
     const item = batch[index];
     try {
-      await sendSingleEvent(toPayload(item));
+      await sendSingleEvent(toPayload(item), deviceId);
       await markEventsSynced([item.eventId]);
       resolvedIds.add(item.eventId);
       accumulator.synced += 1;
@@ -305,9 +333,13 @@ async function markTransientBatchRetry(
   return retryAt;
 }
 
-async function syncSingleEvent(item: QueuedTelemetryEvent, accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function syncSingleEvent(
+  item: QueuedTelemetryEvent,
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   try {
-    await sendSingleEvent(toPayload(item));
+    await sendSingleEvent(toPayload(item), deviceId);
     await markEventsSynced([item.eventId]);
     accumulator.synced += 1;
     return { stop: false };
@@ -320,7 +352,7 @@ async function syncSingleEvent(item: QueuedTelemetryEvent, accumulator: SyncAccu
       return { stop: false };
     }
     if (classification.action === "split_payload") {
-      return splitAndSendBatch([item], accumulator);
+      return splitAndSendBatch([item], accumulator, deviceId);
     }
     return handleGlobalBatchFailure([item], classification, error, accumulator);
   }
