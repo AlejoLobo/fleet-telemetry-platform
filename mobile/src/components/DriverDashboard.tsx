@@ -21,7 +21,7 @@ import {
   loadCaptureIntervalSeconds,
   saveCaptureIntervalSeconds,
 } from "@/services/capture-interval-store";
-import { loadOrCreateDeviceId } from "@/services/device-id-store";
+import { loadOrCreateDeviceId, DeviceIdentityStorageError } from "@/services/device-id-store";
 import { loadCachedVehicleName } from "@/services/device-profile-store";
 import { ensureDeviceRegistered, updateVehicleDisplayName } from "@/services/device-registry";
 
@@ -72,6 +72,7 @@ export function DriverDashboard() {
   const [intervalReady, setIntervalReady] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deviceIdReady, setDeviceIdReady] = useState(false);
+  const [identityError, setIdentityError] = useState<string | null>(null);
 
   const auth = useAuthSession();
   const {
@@ -97,20 +98,37 @@ export function DriverDashboard() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [loadedInterval, loadedDeviceId, cachedName] = await Promise.all([
-        loadCaptureIntervalSeconds(),
-        loadOrCreateDeviceId(),
-        loadCachedVehicleName(),
-      ]);
+      const loadedInterval = await loadCaptureIntervalSeconds();
       if (!cancelled) {
         setCaptureIntervalSeconds(loadedInterval);
         setIntervalReady(true);
+      }
+
+      try {
+        const [loadedDeviceId, cachedName] = await Promise.all([
+          loadOrCreateDeviceId(),
+          loadCachedVehicleName(),
+        ]);
+        if (cancelled) return;
         setDeviceId(loadedDeviceId);
         setDeviceIdReady(true);
+        setIdentityError(null);
         if (cachedName) {
           setVehicleName(cachedName);
           setVehicleNameDraft(cachedName);
         }
+      } catch (error) {
+        if (cancelled) return;
+        // Sin identidad persistente: no registrar ni sincronizar.
+        setDeviceId(null);
+        setDeviceIdReady(true);
+        const message =
+          error instanceof DeviceIdentityStorageError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "No se pudo cargar la identidad del dispositivo";
+        setIdentityError(message);
       }
     })();
     return () => {
@@ -120,7 +138,7 @@ export function DriverDashboard() {
 
   // Registro remoto cuando hay red y sync permitido; el backend asigna VH-###.
   useEffect(() => {
-    if (!deviceId || !auth.canSync || !isOnline) return;
+    if (!deviceId || identityError || !auth.canSync || !isOnline) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -139,7 +157,7 @@ export function DriverDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, auth.canSync, isOnline]);
+  }, [deviceId, identityError, auth.canSync, isOnline]);
 
   const handleCaptureIntervalChange = async (seconds: TelemetryCaptureIntervalSeconds) => {
     if (tracking || !intervalReady) return;
@@ -226,8 +244,13 @@ export function DriverDashboard() {
         <Text style={styles.section}>Identidad del dispositivo</Text>
         <Text style={styles.label}>DeviceId (inmutable)</Text>
         <Text style={styles.metaReadonly} selectable>
-          {deviceIdReady && deviceId ? deviceId : "Cargando…"}
+          {identityError
+            ? "Identidad no disponible"
+            : deviceIdReady && deviceId
+              ? deviceId
+              : "Cargando…"}
         </Text>
+        {identityError && <Text style={styles.error}>{identityError}</Text>}
         <Text style={styles.hint}>
           La identidad técnica no cambia al renombrar. El nombre visible lo asigna el backend.
         </Text>

@@ -29,8 +29,8 @@ export async function ensureDeviceRegistered(deviceId: string): Promise<DevicePr
 
   const promise = (async () => {
     const profile = await registerDevice(id);
+    // Una sola escritura de nombre; la caché no demuestra registro remoto.
     await markDeviceRegistered(profile.deviceId, profile.vehicleName);
-    await saveCachedVehicleName(profile.vehicleName);
     return profile;
   })();
 
@@ -53,7 +53,6 @@ export async function updateVehicleDisplayName(
   try {
     const profile = await renameDevice(id, vehicleName);
     await markDeviceRegistered(profile.deviceId, profile.vehicleName);
-    await saveCachedVehicleName(profile.vehicleName);
     return profile;
   } catch (error) {
     if (error instanceof TelemetryApiError && error.status === 404) {
@@ -61,7 +60,6 @@ export async function updateVehicleDisplayName(
       try {
         const profile = await renameDevice(id, vehicleName);
         await markDeviceRegistered(profile.deviceId, profile.vehicleName);
-        await saveCachedVehicleName(profile.vehicleName);
         return profile;
       } catch (retryError) {
         if (previousName) await saveCachedVehicleName(previousName);

@@ -11,7 +11,6 @@ jest.mock("@/services/device-api", () => ({
 
 jest.mock("@/services/device-profile-store", () => ({
   loadCachedVehicleName: () => mockLoadCachedVehicleName(),
-  loadRegisteredDeviceId: jest.fn(),
   markDeviceRegistered: (...args: unknown[]) => mockMarkDeviceRegistered(...args),
   saveCachedVehicleName: (...args: unknown[]) => mockSaveCachedVehicleName(...args),
 }));
@@ -41,7 +40,8 @@ describe("device-registry", () => {
     const profile = await ensureDeviceRegistered(DEVICE_ID);
     expect(mockRegisterDevice).toHaveBeenCalledWith(DEVICE_ID);
     expect(profile.vehicleName).toBe("VH-007");
-    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("VH-007");
+    expect(mockMarkDeviceRegistered).toHaveBeenCalledWith(DEVICE_ID, "VH-007");
+    expect(mockSaveCachedVehicleName).not.toHaveBeenCalled();
   });
 
   it("backend reiniciado: vuelve a registrar", async () => {
@@ -72,7 +72,8 @@ describe("device-registry", () => {
     mockLoadCachedVehicleName.mockResolvedValue("Nombre Viejo");
     mockRegisterDevice.mockResolvedValue({ deviceId: DEVICE_ID, vehicleName: "VH-042" });
     await ensureDeviceRegistered(DEVICE_ID);
-    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("VH-042");
+    expect(mockMarkDeviceRegistered).toHaveBeenCalledWith(DEVICE_ID, "VH-042");
+    expect(mockSaveCachedVehicleName).not.toHaveBeenCalled();
   });
 
   it("rename con 404 registra y reintenta una vez", async () => {
