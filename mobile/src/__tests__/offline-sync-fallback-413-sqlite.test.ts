@@ -98,7 +98,7 @@ describe("fallback 413 individual con SQLite real", () => {
       if (payload.eventId === "C") return;
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
 
     expect(result.status).toBe("completed");
     expect(result.permanentFailures).toBe(1);
@@ -119,7 +119,7 @@ describe("fallback 413 individual con SQLite real", () => {
       if (payload.eventId === "C") return;
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
 
     expect(result.status).toBe("completed");
     expect(result.permanentFailures).toBe(1);
@@ -139,7 +139,7 @@ describe("fallback 413 individual con SQLite real", () => {
       if (payload.eventId === "C") throw apiError(401, "auth_required");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
 
     expect(result.status).toBe("auth_required");
     expect((await getQueueEventByEventId("A"))?.status).toBe("synced");
@@ -157,7 +157,7 @@ describe("fallback 413 individual con SQLite real", () => {
       if (payload.eventId === "B") throw apiError(500, "transient");
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
 
     expect(result.status).toBe("deferred");
     expect((await getQueueEventByEventId("A"))?.status).toBe("permanent_failure");
@@ -175,7 +175,7 @@ describe("fallback 413 individual con SQLite real", () => {
       if (payload.eventId === "OK") return;
     });
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
 
     expect(result.permanentFailures).toBe(2);
     expect(result.synced).toBe(1);

@@ -97,7 +97,7 @@ describe("auth fail-closed y expiración", () => {
     mockFetch.mockRejectedValueOnce(Object.assign(new Error("Timeout"), { name: "AbortError" }));
     await initializeAuthSession();
     expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_status_error");
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
@@ -106,7 +106,7 @@ describe("auth fail-closed y expiración", () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
     await initializeAuthSession();
     expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_status_error");
   });
 
@@ -114,7 +114,7 @@ describe("auth fail-closed y expiración", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
     await initializeAuthSession();
     expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_status_error");
   });
 
@@ -122,7 +122,7 @@ describe("auth fail-closed y expiración", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: "false" }) });
     await initializeAuthSession();
     expect(getAuthRuntimeSnapshot().mode).toBe("unknown");
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_status_error");
   });
 
@@ -140,7 +140,7 @@ describe("auth fail-closed y expiración", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ enabled: true }) });
     await initializeAuthSession();
 
-    const result = await syncPendingQueue(true, "test-device-id-001");
+    const result = await syncPendingQueue(true, "aaaaaaaa-bbbb-4ccc-8ddd-000000000001");
     expect(result.status).toBe("auth_required");
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
