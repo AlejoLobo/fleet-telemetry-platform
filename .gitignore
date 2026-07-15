@@ -480,3 +480,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Tooling local de editores (no versionar)
+.cursorrules
+.cursor/
