@@ -86,7 +86,15 @@ if (rateLimitOptions.Enabled)
         };
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
+        {
+            var path = httpContext.Request.Path.Value ?? string.Empty;
+            // Healthchecks de Docker y probes no deben consumir cuota del monitor.
+            if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+            {
+                return RateLimitPartition.GetNoLimiter("health");
+            }
+
+            return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
@@ -94,7 +102,8 @@ if (rateLimitOptions.Enabled)
                     Window = TimeSpan.FromSeconds(rateLimitOptions.WindowSeconds),
                     QueueLimit = rateLimitOptions.QueueLimit,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst
-                }));
+                });
+        });
     });
 }
 

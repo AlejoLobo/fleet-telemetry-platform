@@ -156,23 +156,30 @@ export default function DashboardPage() {
     await refresh({ liveOnly: true });
   }, [dataSource, loadDemoData, refresh, resetLiveViewState]);
 
-  // Captura periódica de flota/telemetría al ritmo del monitor (sin spinner).
+  // Captura periódica: con SSE conectado solo recalcula frescura (el stream ya trae datos).
+  // Sin SSE (o en demo), hace refresh silencioso al ritmo elegido.
   useEffect(() => {
     if (dataSource !== "api" && dataSource !== "demo") return;
 
     const tick = async () => {
+      setConnectivityNowMs(Date.now());
+
+      if (dataSource === "demo") {
+        return;
+      }
+
+      // Con stream vivo no paginar toda la flota cada N segundos (provoca 429).
+      if (connectionState === "connected") {
+        return;
+      }
+
       if (silentRefreshInFlightRef.current) return;
       silentRefreshInFlightRef.current = true;
       try {
-        if (dataSource === "api") {
-          await refresh({
-            silent: true,
-            liveOnly: afterLiveRefresh,
-          });
-        } else {
-          await refresh({ silent: true });
-        }
-        setConnectivityNowMs(Date.now());
+        await refresh({
+          silent: true,
+          liveOnly: afterLiveRefresh,
+        });
       } catch {
         // El error queda en el estado del hook; no interrumpe el ciclo.
       } finally {
@@ -185,7 +192,7 @@ export default function DashboardPage() {
     }, liveRefreshSeconds * 1000);
 
     return () => window.clearInterval(timer);
-  }, [dataSource, liveRefreshSeconds, refresh, afterLiveRefresh]);
+  }, [dataSource, liveRefreshSeconds, refresh, afterLiveRefresh, connectionState]);
 
   useEffect(() => {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
