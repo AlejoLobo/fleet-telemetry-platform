@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
@@ -8,6 +9,7 @@ using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Domain.ValueObjects;
+using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -270,6 +272,141 @@ public class DeviceEndpointsIntegrationTests
         Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
     }
 
+    [Fact]
+    public async Task Jwt_device_token_can_register_matching_device()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa08");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateDeviceToken(factory, deviceId));
+
+        using var response = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_operator_login_token_cannot_register_device()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa09");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await LoginOperatorAsync(client, factory));
+
+        using var response = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_device_token_mismatched_register_returns_403()
+    {
+        var tokenDevice = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa10");
+        var payload = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb10");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateDeviceToken(factory, tokenDevice));
+
+        using var response = await PostRegisterAsync(client, payload, payload.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_device_manage_operator_can_rename_any_device()
+    {
+        var deviceA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa11");
+        var deviceB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb11");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+
+        await factory.Registry.RegisterDeviceAsync(deviceA);
+        await factory.Registry.RegisterDeviceAsync(deviceB);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateOperatorToken(factory, canManageDevices: true));
+
+        using var response = await client.PatchAsJsonAsync(
+            $"/api/devices/{deviceB}/name",
+            new RenameDeviceRequest("Camión Admin"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
+        Assert.Equal(deviceB, body!.DeviceId);
+        Assert.Equal("Camión Admin", body.VehicleName);
+    }
+
+    [Fact]
+    public async Task Jwt_device_manage_operator_cannot_publish_as_device()
+    {
+        // device:manage no otorga telemetry:write; coverado en TelemetryIngestAuthorization.
+        // Aquí: manager no puede registrar (solo rename vía DeviceRename + bypass).
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa12");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateOperatorToken(factory, canManageDevices: true));
+
+        using var response = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_device_token_can_rename_own_device()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa13");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        await factory.Registry.RegisterDeviceAsync(deviceId);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateDeviceToken(factory, deviceId));
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/devices/{deviceId}/name")
+        {
+            Content = JsonContent.Create(new RenameDeviceRequest("Unidad Propia"))
+        };
+        request.Headers.TryAddWithoutValidation("X-Device-Id", deviceId.ToString("D"));
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_operator_without_manage_cannot_rename()
+    {
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa14");
+        using var factory = CreateFactory(authEnabled: true);
+        using var client = factory.CreateClient();
+        await factory.Registry.RegisterDeviceAsync(deviceId);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateOperatorToken(factory, canManageDevices: false));
+
+        using var response = await client.PatchAsJsonAsync(
+            $"/api/devices/{deviceId}/name",
+            new RenameDeviceRequest("Intentado"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Jwt_auth_enabled_register_without_device_id_claim_returns_403()
+    {
+        // Claim bag con telemetry:write pero sin device_id → guard exige claim.
+        var deviceId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa15");
+        using var factory = CreateFactory(
+            authEnabled: true,
+            claims:
+            [
+                new Claim(ClaimTypes.Name, "device-missing-id"),
+                new Claim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.TelemetryWrite)
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await PostRegisterAsync(client, deviceId, deviceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private static DeviceApiWebApplicationFactory CreateFactory(
         bool authEnabled = false,
         Claim[]? claims = null) =>
@@ -278,6 +415,30 @@ public class DeviceEndpointsIntegrationTests
             AuthEnabled = authEnabled,
             TestClaims = claims,
         };
+
+    private static string CreateDeviceToken(DeviceApiWebApplicationFactory factory, Guid deviceId)
+    {
+        using var scope = factory.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<JwtTokenService>().GenerateDeviceToken(deviceId);
+    }
+
+    private static string CreateOperatorToken(DeviceApiWebApplicationFactory factory, bool canManageDevices)
+    {
+        using var scope = factory.Services.CreateScope();
+        return scope.ServiceProvider
+            .GetRequiredService<JwtTokenService>()
+            .GenerateOperatorToken(factory.DemoUsername, canManageDevices);
+    }
+
+    private static async Task<string> LoginOperatorAsync(HttpClient client, DeviceApiWebApplicationFactory factory)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(factory.DemoUsername, factory.DemoPassword));
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
+        return body!.Token;
+    }
 
     private static async Task<HttpResponseMessage> PostRegisterAsync(
         HttpClient client,
@@ -361,11 +522,18 @@ public sealed class DeviceApiWebApplicationFactory : WebApplicationFactory<Progr
     public InMemoryDeviceRegistry Registry { get; } = new();
     public bool AuthEnabled { get; init; }
     public Claim[]? TestClaims { get; init; }
+    public string DemoUsername => "admin";
+    public string DemoPassword => "admin123";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("Auth:Enabled", AuthEnabled.ToString());
+        builder.UseSetting("Auth:JwtSecret", "integration-test-secret-with-32-chars-min");
+        builder.UseSetting("Auth:JwtIssuer", "fleet-telemetry");
+        builder.UseSetting("Auth:JwtAudience", "fleet-clients");
+        builder.UseSetting("Auth:DemoUsername", DemoUsername);
+        builder.UseSetting("Auth:DemoPassword", DemoPassword);
         builder.UseSetting("TimescaleDb:ConnectionString", "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet");
         builder.UseSetting("Kafka:BootstrapServers", "localhost:19092");
         builder.UseSetting("RateLimiting:Enabled", "false");
@@ -374,6 +542,11 @@ public sealed class DeviceApiWebApplicationFactory : WebApplicationFactory<Progr
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Auth:Enabled"] = AuthEnabled.ToString(),
+                ["Auth:JwtSecret"] = "integration-test-secret-with-32-chars-min",
+                ["Auth:JwtIssuer"] = "fleet-telemetry",
+                ["Auth:JwtAudience"] = "fleet-clients",
+                ["Auth:DemoUsername"] = DemoUsername,
+                ["Auth:DemoPassword"] = DemoPassword,
                 ["TimescaleDb:ConnectionString"] = "Host=localhost;Port=5432;Database=fleet;Username=fleet;Password=fleet",
                 ["Kafka:BootstrapServers"] = "localhost:19092",
                 ["RateLimiting:Enabled"] = "false",

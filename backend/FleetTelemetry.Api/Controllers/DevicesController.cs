@@ -30,7 +30,11 @@ public sealed class DevicesController : ControllerBase
         [FromBody] RegisterDeviceRequest request,
         CancellationToken cancellationToken)
     {
-        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, request.DeviceId);
+        // Registro: solo token de dispositivo (telemetry:write + device_id coincidente).
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(
+            HttpContext,
+            request.DeviceId,
+            DeviceIdentityRequirement.RequireMatchingDeviceClaim);
         if (identityError is not null)
             return identityError;
 
@@ -46,13 +50,17 @@ public sealed class DevicesController : ControllerBase
     }
 
     [HttpPatch("{deviceId:guid}/name")]
-    [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.DeviceRename)]
     public async Task<IActionResult> Rename(
         Guid deviceId,
         [FromBody] RenameDeviceRequest request,
         CancellationToken cancellationToken)
     {
-        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, deviceId);
+        // Rename: device_id coincidente O operador con device:manage.
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(
+            HttpContext,
+            deviceId,
+            DeviceIdentityRequirement.AllowDeviceManageBypass);
         if (identityError is not null)
             return identityError;
 

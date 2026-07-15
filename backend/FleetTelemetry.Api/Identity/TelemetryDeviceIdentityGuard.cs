@@ -1,9 +1,20 @@
 using System.Security.Claims;
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Domain.ValueObjects;
+using FleetTelemetry.Infrastructure.Auth;
+using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Identity;
+
+public enum DeviceIdentityRequirement
+{
+    /// <summary>Ingesta/registro: con auth requiere claim device_id coincidente.</summary>
+    RequireMatchingDeviceClaim = 0,
+
+    /// <summary>Rename: claim coincidente O permiso device:manage.</summary>
+    AllowDeviceManageBypass = 1
+}
 
 /// <summary>
 /// Valida coherencia entre deviceId (payload/ruta), X-Device-Id y claim device_id.
@@ -12,7 +23,8 @@ public static class TelemetryDeviceIdentityGuard
 {
     public static IActionResult? ValidateOrError(
         HttpContext httpContext,
-        Guid payloadDeviceId)
+        Guid payloadDeviceId,
+        DeviceIdentityRequirement requirement = DeviceIdentityRequirement.RequireMatchingDeviceClaim)
     {
         if (payloadDeviceId == Guid.Empty)
             return new BadRequestObjectResult(new { error = "DeviceId is required." });
@@ -37,7 +49,16 @@ public static class TelemetryDeviceIdentityGuard
             }
         }
 
-        var deviceClaim = httpContext.User.FindFirstValue("device_id");
+        var authEnabled = IsAuthEnabled(httpContext);
+
+        // Operador con device:manage puede renombrar cualquier dispositivo (sin exigir device_id).
+        if (requirement == DeviceIdentityRequirement.AllowDeviceManageBypass
+            && HasPermission(httpContext.User, AuthorizationPermissions.DeviceManage))
+        {
+            return null;
+        }
+
+        var deviceClaim = httpContext.User.FindFirstValue(AuthorizationPermissions.DeviceIdClaimType);
         if (!string.IsNullOrWhiteSpace(deviceClaim))
         {
             if (!TryParseDeviceGuid(deviceClaim, out var claimId))
@@ -55,6 +76,17 @@ public static class TelemetryDeviceIdentityGuard
                     StatusCode = StatusCodes.Status403Forbidden
                 };
             }
+
+            return null;
+        }
+
+        // Con auth: telemetría/registro (y rename sin device:manage) exigen device_id en el JWT.
+        if (authEnabled)
+        {
+            return new ObjectResult(new { error = "Authenticated device_id claim is required." })
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            };
         }
 
         return null;
@@ -81,6 +113,15 @@ public static class TelemetryDeviceIdentityGuard
 
         return ValidateOrError(httpContext, first);
     }
+
+    private static bool IsAuthEnabled(HttpContext httpContext)
+    {
+        var configuration = httpContext.RequestServices.GetService<IConfiguration>();
+        return configuration?.GetSection(AuthOptions.SectionName).GetValue<bool>("Enabled") == true;
+    }
+
+    private static bool HasPermission(ClaimsPrincipal user, string permission) =>
+        user.HasClaim(AuthorizationPermissions.ClaimType, permission);
 
     private static bool TryNormalizeHeaderDeviceId(string raw, out string normalized)
     {
