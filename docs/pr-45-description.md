@@ -2,80 +2,42 @@
 
 Introduce `DeviceId` (UUID inmutable) como identidad técnica de flota, separada de `VehicleName` (nombre visible editable, `VH-###` asignado en backend).
 
-Esta actualización corrige defectos detectados en revisión y en ejecución real de la app móvil (migración SQLite `device_id`, carrera del coordinador de sync, sesión de otro dispositivo, selector web 5/10/15/20, Playwright en CI y restricción de enrolamiento demo).
+Incluye correcciones de revisión: migración SQLite v5 serializada (`readyDbPromise`), captura móvil fija 5 s sin selector, selector web 5/10/15/20 con persistencia normalizada, sync single-flight sin perder reentradas, Playwright en CI y enrolamiento demo restringido.
 
 ## Backend
 
-- Registro `fleet_devices` + asignación atómica de nombres
-- `POST /api/devices/register` y `PATCH /api/devices/{deviceId}/name`
-- Pipeline Kafka/telemetría/consultas usan `DeviceId`
-- Migración PostgreSQL/Timescale **v7**: columnas `device_id` UUID + backfill documentado
-- Seguridad: claims `device_id` / `telemetry:write` / `device:manage`
-- **`POST /api/auth/device-token`**: enrolamiento MVP demo (credenciales + DeviceId → JWT)
-  - Requiere `Auth:AllowDemoDeviceEnrollment=true`
-  - **Prohibido en Production** (endpoint 403 + fallo de arranque si el flag está en true)
-- Login operador: permisos de lectura/ops **sin** `telemetry:write`
-- Login administrador opcional: incluye `device:manage`, **sin** publicar telemetría
+- Registro `fleet_devices` + pipeline Kafka/telemetría por `DeviceId`
+- Migración PostgreSQL/Timescale **v7** (`device_id` UUID + backfill)
+- `POST /api/auth/device-token`: enrolamiento **MVP demo**
+  - Development/Demo: requiere `Auth:AllowDemoDeviceEnrollment=true`
+  - Production: **prohibido** (403 + fallo de arranque si el flag está en true)
+  - No es attestation; en producción hace falta enrolamiento firmado / mTLS / secreto individual
 
 ## Mobile
 
-- Identidad estable + cola SQLite (**schema v5**)
-- **Migración real e idempotente** de `device_id`: `PRAGMA table_info` + `ALTER TABLE … ADD COLUMN device_id TEXT` + backfill; no depende solo de `schema_meta`
-- Enrolamiento con token de dispositivo; `canSync` exige `sessionKind=device`, `telemetry:write` y `device_id` coincidente
-- Si el JWT es de otro DeviceId: se invalida la sesión, se elimina el token y se muestra el formulario de enrolamiento (la cola SQLite se conserva)
-- Captura fija **cada 5 segundos** (sin selector de frecuencia; texto informativo: “Captura automática cada 5 segundos.”)
-- Sync desacoplada de la captura; **single-flight** con re-chequeo tras `await` (`ActiveSync` por DeviceId + `rerunRequested`)
-- Fallos de sync reportan `status: failed` (no `completed`)
+- Cola SQLite **schema v5**; apertura + migración **una sola vez** por proceso
+- Migración real: `PRAGMA table_info` + `ALTER TABLE … ADD COLUMN device_id TEXT`
+- Captura fija **cada 5 segundos**; sin selector de frecuencia
+- Sync single-flight con generaciones (`requestedGeneration` / `processedGeneration`)
+- `validateSessionForLocalDevice` invalida JWT de otro DeviceId (conserva cola)
 
 ## Web / SSE
 
-- Dashboard por `deviceId` + `vehicleName`
-- Selector de actualización visual **solo**: 5 / 10 / 15 / 20 s (default **5**)
-- Valores legados (`realtime`, `30`, `60`) migran a **5**
-- Buffer SSE + flush por intervalo; alertas, errores, conexión y **Actualizar** son inmediatos
-- KPI alineados con el snapshot visual (`displayGlobalAnalytics`)
-- Restauración segura de preferencia post-hidratación (sin mismatch SSR)
+- Selector visual **solo** 5 / 10 / 15 / 20 s (default **5**)
+- Valores legados se normalizan y **se reescriben** en `localStorage` como `"5"`
+- Buffer SSE + flush; alertas y **Actualizar** inmediatos
 
 ## CI
 
-- Job **Web E2E Playwright**: `npm ci` → `build` → Chromium → `npm run test:e2e` (webServer `next start` en CI)
+- Job **Web E2E Playwright** (build + Chromium + `next start`)
 
-## Pruebas
+## Limitaciones
 
-- Mobile: typecheck + test:ci (migración legacy SQLite, timing real 0/5/10/15/20 s, coordinador A/B/C, sesión mismatch)
-- Web: lint + typecheck + test:ci + build + Playwright (opciones, persistencia, teclado, migración legado)
-- Backend Application.Tests: DeviceToken + ConfigurationValidator (demo enrollment)
-
-## Limitaciones conscientes
-
-- Enrolamiento demo **no** es attestation; solo Development/Demo con flag explícito
-- Flota truncada: totales globales conservan Ops backend; alertas abiertas se recalculan del snapshot visible
-- `expo-doctor`: posible patch mismatch menor de Expo
-
-## Validación sugerida
-
-```bash
-cd mobile && npm ci && npm run typecheck && npm run test:ci
-cd web && npm ci && npm run lint && npm run typecheck && npm run test:ci && npm run build && npm run test:e2e
-dotnet test backend/FleetTelemetry.Application.Tests --configuration Release
-```
+- Enrolamiento demo no es seguridad productiva
+- Pruebas SQLite legacy en Jest son simulación de `PRAGMA`; validación nativa Android documentada en `docs/mobile-sqlite-migration.md`
 
 ## Base del PR
 
-`feature/device-identity` → **`develop`** (recomendado; evita arrastrar el histórico de `main`).
-
-Estado del token CI de este entorno: **solo lectura** sobre Pull Requests (`pull_requests=read`). Por eso `gh pr edit` / `PATCH /pulls/45` fallan con `403 Resource not accessible by integration`.
-
-Aplicar desde una cuenta con escritura:
-
-```bash
-gh pr edit 45 --base develop --title "feat: identidad DeviceId + correcciones móvil/web (SQLite, sync, tasas 5-20)" --body-file docs/pr-45-description.md
-# o
-gh api --method PATCH repos/AlejoLobo/fleet-telemetry-platform/pulls/45 \
-  -f base=develop \
-  -f title='feat: identidad DeviceId + correcciones móvil/web (SQLite, sync, tasas 5-20)' \
-  -f body="$(cat docs/pr-45-description.md)"
-gh pr view 45 --json baseRefName,title,body
-```
+`feature/device-identity` → **`develop`**
 
 No se realizó merge ni fusión de ramas.
