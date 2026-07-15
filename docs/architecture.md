@@ -52,7 +52,8 @@ sequenceDiagram
 - **Expiración de conectividad:** `FleetConnectivityExpiryHostedService` en el Worker publica `offline` sin telemetría nueva.
 - **Resiliencia:** circuit breaker + retry en Kafka produce, DB (solo transitorios vía `DatabaseTransientFailureClassifier`) y OpenAI. Estado en `GET /health`.
 - **Read model de flota:** `fleet_vehicle_state` (1 fila/vehículo), actualizado en la misma transacción del Worker con UPSERT protegido ante eventos fuera de orden. Consultas `GET /api/fleet` paginadas por cursor sobre esta tabla (no `DISTINCT ON` global).
-- **Historial paginado:** `GET /api/telemetry/{vehicleId}` usa keyset (`Timestamp DESC`, `EventId DESC`) con límite superior estable en el cursor.
+- **Historial paginado:** `GET /api/telemetry/{deviceId}` usa keyset (`Timestamp DESC`, `EventId DESC`) con límite superior estable en el cursor.
+- **Identidad:** `DeviceId` (UUID) es la clave técnica (Kafka, partición, historial). `VehicleName` es display editable en `fleet_devices` (`VH-###` asignado al registrar).
 
 ## Alertas (Worker)
 
@@ -64,7 +65,7 @@ sequenceDiagram
 
 ### Estado activo y cooldown (FT-006)
 
-La tabla `fleet_alert_states` mantiene una fila por `(VehicleId, AlertType)` y representa las condiciones del **último evento aceptado** por `fleet_vehicle_state` (mismo criterio de orden: `Timestamp` más reciente; empate → `EventId` mayor).
+La tabla `fleet_alert_states` mantiene una fila por `(DeviceId, AlertType)` y representa las condiciones del **último evento aceptado** por `fleet_vehicle_state` (mismo criterio de orden: `Timestamp` más reciente; empate → `EventId` mayor).
 
 | Campo | Rol |
 |-------|-----|
@@ -89,7 +90,7 @@ Política (`Alerting:CooldownSeconds`, default 300):
 7. Tras recuperación, nueva `Breached` dentro del cooldown → reactiva sin emitir (anti-oscilación).
 8. Reconocer una alerta no cierra la condición activa.
 
-Orden en la misma transacción: `processed_events` → `telemetry_events` → UPSERT `fleet_vehicle_state` → solo si hubo filas afectadas: `SELECT … FOR UPDATE` de estados, evaluación, UPSERT `fleet_alert_states` e insert de alertas emitidas. Si el evento queda fuera de orden, se conservan historial/idempotencia y no se publican vehicle-update ni alertas. Concurrencia: `pg_advisory_xact_lock(hashtext(VehicleId))`.
+Orden en la misma transacción: `processed_events` → `telemetry_events` → UPSERT `fleet_vehicle_state` → solo si hubo filas afectadas: `SELECT … FOR UPDATE` de estados, evaluación, UPSERT `fleet_alert_states` e insert de alertas emitidas. Si el evento queda fuera de orden, se conservan historial/idempotencia y no se publican vehicle-update ni alertas. Concurrencia: `pg_advisory_xact_lock` por `DeviceId`.
 
 ## Tópicos Kafka
 

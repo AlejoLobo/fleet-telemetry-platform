@@ -35,7 +35,7 @@ Activar con `Kafka:UseEventEnvelope = true`.
   "occurredAt": "2026-07-12T08:30:00Z",
   "payload": {
     "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    "vehicleId": "VH-001",
+    "deviceId": "11111111-1111-1111-1111-111111111111",
     "driverId": "DRV-001",
     "timestamp": "2026-07-12T08:30:00Z",
     "latitude": 4.6533,
