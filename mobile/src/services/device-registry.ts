@@ -4,12 +4,11 @@ import {
   type DeviceProfile,
 } from "@/services/device-api";
 import {
-  loadCachedVehicleName,
   loadCachedVehicleType,
   loadLocalDeviceProfile,
   markDeviceRegistered,
-  saveCachedVehicleName,
-  saveCachedVehicleType,
+  restoreLocalDeviceProfile,
+  type LocalDeviceProfile,
 } from "@/services/device-profile-store";
 import { TelemetryApiError } from "@/services/telemetry-api";
 import {
@@ -60,7 +59,32 @@ export async function ensureDeviceRegistered(
   }
 }
 
-/** Actualiza nombre y tipo visibles; DeviceId permanece inmutable. */
+async function executeUpdateWithRegistrationFallback(
+  deviceId: string,
+  profile: { vehicleName: string; vehicleType: VehicleType },
+): Promise<DeviceProfile> {
+  try {
+    return await updateDeviceProfile(deviceId, {
+      vehicleName: profile.vehicleName,
+      vehicleType: profile.vehicleType,
+    });
+  } catch (error) {
+    if (!(error instanceof TelemetryApiError) || error.status !== 404) {
+      throw error;
+    }
+
+    await ensureDeviceRegistered(deviceId, profile.vehicleType);
+    return updateDeviceProfile(deviceId, {
+      vehicleName: profile.vehicleName,
+      vehicleType: profile.vehicleType,
+    });
+  }
+}
+
+/**
+ * Actualiza nombre y tipo visibles de forma atómica respecto a SecureStore.
+ * DeviceId permanece inmutable. Ante cualquier fallo se restaura el perfil previo.
+ */
 export async function updateVehicleProfile(
   deviceId: string,
   profile: { vehicleName: string; vehicleType: VehicleType },
@@ -69,33 +93,19 @@ export async function updateVehicleProfile(
   const previous = await loadLocalDeviceProfile();
 
   try {
-    const remote = await updateDeviceProfile(id, {
-      vehicleName: profile.vehicleName,
-      vehicleType: profile.vehicleType,
-    });
+    const remote = await executeUpdateWithRegistrationFallback(id, profile);
     await markDeviceRegistered(remote.deviceId, remote.vehicleName, remote.vehicleType);
     return remote;
   } catch (error) {
-    if (error instanceof TelemetryApiError && error.status === 404) {
-      await ensureDeviceRegistered(id, profile.vehicleType);
-      try {
-        const remote = await updateDeviceProfile(id, {
-          vehicleName: profile.vehicleName,
-          vehicleType: profile.vehicleType,
-        });
-        await markDeviceRegistered(remote.deviceId, remote.vehicleName, remote.vehicleType);
-        return remote;
-      } catch (retryError) {
-        await restorePreviousProfile(previous);
-        throw retryError;
-      }
+    try {
+      await restoreLocalDeviceProfile(previous);
+    } catch (restoreError) {
+      // Conserva el error original; el secundario no debe ocultarlo.
+      console.warn(
+        "[device-registry] Falló la restauración del perfil local tras error remoto",
+        restoreError instanceof Error ? restoreError.message : "restore failed",
+      );
     }
-
-    if (error instanceof TelemetryApiError && (error.status === 409 || error.status === 400)) {
-      await restorePreviousProfile(previous);
-      throw error;
-    }
-
     throw error;
   }
 }
@@ -112,12 +122,11 @@ export async function updateVehicleDisplayName(
   });
 }
 
-async function restorePreviousProfile(previous: {
-  vehicleName: string | null;
-  vehicleType: VehicleType;
-}): Promise<void> {
-  if (previous.vehicleName) await saveCachedVehicleName(previous.vehicleName);
-  await saveCachedVehicleType(previous.vehicleType);
+/** @internal Expuesto para pruebas de restauración. */
+export async function restorePreviousProfileForTests(
+  previous: LocalDeviceProfile,
+): Promise<void> {
+  await restoreLocalDeviceProfile(previous);
 }
 
 /** Solo pruebas: limpia promesas en vuelo. */

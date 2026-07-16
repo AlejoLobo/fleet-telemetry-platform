@@ -4,8 +4,7 @@ const mockLoadCachedVehicleName = jest.fn();
 const mockLoadCachedVehicleType = jest.fn();
 const mockLoadLocalDeviceProfile = jest.fn();
 const mockMarkDeviceRegistered = jest.fn();
-const mockSaveCachedVehicleName = jest.fn();
-const mockSaveCachedVehicleType = jest.fn();
+const mockRestoreLocalDeviceProfile = jest.fn();
 
 jest.mock("@/services/device-api", () => ({
   registerDevice: (...args: unknown[]) => mockRegisterDevice(...args),
@@ -17,8 +16,7 @@ jest.mock("@/services/device-profile-store", () => ({
   loadCachedVehicleType: () => mockLoadCachedVehicleType(),
   loadLocalDeviceProfile: () => mockLoadLocalDeviceProfile(),
   markDeviceRegistered: (...args: unknown[]) => mockMarkDeviceRegistered(...args),
-  saveCachedVehicleName: (...args: unknown[]) => mockSaveCachedVehicleName(...args),
-  saveCachedVehicleType: (...args: unknown[]) => mockSaveCachedVehicleType(...args),
+  restoreLocalDeviceProfile: (...args: unknown[]) => mockRestoreLocalDeviceProfile(...args),
 }));
 
 import { TelemetryApiError } from "@/services/telemetry-api";
@@ -49,8 +47,7 @@ describe("device-registry", () => {
       vehicleType: "van",
     });
     mockMarkDeviceRegistered.mockResolvedValue(undefined);
-    mockSaveCachedVehicleName.mockResolvedValue(undefined);
-    mockSaveCachedVehicleType.mockResolvedValue(undefined);
+    mockRestoreLocalDeviceProfile.mockResolvedValue(undefined);
   });
 
   it("caché existente y servidor disponible: confirma registro", async () => {
@@ -59,7 +56,6 @@ describe("device-registry", () => {
     expect(mockRegisterDevice).toHaveBeenCalledWith(DEVICE_ID, "car");
     expect(profile.vehicleName).toBe("VH-007");
     expect(mockMarkDeviceRegistered).toHaveBeenCalledWith(DEVICE_ID, "VH-007", "car");
-    expect(mockSaveCachedVehicleName).not.toHaveBeenCalled();
   });
 
   it("perfil antiguo sin tipo usa car", async () => {
@@ -129,25 +125,82 @@ describe("device-registry", () => {
 
     expect(profile.deviceId).toBe(DEVICE_ID);
     expect(profile.vehicleType).toBe("pickup");
+    expect(mockRestoreLocalDeviceProfile).not.toHaveBeenCalled();
   });
 
-  it("error HTTP conserva perfil anterior", async () => {
+  it.each([
+    [0, "network"],
+    [408, "timeout"],
+    [401, "auth"],
+    [403, "forbidden"],
+    [429, "rate"],
+    [500, "server"],
+  ])("error HTTP %s restaura perfil anterior", async (status, category) => {
     mockLoadLocalDeviceProfile.mockResolvedValue({
       vehicleName: "Nombre Original",
       vehicleType: "motorcycle",
     });
-    mockUpdateDeviceProfile.mockRejectedValue(new TelemetryApiError(400, "protocol", "bad type"));
+    mockUpdateDeviceProfile.mockRejectedValue(
+      new TelemetryApiError(status, category as "network", "boom"),
+    );
 
     await expect(
       updateVehicleProfile(DEVICE_ID, { vehicleName: "Nuevo", vehicleType: "truck" }),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({ status });
 
-    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("Nombre Original");
-    expect(mockSaveCachedVehicleType).toHaveBeenCalledWith("motorcycle");
+    expect(mockRestoreLocalDeviceProfile).toHaveBeenCalledWith({
+      vehicleName: "Nombre Original",
+      vehicleType: "motorcycle",
+    });
+    expect(mockMarkDeviceRegistered).not.toHaveBeenCalled();
+  });
+
+  it("segundo PATCH después de 404 falla y restaura", async () => {
+    mockLoadLocalDeviceProfile.mockResolvedValue({
+      vehicleName: "Anterior",
+      vehicleType: "car",
+    });
+    mockUpdateDeviceProfile
+      .mockRejectedValueOnce(new TelemetryApiError(404, "protocol", "not found"))
+      .mockRejectedValueOnce(new TelemetryApiError(500, "protocol", "server"));
+
+    await expect(
+      updateVehicleProfile(DEVICE_ID, { vehicleName: "Nuevo", vehicleType: "van" }),
+    ).rejects.toMatchObject({ status: 500 });
+
+    expect(mockRegisterDevice).toHaveBeenCalledTimes(1);
+    expect(mockRestoreLocalDeviceProfile).toHaveBeenCalledWith({
+      vehicleName: "Anterior",
+      vehicleType: "car",
+    });
+  });
+
+  it("éxito guarda ambos valores sin restaurar", async () => {
+    mockLoadLocalDeviceProfile.mockResolvedValue({
+      vehicleName: "Viejo",
+      vehicleType: "car",
+    });
+    mockUpdateDeviceProfile.mockResolvedValue({
+      deviceId: DEVICE_ID,
+      vehicleName: "Nuevo",
+      vehicleType: "bus",
+    });
+
+    const profile = await updateVehicleProfile(DEVICE_ID, {
+      vehicleName: "Nuevo",
+      vehicleType: "bus",
+    });
+
+    expect(profile).toEqual({
+      deviceId: DEVICE_ID,
+      vehicleName: "Nuevo",
+      vehicleType: "bus",
+    });
+    expect(mockMarkDeviceRegistered).toHaveBeenCalledWith(DEVICE_ID, "Nuevo", "bus");
+    expect(mockRestoreLocalDeviceProfile).not.toHaveBeenCalled();
   });
 
   it("rename con 404 registra y reintenta una vez", async () => {
-    mockLoadCachedVehicleName.mockResolvedValue("Anterior");
     mockLoadCachedVehicleType.mockResolvedValue("car");
     mockLoadLocalDeviceProfile.mockResolvedValue({
       vehicleName: "Anterior",
@@ -169,7 +222,7 @@ describe("device-registry", () => {
     expect(profile.deviceId).toBe(DEVICE_ID);
   });
 
-  it("409 no modifica el nombre local", async () => {
+  it("409 restaura el nombre local", async () => {
     mockLoadLocalDeviceProfile.mockResolvedValue({
       vehicleName: "Nombre Original",
       vehicleType: "car",
@@ -179,6 +232,9 @@ describe("device-registry", () => {
     await expect(updateVehicleDisplayName(DEVICE_ID, "Duplicado")).rejects.toMatchObject({
       status: 409,
     });
-    expect(mockSaveCachedVehicleName).toHaveBeenCalledWith("Nombre Original");
+    expect(mockRestoreLocalDeviceProfile).toHaveBeenCalledWith({
+      vehicleName: "Nombre Original",
+      vehicleType: "car",
+    });
   });
 });
