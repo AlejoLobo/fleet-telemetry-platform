@@ -18,6 +18,20 @@ describe("sse parser canonical contract", () => {
     const vehicle = parseVehicleUpdatePayload(payload);
     expect(vehicle?.deviceId).toBe("00000000-0000-4000-8000-000000000001");
     expect(vehicle?.lastSpeedKmh).toBe(45);
+    expect(vehicle?.vehicleType).toBe("car");
+  });
+
+  it("parsea_vehicleType_desde_payload", () => {
+    const payload = JSON.stringify({
+      deviceId: "00000000-0000-4000-8000-000000000001",
+      vehicleType: "TRUCK",
+      status: "online",
+      lastSeenAt: "2026-07-10T10:00:00Z",
+    });
+
+    const vehicle = parseVehicleUpdatePayload(payload);
+    expect(vehicle?.vehicleType).toBe("truck");
+    expect(vehicle?.vehicleTypeFromPayload).toBe(true);
   });
 
   it("parsea_fleet_update_array_legacy", () => {

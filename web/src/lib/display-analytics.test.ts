@@ -11,6 +11,7 @@ function vehicle(id: string, status: "online" | "offline"): VehicleStatus {
   return {
     deviceId: id,
     vehicleName: `VH-${id.slice(-3)}`,
+    vehicleType: "car",
     status,
     lastSeenAt: "2026-07-15T12:00:00Z",
     lastSpeedKmh: 40,

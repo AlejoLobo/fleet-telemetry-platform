@@ -20,6 +20,12 @@ test.describe("Dashboard demo", () => {
     await page.goto("/");
     await expect(page.getByText("Centro de control operativo")).toBeVisible();
   });
+
+  test("demo incluye motocicleta VH-005", async ({ page }) => {
+    await prepareDemo(page);
+    await expect(page.getByText("VH-005")).toBeVisible();
+    await expect(page.getByLabel("Tipo de vehículo: Motocicleta")).toBeVisible();
+  });
 });
 
 test.describe("Selector de actualización 5/10/15/20", () => {
@@ -77,6 +83,7 @@ test.describe("Selector de actualización 5/10/15/20", () => {
       window.__FLEET_E2E__!.emitVehicleUpdate({
         deviceId,
         vehicleName: "Vehículo E2E",
+        vehicleType: "car",
         status: "online",
         lastSeenAt: "2099-01-01T00:00:00Z",
         lastSpeedKmh: 137,
@@ -104,6 +111,7 @@ test.describe("Selector de actualización 5/10/15/20", () => {
       window.__FLEET_E2E__!.emitVehicleUpdate({
         deviceId,
         vehicleName: "Vehículo E2E",
+        vehicleType: "car",
         status: "online",
         lastSeenAt: "2099-01-01T00:00:01Z",
         lastSpeedKmh: 141,

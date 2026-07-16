@@ -149,8 +149,8 @@ describe("useSseStream FT-001", () => {
 
   it("SSE_merge_real_no_reemplaza_snapshot_completo", async () => {
     const baseFleet: VehicleStatus[] = [
-      { deviceId: "00000000-0000-4000-8000-000000000001", vehicleName: "00000000-0000-4000-8000-000000000001", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 10, lastLatitude: 1, lastLongitude: 1 },
-      { deviceId: "00000000-0000-4000-8000-000000000002", vehicleName: "00000000-0000-4000-8000-000000000002", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
+      { deviceId: "00000000-0000-4000-8000-000000000001", vehicleName: "00000000-0000-4000-8000-000000000001", vehicleType: "car", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 10, lastLatitude: 1, lastLongitude: 1 },
+      { deviceId: "00000000-0000-4000-8000-000000000002", vehicleName: "00000000-0000-4000-8000-000000000002", vehicleType: "car", status: "online", lastSeenAt: "2026-07-10T09:00:00Z", lastSpeedKmh: 20, lastLatitude: 2, lastLongitude: 2 },
     ];
 
     let patches: VehicleStatus[] = [];
