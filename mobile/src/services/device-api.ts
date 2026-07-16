@@ -5,12 +5,18 @@ import {
   sanitizeErrorText,
   TelemetryApiError,
 } from "@/services/telemetry-api";
+import {
+  DEFAULT_VEHICLE_TYPE,
+  normalizeVehicleType,
+  type VehicleType,
+} from "@/types/vehicle";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export type DeviceProfile = {
   deviceId: string;
   vehicleName: string;
+  vehicleType: VehicleType;
 };
 
 function assertDeviceId(deviceId: string): string {
@@ -31,7 +37,8 @@ function parseDeviceResponse(raw: unknown): DeviceProfile {
   if (!deviceId || !vehicleName) {
     throw new TelemetryApiError(0, "protocol", "Respuesta de dispositivo incompleta");
   }
-  return { deviceId, vehicleName };
+  const vehicleType = normalizeVehicleType(record.vehicleType);
+  return { deviceId, vehicleName, vehicleType };
 }
 
 async function requestJson(
@@ -81,12 +88,39 @@ async function requestJson(
 }
 
 /** Registra el dispositivo; el backend asigna VehicleName automático (idempotente). */
-export async function registerDevice(deviceId: string): Promise<DeviceProfile> {
+export async function registerDevice(
+  deviceId: string,
+  vehicleType: VehicleType = DEFAULT_VEHICLE_TYPE,
+): Promise<DeviceProfile> {
   const id = assertDeviceId(deviceId);
-  return requestJson("POST", "/api/devices/register", { deviceId: id }, id);
+  const type = normalizeVehicleType(vehicleType);
+  return requestJson("POST", "/api/devices/register", { deviceId: id, vehicleType: type }, id);
 }
 
-/** Renombra el vehículo sin cambiar DeviceId ni partición Kafka. */
+/** Actualiza nombre y/o tipo sin cambiar DeviceId. */
+export async function updateDeviceProfile(
+  deviceId: string,
+  profile: { vehicleName?: string; vehicleType?: VehicleType },
+): Promise<DeviceProfile> {
+  const id = assertDeviceId(deviceId);
+  const body: Record<string, string> = {};
+  if (profile.vehicleName != null) {
+    const name = profile.vehicleName.trim();
+    if (!name) {
+      throw new TelemetryApiError(400, "validation", "vehicleName vacío");
+    }
+    body.vehicleName = name;
+  }
+  if (profile.vehicleType != null) {
+    body.vehicleType = normalizeVehicleType(profile.vehicleType);
+  }
+  if (Object.keys(body).length === 0) {
+    throw new TelemetryApiError(400, "validation", "Perfil vacío");
+  }
+  return requestJson("PATCH", `/api/devices/${encodeURIComponent(id)}/profile`, body, id);
+}
+
+/** Renombra el vehículo sin cambiar DeviceId ni partición Kafka (compatibilidad). */
 export async function renameDevice(deviceId: string, vehicleName: string): Promise<DeviceProfile> {
   const id = assertDeviceId(deviceId);
   const name = vehicleName.trim();

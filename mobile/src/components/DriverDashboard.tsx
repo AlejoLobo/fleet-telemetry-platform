@@ -13,8 +13,14 @@ import { getDefaultDriverId } from "@/config/env";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useDriverTelemetry } from "@/hooks/use-driver-telemetry";
 import { loadOrCreateDeviceId, DeviceIdentityStorageError } from "@/services/device-id-store";
-import { loadCachedVehicleName } from "@/services/device-profile-store";
-import { ensureDeviceRegistered, updateVehicleDisplayName } from "@/services/device-registry";
+import { loadCachedVehicleName, loadCachedVehicleType } from "@/services/device-profile-store";
+import { ensureDeviceRegistered, updateVehicleProfile } from "@/services/device-registry";
+import {
+  DEFAULT_VEHICLE_TYPE,
+  VEHICLE_TYPES,
+  vehicleTypeLabel,
+  type VehicleType,
+} from "@/types/vehicle";
 
 const AUTH_STATUS_LABELS: Record<string, string> = {
   checking: "Comprobando autenticación...",
@@ -40,11 +46,14 @@ export function DriverDashboard() {
   const [driverId, setDriverId] = useState(getDefaultDriverId());
   const [vehicleName, setVehicleName] = useState("");
   const [vehicleNameDraft, setVehicleNameDraft] = useState("");
+  const [vehicleType, setVehicleType] = useState<VehicleType>(DEFAULT_VEHICLE_TYPE);
+  const [vehicleTypeDraft, setVehicleTypeDraft] = useState<VehicleType>(DEFAULT_VEHICLE_TYPE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deviceIdReady, setDeviceIdReady] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
@@ -74,14 +83,17 @@ export function DriverDashboard() {
     let cancelled = false;
     void (async () => {
       try {
-        const [loadedDeviceId, cachedName] = await Promise.all([
+        const [loadedDeviceId, cachedName, cachedType] = await Promise.all([
           loadOrCreateDeviceId(),
           loadCachedVehicleName(),
+          loadCachedVehicleType(),
         ]);
         if (cancelled) return;
         setDeviceId(loadedDeviceId);
         setDeviceIdReady(true);
         setIdentityError(null);
+        setVehicleType(cachedType);
+        setVehicleTypeDraft(cachedType);
         if (cachedName) {
           setVehicleName(cachedName);
           setVehicleNameDraft(cachedName);
@@ -116,11 +128,14 @@ export function DriverDashboard() {
     let cancelled = false;
     void (async () => {
       try {
-        const profile = await ensureDeviceRegistered(deviceId);
+        const profile = await ensureDeviceRegistered(deviceId, vehicleType);
         if (!cancelled) {
           setVehicleName(profile.vehicleName);
           setVehicleNameDraft((prev) => (prev.trim() ? prev : profile.vehicleName));
+          setVehicleType(profile.vehicleType);
+          setVehicleTypeDraft(profile.vehicleType);
           setNameError(null);
+          setProfileError(null);
         }
       } catch (e) {
         if (!cancelled) {
@@ -131,7 +146,7 @@ export function DriverDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, identityError, canSync, isOnline]);
+  }, [deviceId, identityError, canSync, isOnline, vehicleType]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -159,16 +174,22 @@ export function DriverDashboard() {
     }
   };
 
-  const handleSaveVehicleName = async () => {
+  const handleSaveProfile = async () => {
     if (!deviceId) return;
+    setProfileError(null);
     setNameError(null);
     setBusy(true);
     try {
-      const profile = await updateVehicleDisplayName(deviceId, vehicleNameDraft);
+      const profile = await updateVehicleProfile(deviceId, {
+        vehicleName: vehicleNameDraft,
+        vehicleType: vehicleTypeDraft,
+      });
       setVehicleName(profile.vehicleName);
       setVehicleNameDraft(profile.vehicleName);
+      setVehicleType(profile.vehicleType);
+      setVehicleTypeDraft(profile.vehicleType);
     } catch (e) {
-      setNameError(e instanceof Error ? e.message : "No se pudo renombrar");
+      setProfileError(e instanceof Error ? e.message : "No se pudo guardar el perfil");
     } finally {
       setBusy(false);
     }
@@ -182,7 +203,9 @@ export function DriverDashboard() {
     deviceId,
   });
   const nameDirty = vehicleNameDraft.trim() !== vehicleName.trim();
-  const canEditName = Boolean(deviceId) && canSync && isOnline && !tracking;
+  const typeDirty = vehicleTypeDraft !== vehicleType;
+  const profileDirty = nameDirty || typeDirty;
+  const canEditProfile = Boolean(deviceId) && canSync && isOnline && !tracking;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -240,14 +263,46 @@ export function DriverDashboard() {
           value={vehicleNameDraft}
           onChangeText={setVehicleNameDraft}
           placeholder={vehicleName || "Se asigna al registrar"}
-          editable={canEditName && !busy}
+          editable={canEditProfile && !busy}
         />
+        <Text style={styles.label}>Tipo de vehículo</Text>
+        <View style={styles.typeGrid}>
+          {VEHICLE_TYPES.map((type) => {
+            const selected = vehicleTypeDraft === type;
+            return (
+              <Pressable
+                key={type}
+                accessibilityRole="button"
+                accessibilityState={{ selected, disabled: !canEditProfile || busy }}
+                accessibilityLabel={`Tipo de vehículo: ${vehicleTypeLabel(type)}`}
+                disabled={!canEditProfile || busy}
+                onPress={() => setVehicleTypeDraft(type)}
+                style={[
+                  styles.typeChip,
+                  selected && styles.typeChipSelected,
+                  (!canEditProfile || busy) && styles.typeChipDisabled,
+                ]}
+              >
+                <Text style={[styles.typeChipText, selected && styles.typeChipTextSelected]}>
+                  {vehicleTypeLabel(type)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.hint}>
+          Tipo actual: {vehicleTypeLabel(vehicleType)}. El código enviado es canónico ({vehicleTypeDraft}).
+        </Text>
         <Button
-          title="Guardar nombre"
-          onPress={() => void handleSaveVehicleName()}
-          disabled={busy || !canEditName || !nameDirty || vehicleNameDraft.trim().length < 2}
+          title="Guardar perfil"
+          onPress={() => void handleSaveProfile()}
+          disabled={
+            busy || !canEditProfile || !profileDirty || vehicleNameDraft.trim().length < 2
+          }
         />
-        {nameError && <Text style={styles.error}>{nameError}</Text>}
+        {(profileError || nameError) && (
+          <Text style={styles.error}>{profileError || nameError}</Text>
+        )}
         <Text style={styles.label}>Conductor</Text>
         <TextInput
           style={styles.input}
@@ -380,6 +435,19 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
   loader: { marginTop: 4 },
   section: { fontSize: 15, fontWeight: "700", color: "#0f172a" },
+  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  typeChip: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#f8fafc",
+  },
+  typeChipSelected: { borderColor: "#2563eb", backgroundColor: "#dbeafe" },
+  typeChipDisabled: { opacity: 0.5 },
+  typeChipText: { fontSize: 12, fontWeight: "600", color: "#334155" },
+  typeChipTextSelected: { color: "#1d4ed8" },
   meta: { fontSize: 13, color: "#475569" },
   warn: { fontSize: 13, color: "#92400e", backgroundColor: "#fef3c7", padding: 8, borderRadius: 8 },
   error: { color: "#b91c1c", backgroundColor: "#fee2e2", padding: 12, borderRadius: 8, fontSize: 13 },
