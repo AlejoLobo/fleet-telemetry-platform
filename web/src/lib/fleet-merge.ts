@@ -54,8 +54,29 @@ function compareVehicleRecency(left: VehicleStatus, right: VehicleStatus): numbe
   return leftEval - rightEval;
 }
 
-function pickNewerVehicle(current: VehicleStatus, incoming: VehicleStatus): VehicleStatus {
-  return compareVehicleRecency(incoming, current) >= 0 ? incoming : current;
+/** Fusiona identidad del vehículo conservando telemetría del registro más reciente. */
+function mergeVehicleIdentity(
+  base: VehicleStatus,
+  patch: VehicleStatus,
+  newer: VehicleStatus,
+): VehicleStatus {
+  const patchName = patch.vehicleName?.trim() ?? "";
+  const vehicleName = patchName.length > 0 ? patch.vehicleName : base.vehicleName;
+  const vehicleType = patch.vehicleTypeFromPayload === true ? patch.vehicleType : base.vehicleType;
+
+  const { vehicleTypeFromPayload: _dropPatchFlag, ...newerFields } = newer;
+
+  return {
+    ...newerFields,
+    deviceId: base.deviceId,
+    vehicleName,
+    vehicleType,
+  };
+}
+
+function pickNewerVehicle(base: VehicleStatus, patch: VehicleStatus): VehicleStatus {
+  const newer = compareVehicleRecency(patch, base) >= 0 ? patch : base;
+  return mergeVehicleIdentity(base, patch, newer);
 }
 
 /** Fusiona actualizaciones por DeviceId conservando el registro más reciente. */
@@ -114,4 +135,5 @@ export {
   parseStatusEvaluatedAt,
   compareEventId,
   pickNewerVehicle,
+  mergeVehicleIdentity,
 };

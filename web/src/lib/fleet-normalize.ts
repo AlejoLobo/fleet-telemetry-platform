@@ -1,11 +1,14 @@
 /** Normaliza respuestas del backend al formato del frontend. */
 import type { FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
+import { normalizeVehicleType } from "@/lib/vehicle-types";
 
 type RawVehicle = Partial<VehicleStatus> & {
   deviceId?: string;
   vehicleName?: string;
   vehicleId?: string;
   name?: string;
+  vehicleType?: string;
+  VehicleType?: string;
   DeviceId?: string;
   VehicleId?: string;
   VehicleName?: string;
@@ -50,6 +53,14 @@ type RawAlert = Partial<FleetAlert> & {
   IsAcknowledged?: boolean;
 };
 
+function rawHadVehicleType(vehicle: RawVehicle): boolean {
+  return vehicle.vehicleType !== undefined || vehicle.VehicleType !== undefined;
+}
+
+function rawVehicleTypeValue(vehicle: RawVehicle): unknown {
+  return vehicle.vehicleType ?? vehicle.VehicleType;
+}
+
 /** Normaliza un vehículo del API (PascalCase → camelCase). */
 export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   const deviceId =
@@ -64,10 +75,13 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
     vehicle.name ??
     vehicle.Name ??
     "";
+  const hadType = rawHadVehicleType(vehicle);
 
   return {
     deviceId,
     vehicleName,
+    vehicleType: normalizeVehicleType(rawVehicleTypeValue(vehicle)),
+    ...(hadType ? { vehicleTypeFromPayload: true } : {}),
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,
     lastEventId: vehicle.lastEventId ?? vehicle.LastEventId ?? null,
@@ -81,6 +95,9 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
       vehicle.lastLocationSource ?? vehicle.LastLocationSource ?? null,
   };
 }
+
+/** Alias explícito para normalización de estado de vehículo. */
+export const normalizeVehicleStatus = normalizeVehicle;
 
 export function normalizeVehicles(vehicles: RawVehicle[]): VehicleStatus[] {
   return vehicles.map(normalizeVehicle);

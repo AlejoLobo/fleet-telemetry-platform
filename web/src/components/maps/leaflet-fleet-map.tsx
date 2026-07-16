@@ -6,9 +6,9 @@ import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { VehicleStatus } from "@/types/fleet";
 import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-config";
-import { createCarMarkerIcon } from "@/lib/vehicle-car-marker";
+import { createVehicleMarkerIcon } from "@/lib/vehicle-marker";
 import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
-import { etiquetaEstadoVehiculo, formatVehicleDisplayName } from "@/lib/labels";
+import { etiquetaEstadoVehiculo } from "@/lib/labels";
 import "leaflet/dist/leaflet.css";
 
 export type MapFocusTarget = {
@@ -117,27 +117,22 @@ export function LeafletFleetMap({
         <FitBounds vehicles={snappedVehicles} enabled={autoFit} />
         <FocusVehicle focusTarget={focusTarget} vehicles={snappedVehicles} />
         {positioned.map((vehicle) => {
-          const displayName = formatVehicleDisplayName(vehicle);
+          const lat = vehicle.lastLatitude!;
+          const lng = vehicle.lastLongitude!;
           return (
             <Marker
               key={vehicle.deviceId}
-              position={[vehicle.lastLatitude!, vehicle.lastLongitude!]}
-              icon={createCarMarkerIcon(vehicle, vehicle.deviceId === selectedDeviceId)}
+              position={[lat, lng]}
+              icon={createVehicleMarkerIcon(vehicle, vehicle.deviceId === selectedDeviceId)}
             >
               <Popup>
-                <strong>{displayName}</strong>
-                {vehicle.vehicleName && vehicle.vehicleName !== displayName && (
-                  <>
-                    <br />
-                    <span className="text-slate-600">{vehicle.vehicleName}</span>
-                  </>
-                )}
+                <strong>
+                  {vehicle.vehicleName} ({etiquetaEstadoVehiculo(vehicle.status)})
+                </strong>
                 <br />
-                <span className="text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</span>
+                ID del dispositivo: {vehicle.deviceId}
                 <br />
-                <span className="text-xs text-slate-400">
-                  {vehicle.lastLatitude?.toFixed(5)}, {vehicle.lastLongitude?.toFixed(5)}
-                </span>
+                Coordenadas: {lat.toFixed(5)}, {lng.toFixed(5)}
               </Popup>
             </Marker>
           );

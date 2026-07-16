@@ -5,23 +5,13 @@ import {
   pruneVehiclePatches,
 } from "@/lib/fleet-merge";
 import type { VehicleStatus } from "@/types/fleet";
-import { TEST_DEVICE_1, TEST_DEVICE_2, TEST_DEVICE_3, testDeviceId } from "@/test/device-fixtures";
+import { TEST_DEVICE_1, TEST_DEVICE_2, TEST_DEVICE_3, testDeviceId, testVehicle } from "@/test/device-fixtures";
 
 function vehicle(
   id: string,
   overrides: Partial<VehicleStatus> = {},
 ): VehicleStatus {
-  const index = Number.parseInt(id.slice(-3), 10) || 1;
-  return {
-    deviceId: id,
-    vehicleName: overrides.vehicleName ?? `VH-${String(index).padStart(3, "0")}`,
-    status: "online",
-    lastSeenAt: "2026-07-10T10:00:00Z",
-    lastSpeedKmh: 40,
-    lastLatitude: 4.6,
-    lastLongitude: -74.0,
-    ...overrides,
-  };
+  return testVehicle(id, overrides);
 }
 
 describe("mergeVehicleUpdates", () => {
@@ -204,6 +194,63 @@ describe("mergeVehicleUpdates", () => {
 
     expect(forward.find((v) => v.deviceId === "00000000-0000-4000-8000-000000000001")?.status).toBe("offline");
     expect(reverse.find((v) => v.deviceId === "00000000-0000-4000-8000-000000000001")?.status).toBe("offline");
+  });
+
+  it("Parche_velocidad_conserva_vehicleType_sin_payload", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      vehicleType: "truck",
+      vehicleName: "VH-001",
+    })];
+    const speedPatch = [vehicle("00000000-0000-4000-8000-000000000001", {
+      lastSeenAt: "2026-07-10T10:05:00Z",
+      lastSpeedKmh: 99,
+      vehicleType: "car",
+      vehicleTypeFromPayload: false,
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, speedPatch);
+    expect(merged[0]?.vehicleType).toBe("truck");
+    expect(merged[0]?.lastSpeedKmh).toBe(99);
+  });
+
+  it("Parche_con_vehicleTypeFromPayload_actualiza_tipo", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      vehicleType: "car",
+    })];
+    const typePatch = [vehicle("00000000-0000-4000-8000-000000000001", {
+      lastSeenAt: "2026-07-10T10:05:00Z",
+      vehicleType: "motorcycle",
+      vehicleTypeFromPayload: true,
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, typePatch);
+    expect(merged[0]?.vehicleType).toBe("motorcycle");
+  });
+
+  it("Parche_sin_nombre_conserva_vehicleName_base", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      vehicleName: "VH-001",
+    })];
+    const patch = [vehicle("00000000-0000-4000-8000-000000000001", {
+      lastSeenAt: "2026-07-10T10:05:00Z",
+      vehicleName: "  ",
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, patch);
+    expect(merged[0]?.vehicleName).toBe("VH-001");
+  });
+
+  it("deviceId_permanece_estable_al_fusionar", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      deviceId: "00000000-0000-4000-8000-000000000001",
+    })];
+    const patch = [vehicle("00000000-0000-4000-8000-000000000001", {
+      lastSeenAt: "2026-07-10T10:05:00Z",
+      deviceId: "00000000-0000-4000-8000-000000000099",
+    })];
+
+    const merged = mergeVehicleUpdates(snapshot, patch);
+    expect(merged[0]?.deviceId).toBe("00000000-0000-4000-8000-000000000001");
   });
 
   it("Carrera_snapshot_iniciado_antes_de_expiracion_no_regresa_online", () => {
