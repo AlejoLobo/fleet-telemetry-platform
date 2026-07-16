@@ -48,8 +48,17 @@ Ambos modos comparten normalización, iconos de mapa, popup y panel «Estado de 
 ## Presentación unificada
 
 - Label del marcador: solo `vehicleName` (escapado HTML).
-- Popup: `Nombre (Estado)` + ID del dispositivo + coordenadas (5 decimales).
-- Estado de flota: nombre+estado, UUID completo, velocidad/`—` vs `0 km/h`, coordenadas.
+- Tooltip (popup del mapa): 
+  - Línea 1: `Nombre` + badge de estado (En línea verde / Desconectado gris)
+  - Línea 2: ID del dispositivo (UUID)
+  - Línea 3: Nombre del conductor (o `—`)
+  - Línea 4: `velocidad  hora_ultimo_reporte  tipo_de_vehiculo`
+  - Línea 5: `Coordenadas` (5 decimales)
+- Estado de flota (card por vehículo):
+  - Línea 1: `Nombre` + badge de estado (En línea verde / Desconectado gris)
+  - Línea 2: ID del dispositivo (UUID)
+  - Línea 3: `velocidad  hora_ultimo_reporte  tipo_de_vehículo`
+  - Nota: las coordenadas NO se muestran en la card (solo en tooltip).
 
 ## Tiempo real (SSE)
 
