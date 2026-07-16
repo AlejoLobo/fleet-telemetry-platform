@@ -1,13 +1,15 @@
 import type { VehicleStatus } from "@/types/fleet";
+import { pickNewerVehicle } from "@/lib/fleet-merge";
 
-/** Conserva solo la actualización más reciente por DeviceId. */
+/** Conserva la actualización más reciente por DeviceId con merge de identidad. */
 export function bufferPendingVehicleUpdates(
   pending: Map<string, VehicleStatus>,
   updates: readonly VehicleStatus[],
 ): void {
   for (const update of updates) {
     if (!update.deviceId) continue;
-    pending.set(update.deviceId, update);
+    const existing = pending.get(update.deviceId);
+    pending.set(update.deviceId, existing ? pickNewerVehicle(existing, update) : update);
   }
 }
 

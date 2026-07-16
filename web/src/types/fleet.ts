@@ -1,9 +1,15 @@
 /** Tipos de datos del dominio de telemetría de flotas. */
 
+/** Tipo de vehículo reconocido por el backend y la UI. */
+export type VehicleType = "car" | "motorcycle" | "van" | "truck" | "bus" | "pickup";
+
 /** Estado actual de un vehículo en la flota. */
 export type VehicleStatus = {
   deviceId: string;
   vehicleName: string;
+  vehicleType: VehicleType;
+  /** Indica si vehicleType provino del payload (SSE/API); usado al fusionar parches parciales. */
+  vehicleTypeFromPayload?: boolean;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;
