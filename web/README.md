@@ -41,7 +41,15 @@ Abre http://localhost:3000
 ## Modos de datos
 
 - **Tiempo real** — consume la API y SSE del backend.
-- **Demo** — genera vehículos aleatorios en el cliente (sin backend).
+- **Demo** — genera vehículos en el cliente (sin backend) con la **misma** estructura `VehicleStatus` (`VH-001`… + `vehicleType` explícito).
+
+Ambos modos comparten normalización, iconos de mapa, popup y panel «Estado de flota». Un patch SSE sin `vehicleType` conserva el tipo del snapshot.
+
+## Presentación unificada
+
+- Label del marcador: solo `vehicleName` (escapado HTML).
+- Popup: `Nombre (Estado)` + ID del dispositivo + coordenadas (5 decimales).
+- Estado de flota: nombre+estado, UUID completo, velocidad/`—` vs `0 km/h`, coordenadas.
 
 ## Tiempo real (SSE)
 
@@ -54,7 +62,7 @@ Abre http://localhost:3000
 
 ## Funcionalidades
 
-- Mapa de flota con iconos y ajuste a calles (OSRM)
+- Mapa de flota con iconos por tipo de vehículo y ajuste a calles (OSRM)
 - KPIs, alertas, telemetría y chat con agente IA
 - Confirmación de alertas (modo API)
 

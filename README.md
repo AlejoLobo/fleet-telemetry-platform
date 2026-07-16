@@ -65,7 +65,7 @@ Los productores (app móvil Expo u otros clientes HTTP) envían telemetría a la
 | Mensajería | Kafka vía Redpanda local | Topic `telemetry.raw`, key `DeviceId` |
 | Procesamiento | Worker .NET | At-least-once, mismo offset hasta resultado terminal |
 | Persistencia | TimescaleDB hypertable | Idempotencia por `EventId` (`processed_events`) |
-| Identidad | `DeviceId` UUID + `VehicleName` | Nombre editable; renombrar no cambia partición ni historial |
+| Identidad | `DeviceId` UUID + `VehicleName` + `VehicleType` | Nombre y tipo editables; renombrar/cambiar tipo no cambia partición ni historial |
 | Alertas | Evaluador + cooldown | Deduplicación de condiciones activas |
 | Tiempo real | SSE KafkaPush | `Last-Event-ID`, replay, `stream-reset`, resync |
 | Dashboard | Next.js 15 + React 19 | Modo API y mock; Vitest en CI |
@@ -223,6 +223,7 @@ erDiagram
   FLEET_DEVICES {
     uuid DeviceId PK
     text VehicleName UK
+    text vehicle_type
   }
   TELEMETRY_EVENTS {
     uuid EventId PK
@@ -367,8 +368,9 @@ Procedimiento completo de sustentación: [`docs/demo-sustentacion.md`](docs/demo
 | `GET` | `/api/ops/summary` | Resumen operativo |
 | `POST` | `/api/telemetry` | Ingesta → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Ingesta batch |
-| `POST` | `/api/devices/register` | Registro DeviceId; asigna `vehicleName` |
-| `PATCH` | `/api/devices/{deviceId}/name` | Renombrar sin cambiar identidad |
+| `POST` | `/api/devices/register` | Registro DeviceId; asigna `vehicleName`; `vehicleType` opcional (default `car`) |
+| `PATCH` | `/api/devices/{deviceId}/profile` | Actualiza nombre y/o tipo |
+| `PATCH` | `/api/devices/{deviceId}/name` | Renombrar (compatibilidad) |
 | `GET` | `/api/fleet` | Estado de flota (cursor) |
 | `GET` | `/api/alerts` | Alertas abiertas |
 | `GET` | `/api/events/stream` | SSE |

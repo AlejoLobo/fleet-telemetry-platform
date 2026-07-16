@@ -11,8 +11,9 @@
 | `GET` | `/api/ops/summary` | Si Auth on | Resumen operativo |
 | `POST` | `/api/telemetry` | Si Auth on | Ingesta un evento → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Si Auth on | Lote (sync mobile) |
-| `POST` | `/api/devices/register` | Si Auth on | Registra DeviceId; asigna `vehicleName` (`VH-###`) |
-| `PATCH` | `/api/devices/{deviceId}/name` | Si Auth on | Renombra sin cambiar identidad |
+| `POST` | `/api/devices/register` | Si Auth on | Registra DeviceId; asigna `vehicleName` (`VH-###`); `vehicleType` opcional (default `car`). Si ya existe, devuelve el perfil actual sin modificar el tipo |
+| `PATCH` | `/api/devices/{deviceId}/profile` | Si Auth on | Actualiza parcialmente `vehicleName` y/o `vehicleType` |
+| `PATCH` | `/api/devices/{deviceId}/name` | Si Auth on | Compatibilidad: renombra sin cambiar identidad (delega en perfil) |
 | `GET` | `/api/telemetry/{deviceId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
 | `GET` | `/api/fleet` | No | Flota paginada (`?pageSize=&cursor=&liveOnly=&excludeSimulated=`) |
 | `GET` | `/api/fleet/{deviceId}` | No | Estado de un vehículo |
@@ -95,7 +96,15 @@ Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y pu
 curl -X POST http://localhost:5000/api/devices/register \
   -H "Content-Type: application/json" \
   -d '{"deviceId":"11111111-1111-1111-1111-111111111111"}'
-# → { "deviceId": "...", "vehicleName": "VH-001" }
+# → { "deviceId": "...", "vehicleName": "VH-001", "vehicleType": "car" }
+
+curl -X POST http://localhost:5000/api/devices/register \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"11111111-1111-1111-1111-111111111111","vehicleType":"motorcycle"}'
+
+curl -X PATCH http://localhost:5000/api/devices/11111111-1111-1111-1111-111111111111/profile \
+  -H 'Content-Type: application/json' \
+  -d '{"vehicleType":"truck"}'
 
 curl -X PATCH http://localhost:5000/api/devices/11111111-1111-1111-1111-111111111111/name \
   -H "Content-Type: application/json" \
@@ -114,7 +123,8 @@ curl "http://localhost:5000/api/telemetry/11111111-1111-1111-1111-111111111111?f
 #### Paginación por cursor
 
 - `GET /api/fleet` devuelve `CursorPage<VehicleLatestStatusResponse>`: `{ items, nextCursor, hasMore }`.
-- Cada ítem incluye `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
+- Cada ítem incluye `vehicleType`, `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
+- `vehicleType` proviene de `fleet_devices` (nunca null; legacy → `car`).
 - Orden estable: `DeviceId` ascendente. `pageSize` default 100, máximo 500.
 - `liveOnly`: filtra en SQL `LastTimestamp >= now - OnlineThresholdMinutes`.
 - `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).

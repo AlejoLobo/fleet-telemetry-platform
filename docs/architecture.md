@@ -53,7 +53,7 @@ sequenceDiagram
 - **Resiliencia:** circuit breaker + retry en Kafka produce, DB (solo transitorios vía `DatabaseTransientFailureClassifier`) y OpenAI. Estado en `GET /health`.
 - **Read model de flota:** `fleet_vehicle_state` (1 fila/vehículo), actualizado en la misma transacción del Worker con UPSERT protegido ante eventos fuera de orden. Consultas `GET /api/fleet` paginadas por cursor sobre esta tabla (no `DISTINCT ON` global).
 - **Historial paginado:** `GET /api/telemetry/{deviceId}` usa keyset (`Timestamp DESC`, `EventId DESC`) con límite superior estable en el cursor.
-- **Identidad:** `DeviceId` (UUID) es la clave técnica (Kafka, partición, historial). `VehicleName` es display editable en `fleet_devices` (`VH-###` asignado al registrar).
+- **Identidad:** `DeviceId` (UUID) es la clave técnica (Kafka, partición, historial). `VehicleName` es display editable en `fleet_devices` (`VH-###` asignado al registrar). `VehicleType` es atributo de catálogo cerrado (`car`…`pickup`, default `car`) separado del nombre.
 
 ## Alertas (Worker)
 
