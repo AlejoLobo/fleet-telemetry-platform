@@ -191,6 +191,7 @@ public class CursorValidationTests
                 return new VehicleLatestStatusResponse(
                     deviceId,
                     deviceId.ToString("D"),
+                    "car",
                     "online",
                     DateTimeOffset.UtcNow,
                     10,

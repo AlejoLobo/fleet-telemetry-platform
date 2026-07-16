@@ -159,10 +159,12 @@ public sealed class FleetConnectivityExpiryService : IFleetConnectivityExpirySer
     {
         var device = await _deviceRegistry.GetDeviceAsync(state.DeviceId, cancellationToken);
         var vehicleName = device?.VehicleName ?? state.DeviceId.ToString("D");
+        var vehicleType = device?.VehicleType ?? Domain.ValueObjects.VehicleType.Default.Value;
 
         return new(
             state.DeviceId,
             vehicleName,
+            vehicleType,
             VehicleConnectivityStatus.Offline,
             state.LastTimestamp,
             state.SpeedKmh,

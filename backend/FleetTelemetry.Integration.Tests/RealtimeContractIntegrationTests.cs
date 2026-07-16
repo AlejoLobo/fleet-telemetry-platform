@@ -15,6 +15,7 @@ public class RealtimeContractIntegrationTests
         var payload = new VehicleLatestStatusResponse(
             deviceId,
             deviceId.ToString("D"),
+            "car",
             "online",
             DateTimeOffset.Parse("2026-07-10T10:00:00Z"),
             55,

@@ -83,7 +83,7 @@ public class AiToolRouterTests
         var tools = new AiOperationalTools(
             new TestHelpers.FakeFleetQueryService(
             [
-                new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "Vehículo 1", "online", DateTimeOffset.UtcNow, 0, 4.65, -74.08, 90)
+                new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "Vehículo 1", "car", "online", DateTimeOffset.UtcNow, 0, 4.65, -74.08, 90)
             ]),
             new FakeOperationalQueryService(),
             new FakeAlertRepository(),
