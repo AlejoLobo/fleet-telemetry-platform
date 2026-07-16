@@ -177,6 +177,40 @@ describe("FleetStatusPanel vehicle row format", () => {
     expect(screen.getByText("VH-001")).toBeTruthy();
     expect(screen.getByText("00000000-0000-4000-8000-000000000001")).toBeTruthy();
     expect(screen.getByLabelText("Tipo de vehículo: Van")).toBeTruthy();
+    expect(screen.getByText("Automóvil")).toBeTruthy();
+    expect(screen.getByText("Van")).toBeTruthy();
+  });
+
+  it("muestra iconos Lucide distintos por tipo en Demo", () => {
+    const vehicles: VehicleStatus[] = [
+      {
+        deviceId: "00000000-0000-4000-8000-000000000005",
+        vehicleName: "VH-005",
+        vehicleType: "motorcycle",
+        status: "online",
+        lastSeenAt: "2026-07-10T10:00:00Z",
+        lastSpeedKmh: 30,
+        lastLatitude: 4.6,
+        lastLongitude: -74.0,
+      },
+      {
+        deviceId: "00000000-0000-4000-8000-000000000001",
+        vehicleName: "VH-001",
+        vehicleType: "truck",
+        status: "online",
+        lastSeenAt: "2026-07-10T10:00:00Z",
+        lastSpeedKmh: 40,
+        lastLatitude: 4.61,
+        lastLongitude: -74.01,
+      },
+    ];
+
+    render(<FleetStatusPanel vehicles={vehicles} />);
+
+    expect(screen.getByLabelText("Tipo de vehículo: Motocicleta")).toBeTruthy();
+    expect(screen.getByLabelText("Tipo de vehículo: Camión")).toBeTruthy();
+    expect(screen.getByText("Motocicleta")).toBeTruthy();
+    expect(screen.getByText("Camión")).toBeTruthy();
   });
 });
 
