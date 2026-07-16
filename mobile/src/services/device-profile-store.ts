@@ -1,8 +1,19 @@
 import * as SecureStore from "expo-secure-store";
+import {
+  DEFAULT_VEHICLE_TYPE,
+  normalizeVehicleType,
+  type VehicleType,
+} from "@/types/vehicle";
 
 const VEHICLE_NAME_KEY = "fleet.device.vehicleName";
+const VEHICLE_TYPE_KEY = "fleet.profile.vehicleType";
 /** Clave obsoleta: no probar registro remoto con caché local. */
 const LEGACY_REGISTERED_DEVICE_KEY = "fleet.device.registeredId";
+
+export type LocalDeviceProfile = {
+  vehicleName: string | null;
+  vehicleType: VehicleType;
+};
 
 /** Nombre de visualización cacheado; no es identidad técnica ni prueba de registro. */
 export async function loadCachedVehicleName(): Promise<string | null> {
@@ -25,12 +36,44 @@ export async function saveCachedVehicleName(vehicleName: string): Promise<void> 
   }
 }
 
+export async function loadCachedVehicleType(): Promise<VehicleType> {
+  try {
+    const value = await SecureStore.getItemAsync(VEHICLE_TYPE_KEY);
+    if (value == null || value.trim() === "") return DEFAULT_VEHICLE_TYPE;
+    return normalizeVehicleType(value);
+  } catch {
+    return DEFAULT_VEHICLE_TYPE;
+  }
+}
+
+export async function saveCachedVehicleType(vehicleType: VehicleType): Promise<void> {
+  const normalized = normalizeVehicleType(vehicleType);
+  try {
+    await SecureStore.setItemAsync(VEHICLE_TYPE_KEY, normalized);
+  } catch {
+    // Best-effort.
+  }
+}
+
+export async function loadLocalDeviceProfile(): Promise<LocalDeviceProfile> {
+  const [vehicleName, vehicleType] = await Promise.all([
+    loadCachedVehicleName(),
+    loadCachedVehicleType(),
+  ]);
+  return { vehicleName, vehicleType };
+}
+
 /**
- * Tras registro/rename remoto exitoso: guarda solo el nombre visible en caché.
+ * Tras registro/perfil remoto exitoso: guarda nombre y tipo visibles en caché.
  * No escribe DeviceId como “prueba” de registro (el servidor es la fuente de verdad).
  */
-export async function markDeviceRegistered(_deviceId: string, vehicleName: string): Promise<void> {
+export async function markDeviceRegistered(
+  _deviceId: string,
+  vehicleName: string,
+  vehicleType: VehicleType = DEFAULT_VEHICLE_TYPE,
+): Promise<void> {
   await saveCachedVehicleName(vehicleName);
+  await saveCachedVehicleType(normalizeVehicleType(vehicleType));
   try {
     await SecureStore.deleteItemAsync(LEGACY_REGISTERED_DEVICE_KEY);
   } catch {
@@ -41,6 +84,11 @@ export async function markDeviceRegistered(_deviceId: string, vehicleName: strin
 export async function clearDeviceProfileForTests(): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(VEHICLE_NAME_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    await SecureStore.deleteItemAsync(VEHICLE_TYPE_KEY);
   } catch {
     // ignore
   }

@@ -46,7 +46,7 @@ import {
 jest.mock("@/services/device-registry", () => ({
   ensureDeviceRegistered: jest.fn(async (deviceId: string) => ({
     deviceId,
-    vehicleName: "VH-001",
+    vehicleName: "VH-001", vehicleType: "car",
   })),
   updateVehicleDisplayName: jest.fn(),
 }));
