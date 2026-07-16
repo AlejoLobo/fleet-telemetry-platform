@@ -43,6 +43,24 @@ public class DeviceEndpointsIntegrationTests
         Assert.NotNull(body);
         Assert.Equal(deviceId, body!.DeviceId);
         Assert.Equal("VH-001", body.VehicleName);
+        Assert.Equal("car", body.VehicleType);
+    }
+
+    [Fact]
+    public async Task Register_with_motorcycle_persists_type()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/devices/register",
+            new RegisterDeviceRequest(deviceId, "motorcycle"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
+        Assert.Equal("motorcycle", body!.VehicleType);
+        Assert.Equal(deviceId, body.DeviceId);
     }
 
     [Fact]
@@ -63,7 +81,42 @@ public class DeviceEndpointsIntegrationTests
         var b = await second.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
         Assert.Equal(a!.DeviceId, b!.DeviceId);
         Assert.Equal(a.VehicleName, b.VehicleName);
+        Assert.Equal(a.VehicleType, b.VehicleType);
         Assert.Equal(1, factory.Registry.Count);
+    }
+
+    [Fact]
+    public async Task Register_idempotent_does_not_overwrite_type()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2");
+
+        using var first = await client.PostAsJsonAsync(
+            "/api/devices/register",
+            new RegisterDeviceRequest(deviceId, "truck"));
+        using var second = await client.PostAsJsonAsync(
+            "/api/devices/register",
+            new RegisterDeviceRequest(deviceId, "motorcycle"));
+
+        var a = await first.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
+        var b = await second.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
+        Assert.Equal("truck", a!.VehicleType);
+        Assert.Equal("truck", b!.VehicleType);
+    }
+
+    [Fact]
+    public async Task Register_invalid_type_returns_400()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/devices/register",
+            new RegisterDeviceRequest(deviceId, "boat"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -103,6 +156,41 @@ public class DeviceEndpointsIntegrationTests
         var body = await response.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
         Assert.Equal(deviceId, body!.DeviceId);
         Assert.Equal("Camión Pereira", body.VehicleName);
+        Assert.Equal("car", body.VehicleType);
+    }
+
+    [Fact]
+    public async Task Update_profile_changes_type_without_changing_device_id()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("d4d4d4d4-d4d4-d4d4-d4d4-d4d4d4d4d4d4");
+
+        await client.PostAsJsonAsync("/api/devices/register", new RegisterDeviceRequest(deviceId, "car"));
+        using var response = await client.PatchAsJsonAsync(
+            $"/api/devices/{deviceId}/profile",
+            new UpdateDeviceProfileRequest(VehicleType: "pickup"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DeviceResponse>(JsonOptions);
+        Assert.Equal(deviceId, body!.DeviceId);
+        Assert.Equal("pickup", body.VehicleType);
+        Assert.StartsWith("VH-", body.VehicleName);
+    }
+
+    [Fact]
+    public async Task Update_profile_invalid_type_returns_400()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var deviceId = Guid.Parse("e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5");
+
+        await client.PostAsJsonAsync("/api/devices/register", new RegisterDeviceRequest(deviceId));
+        using var response = await client.PatchAsJsonAsync(
+            $"/api/devices/{deviceId}/profile",
+            new UpdateDeviceProfileRequest(VehicleType: "scooter"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -469,10 +557,17 @@ public sealed class InMemoryDeviceRegistry : IDeviceRegistry
         return Task.FromResult(device);
     }
 
-    public Task<FleetDevice> RegisterDeviceAsync(Guid deviceId, CancellationToken cancellationToken = default)
+    public Task<FleetDevice> RegisterDeviceAsync(
+        Guid deviceId,
+        string? vehicleType = null,
+        CancellationToken cancellationToken = default)
     {
         if (deviceId == Guid.Empty)
             throw new InvalidDeviceIdException("DeviceId is required.");
+
+        var type = string.IsNullOrWhiteSpace(vehicleType)
+            ? VehicleType.Default.Value
+            : VehicleType.Create(vehicleType).Value;
 
         while (true)
         {
@@ -482,7 +577,7 @@ public sealed class InMemoryDeviceRegistry : IDeviceRegistry
             var sequence = Interlocked.Increment(ref _sequence);
             var name = VehicleName.FormatAutomatic(sequence);
             var now = DateTimeOffset.UtcNow;
-            var created = FleetDevice.Create(deviceId, name, now, now);
+            var created = FleetDevice.Create(deviceId, name, now, now, type);
 
             if (!_nameOwners.TryAdd(name, deviceId))
                 continue;
@@ -497,23 +592,54 @@ public sealed class InMemoryDeviceRegistry : IDeviceRegistry
     public Task<FleetDevice> RenameDeviceAsync(
         Guid deviceId,
         string vehicleName,
+        CancellationToken cancellationToken = default) =>
+        UpdateDeviceProfileAsync(deviceId, vehicleName, vehicleType: null, cancellationToken);
+
+    public Task<FleetDevice> UpdateDeviceProfileAsync(
+        Guid deviceId,
+        string? vehicleName,
+        string? vehicleType,
         CancellationToken cancellationToken = default)
     {
-        if (!VehicleName.TryCreate(vehicleName, out var normalized, out var error))
-            throw new InvalidVehicleNameException(error ?? "invalid");
+        VehicleName? normalized = null;
+        if (!string.IsNullOrWhiteSpace(vehicleName))
+        {
+            if (!VehicleName.TryCreate(vehicleName, out normalized, out var error))
+                throw new InvalidVehicleNameException(error ?? "invalid");
+        }
+
+        string? normalizedType = null;
+        if (!string.IsNullOrWhiteSpace(vehicleType))
+        {
+            if (!VehicleType.TryCreate(vehicleType, out var parsed, out var typeError))
+                throw new InvalidVehicleTypeException(typeError ?? "invalid");
+            normalizedType = parsed!.Value;
+        }
+
+        if (normalized is null && normalizedType is null)
+            throw new InvalidVehicleNameException("At least one of vehicleName or vehicleType is required.");
 
         if (!_byId.TryGetValue(deviceId, out var current))
             throw new DeviceNotFoundException(deviceId);
 
-        if (_nameOwners.TryGetValue(normalized!.Value, out var owner) && owner != deviceId)
+        if (normalized is not null
+            && _nameOwners.TryGetValue(normalized.Value, out var owner)
+            && owner != deviceId)
             throw new VehicleNameConflictException(normalized.Value);
 
         var now = DateTimeOffset.UtcNow;
-        var renamed = FleetDevice.Create(current.DeviceId, normalized.Value, current.CreatedAt, now);
-        _nameOwners.TryRemove(current.VehicleName, out _);
-        _nameOwners[normalized.Value] = deviceId;
-        _byId[deviceId] = renamed;
-        return Task.FromResult(renamed);
+        var nextName = normalized?.Value ?? current.VehicleName;
+        var nextType = normalizedType ?? current.VehicleType;
+        var updated = FleetDevice.Create(current.DeviceId, nextName, current.CreatedAt, now, nextType);
+
+        if (!string.Equals(current.VehicleName, nextName, StringComparison.Ordinal))
+        {
+            _nameOwners.TryRemove(current.VehicleName, out _);
+            _nameOwners[nextName] = deviceId;
+        }
+
+        _byId[deviceId] = updated;
+        return Task.FromResult(updated);
     }
 }
 

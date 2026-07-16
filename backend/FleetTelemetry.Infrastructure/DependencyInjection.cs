@@ -129,6 +129,7 @@ public static class DependencyInjection
             services.AddScoped<AcknowledgeAlertUseCase>();
             services.AddScoped<RegisterDeviceUseCase>();
             services.AddScoped<RenameDeviceUseCase>();
+            services.AddScoped<UpdateDeviceProfileUseCase>();
         }
         else
         {

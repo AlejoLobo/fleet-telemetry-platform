@@ -15,13 +15,16 @@ public sealed class DevicesController : ControllerBase
 {
     private readonly RegisterDeviceUseCase _registerDeviceUseCase;
     private readonly RenameDeviceUseCase _renameDeviceUseCase;
+    private readonly UpdateDeviceProfileUseCase _updateDeviceProfileUseCase;
 
     public DevicesController(
         RegisterDeviceUseCase registerDeviceUseCase,
-        RenameDeviceUseCase renameDeviceUseCase)
+        RenameDeviceUseCase renameDeviceUseCase,
+        UpdateDeviceProfileUseCase updateDeviceProfileUseCase)
     {
         _registerDeviceUseCase = registerDeviceUseCase;
         _renameDeviceUseCase = renameDeviceUseCase;
+        _updateDeviceProfileUseCase = updateDeviceProfileUseCase;
     }
 
     [HttpPost("register")]
@@ -47,6 +50,51 @@ public sealed class DevicesController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+        catch (InvalidVehicleTypeException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPatch("{deviceId:guid}/profile")]
+    [AuthorizeWhenEnabled(AuthorizationPolicies.DeviceRename)]
+    public async Task<IActionResult> UpdateProfile(
+        Guid deviceId,
+        [FromBody] UpdateDeviceProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(
+            HttpContext,
+            deviceId,
+            DeviceIdentityRequirement.AllowDeviceManageBypass);
+        if (identityError is not null)
+            return identityError;
+
+        try
+        {
+            var device = await _updateDeviceProfileUseCase.ExecuteAsync(deviceId, request, cancellationToken);
+            return Ok(ToResponse(device));
+        }
+        catch (InvalidDeviceIdException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidVehicleNameException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidVehicleTypeException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (DeviceNotFoundException)
+        {
+            return NotFound(new { error = $"Device '{deviceId}' was not found." });
+        }
+        catch (VehicleNameConflictException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpPatch("{deviceId:guid}/name")]
@@ -56,7 +104,7 @@ public sealed class DevicesController : ControllerBase
         [FromBody] RenameDeviceRequest request,
         CancellationToken cancellationToken)
     {
-        // Rename: device_id coincidente O operador con device:manage.
+        // Compatibilidad: delega en la misma lógica de perfil (solo nombre).
         var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(
             HttpContext,
             deviceId,
@@ -88,5 +136,5 @@ public sealed class DevicesController : ControllerBase
     }
 
     private static DeviceResponse ToResponse(FleetDevice device) =>
-        new(device.DeviceId, device.VehicleName);
+        new(device.DeviceId, device.VehicleName, device.VehicleType);
 }

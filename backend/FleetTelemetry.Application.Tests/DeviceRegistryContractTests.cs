@@ -83,10 +83,17 @@ public class DeviceRegistryContractTests
             return Task.FromResult(device);
         }
 
-        public Task<FleetDevice> RegisterDeviceAsync(Guid deviceId, CancellationToken cancellationToken = default)
+        public Task<FleetDevice> RegisterDeviceAsync(
+            Guid deviceId,
+            string? vehicleType = null,
+            CancellationToken cancellationToken = default)
         {
             if (deviceId == Guid.Empty)
                 throw new InvalidDeviceIdException("DeviceId is required.");
+
+            var type = string.IsNullOrWhiteSpace(vehicleType)
+                ? VehicleType.Default.Value
+                : VehicleType.Create(vehicleType).Value;
 
             while (true)
             {
@@ -96,7 +103,7 @@ public class DeviceRegistryContractTests
                 var sequence = Interlocked.Increment(ref _sequence);
                 var name = VehicleName.FormatAutomatic(sequence);
                 var now = DateTimeOffset.UtcNow;
-                var created = FleetDevice.Create(deviceId, name, now, now);
+                var created = FleetDevice.Create(deviceId, name, now, now, type);
 
                 if (!_nameOwners.TryAdd(name, deviceId))
                     continue;
@@ -108,26 +115,57 @@ public class DeviceRegistryContractTests
             }
         }
 
-        public async Task<FleetDevice> RenameDeviceAsync(
+        public Task<FleetDevice> RenameDeviceAsync(
             Guid deviceId,
             string vehicleName,
+            CancellationToken cancellationToken = default) =>
+            UpdateDeviceProfileAsync(deviceId, vehicleName, vehicleType: null, cancellationToken);
+
+        public Task<FleetDevice> UpdateDeviceProfileAsync(
+            Guid deviceId,
+            string? vehicleName,
+            string? vehicleType,
             CancellationToken cancellationToken = default)
         {
-            if (!VehicleName.TryCreate(vehicleName, out var normalized, out var error))
-                throw new InvalidVehicleNameException(error ?? "invalid");
+            VehicleName? normalized = null;
+            if (!string.IsNullOrWhiteSpace(vehicleName))
+            {
+                if (!VehicleName.TryCreate(vehicleName, out normalized, out var error))
+                    throw new InvalidVehicleNameException(error ?? "invalid");
+            }
+
+            string? normalizedType = null;
+            if (!string.IsNullOrWhiteSpace(vehicleType))
+            {
+                if (!VehicleType.TryCreate(vehicleType, out var parsed, out var typeError))
+                    throw new InvalidVehicleTypeException(typeError ?? "invalid");
+                normalizedType = parsed!.Value;
+            }
+
+            if (normalized is null && normalizedType is null)
+                throw new InvalidVehicleNameException("At least one of vehicleName or vehicleType is required.");
 
             if (!_byId.TryGetValue(deviceId, out var current))
                 throw new DeviceNotFoundException(deviceId);
 
-            if (_nameOwners.TryGetValue(normalized!.Value, out var owner) && owner != deviceId)
+            if (normalized is not null
+                && _nameOwners.TryGetValue(normalized.Value, out var owner)
+                && owner != deviceId)
                 throw new VehicleNameConflictException(normalized.Value);
 
             var now = DateTimeOffset.UtcNow;
-            var renamed = FleetDevice.Create(current.DeviceId, normalized.Value, current.CreatedAt, now);
-            _nameOwners.TryRemove(current.VehicleName, out _);
-            _nameOwners[normalized.Value] = deviceId;
-            _byId[deviceId] = renamed;
-            return await Task.FromResult(renamed);
+            var nextName = normalized?.Value ?? current.VehicleName;
+            var nextType = normalizedType ?? current.VehicleType;
+            var updated = FleetDevice.Create(current.DeviceId, nextName, current.CreatedAt, now, nextType);
+
+            if (!string.Equals(current.VehicleName, nextName, StringComparison.Ordinal))
+            {
+                _nameOwners.TryRemove(current.VehicleName, out _);
+                _nameOwners[nextName] = deviceId;
+            }
+
+            _byId[deviceId] = updated;
+            return Task.FromResult(updated);
         }
     }
 }
