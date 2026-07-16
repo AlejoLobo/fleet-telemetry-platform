@@ -1,4 +1,4 @@
-import type { VehicleStatus } from "@/types/fleet";
+import type { NormalizedVehiclePatch, VehicleStatus } from "@/types/fleet";
 
 function parseLastSeenAt(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -54,43 +54,90 @@ function compareVehicleRecency(left: VehicleStatus, right: VehicleStatus): numbe
   return leftEval - rightEval;
 }
 
+function isNormalizedPatch(
+  value: VehicleStatus | NormalizedVehiclePatch,
+): value is NormalizedVehiclePatch {
+  return (
+    typeof value === "object"
+    && value !== null
+    && "vehicle" in value
+    && "hasVehicleType" in value
+    && typeof (value as NormalizedVehiclePatch).hasVehicleType === "boolean"
+  );
+}
+
+/** Adapta VehicleStatus o NormalizedVehiclePatch a parche tipado. */
+export function toVehiclePatch(
+  value: VehicleStatus | NormalizedVehiclePatch,
+  hasVehicleTypeDefault = true,
+): NormalizedVehiclePatch {
+  if (isNormalizedPatch(value)) return value;
+  return { vehicle: value, hasVehicleType: hasVehicleTypeDefault };
+}
+
 /** Fusiona identidad del vehículo conservando telemetría del registro más reciente. */
 function mergeVehicleIdentity(
   base: VehicleStatus,
-  patch: VehicleStatus,
+  patch: NormalizedVehiclePatch,
   newer: VehicleStatus,
 ): VehicleStatus {
-  const patchName = patch.vehicleName?.trim() ?? "";
-  const vehicleName = patchName.length > 0 ? patch.vehicleName : base.vehicleName;
-  const vehicleType = patch.vehicleTypeFromPayload === true ? patch.vehicleType : base.vehicleType;
-
-  const { vehicleTypeFromPayload: _dropPatchFlag, ...newerFields } = newer;
+  const patchName = patch.vehicle.vehicleName?.trim() ?? "";
+  const vehicleName = patchName.length > 0 ? patch.vehicle.vehicleName : base.vehicleName;
+  const vehicleType = patch.hasVehicleType ? patch.vehicle.vehicleType : base.vehicleType;
 
   return {
-    ...newerFields,
+    ...newer,
     deviceId: base.deviceId,
     vehicleName,
     vehicleType,
   };
 }
 
-function pickNewerVehicle(base: VehicleStatus, patch: VehicleStatus): VehicleStatus {
-  const newer = compareVehicleRecency(patch, base) >= 0 ? patch : base;
+function pickNewerVehiclePatch(
+  base: NormalizedVehiclePatch,
+  patch: NormalizedVehiclePatch,
+): NormalizedVehiclePatch {
+  const newerVehicle =
+    compareVehicleRecency(patch.vehicle, base.vehicle) >= 0 ? patch.vehicle : base.vehicle;
+  const preferredPatch =
+    compareVehicleRecency(patch.vehicle, base.vehicle) >= 0 ? patch : base;
+  const other = preferredPatch === patch ? base : patch;
+
+  const mergedVehicle = mergeVehicleIdentity(other.vehicle, preferredPatch, newerVehicle);
+  return {
+    vehicle: mergedVehicle,
+    hasVehicleType: preferredPatch.hasVehicleType || other.hasVehicleType,
+  };
+}
+
+function pickNewerOntoSnapshot(
+  base: VehicleStatus,
+  patch: NormalizedVehiclePatch,
+): VehicleStatus {
+  const newer =
+    compareVehicleRecency(patch.vehicle, base) >= 0 ? patch.vehicle : base;
   return mergeVehicleIdentity(base, patch, newer);
 }
 
-/** Fusiona actualizaciones por DeviceId conservando el registro más reciente. */
+/**
+ * Fusiona actualizaciones por DeviceId.
+ * Acepta VehicleStatus (tratado como hasVehicleType=true) o NormalizedVehiclePatch.
+ */
 export function mergeVehicleUpdates(
   snapshot: VehicleStatus[],
-  updates: VehicleStatus[],
+  updates: Array<VehicleStatus | NormalizedVehiclePatch>,
 ): VehicleStatus[] {
   if (updates.length === 0) return snapshot;
 
-  const patchById = new Map<string, VehicleStatus>();
+  const patchById = new Map<string, NormalizedVehiclePatch>();
   for (const update of updates) {
-    if (!update.deviceId) continue;
-    const existing = patchById.get(update.deviceId);
-    patchById.set(update.deviceId, existing ? pickNewerVehicle(existing, update) : update);
+    const patch = toVehiclePatch(update);
+    if (!patch.vehicle.deviceId) continue;
+    const existing = patchById.get(patch.vehicle.deviceId);
+    patchById.set(
+      patch.vehicle.deviceId,
+      existing ? pickNewerVehiclePatch(existing, patch) : patch,
+    );
   }
 
   const merged: VehicleStatus[] = [];
@@ -98,15 +145,15 @@ export function mergeVehicleUpdates(
 
   for (const vehicle of snapshot) {
     const patch = patchById.get(vehicle.deviceId);
-    merged.push(patch ? pickNewerVehicle(vehicle, patch) : vehicle);
+    merged.push(patch ? pickNewerOntoSnapshot(vehicle, patch) : vehicle);
     seen.add(vehicle.deviceId);
     patchById.delete(vehicle.deviceId);
   }
 
   for (const patch of patchById.values()) {
-    if (!seen.has(patch.deviceId)) {
-      merged.push(patch);
-      seen.add(patch.deviceId);
+    if (!seen.has(patch.vehicle.deviceId)) {
+      merged.push(patch.vehicle);
+      seen.add(patch.vehicle.deviceId);
     }
   }
 
@@ -115,17 +162,27 @@ export function mergeVehicleUpdates(
 
 /** Elimina parches obsoletos cuando el snapshot ya contiene un estado igual o más reciente. */
 export function pruneVehiclePatches(
-  patches: VehicleStatus[],
+  patches: Array<VehicleStatus | NormalizedVehiclePatch>,
   snapshot: VehicleStatus[],
 ): VehicleStatus[] {
-  if (patches.length === 0 || snapshot.length === 0) return patches;
+  if (patches.length === 0 || snapshot.length === 0) {
+    return patches.map((p) => toVehiclePatch(p).vehicle);
+  }
 
   const snapshotById = new Map(snapshot.map((vehicle) => [vehicle.deviceId, vehicle]));
-  return patches.filter((patch) => {
-    const snapshotVehicle = snapshotById.get(patch.deviceId);
-    if (!snapshotVehicle) return true;
-    return compareVehicleRecency(patch, snapshotVehicle) > 0;
-  });
+  return patches
+    .map((p) => toVehiclePatch(p))
+    .filter((patch) => {
+      const snapshotVehicle = snapshotById.get(patch.vehicle.deviceId);
+      if (!snapshotVehicle) return true;
+      return compareVehicleRecency(patch.vehicle, snapshotVehicle) > 0;
+    })
+    .map((patch) => patch.vehicle);
+}
+
+/** @deprecated Preferir pick via NormalizedVehiclePatch; conserva API de tests. */
+function pickNewerVehicle(base: VehicleStatus, patch: VehicleStatus): VehicleStatus {
+  return pickNewerOntoSnapshot(base, toVehiclePatch(patch));
 }
 
 export {
@@ -136,4 +193,6 @@ export {
   compareEventId,
   pickNewerVehicle,
   mergeVehicleIdentity,
+  pickNewerVehiclePatch,
+  pickNewerOntoSnapshot,
 };

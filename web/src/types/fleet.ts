@@ -8,8 +8,6 @@ export type VehicleStatus = {
   deviceId: string;
   vehicleName: string;
   vehicleType: VehicleType;
-  /** Indica si vehicleType provino del payload (SSE/API); usado al fusionar parches parciales. */
-  vehicleTypeFromPayload?: boolean;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;
@@ -19,6 +17,15 @@ export type VehicleStatus = {
   lastLongitude: number | null;
   headingDegrees?: number | null;
   lastLocationSource?: string | null;
+};
+
+/**
+ * Parche SSE/parcial: el estado normalizado más la presencia de campos de identidad.
+ * `hasVehicleType` es true solo si el payload traía un tipo canónico válido.
+ */
+export type NormalizedVehiclePatch = {
+  vehicle: VehicleStatus;
+  hasVehicleType: boolean;
 };
 
 /** Alerta operativa de un vehículo. */

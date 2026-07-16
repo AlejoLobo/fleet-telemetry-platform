@@ -1,22 +1,26 @@
-import type { VehicleStatus } from "@/types/fleet";
-import { pickNewerVehicle } from "@/lib/fleet-merge";
+import type { NormalizedVehiclePatch, VehicleStatus } from "@/types/fleet";
+import { pickNewerVehiclePatch, toVehiclePatch } from "@/lib/fleet-merge";
 
 /** Conserva la actualización más reciente por DeviceId con merge de identidad. */
 export function bufferPendingVehicleUpdates(
-  pending: Map<string, VehicleStatus>,
-  updates: readonly VehicleStatus[],
+  pending: Map<string, NormalizedVehiclePatch>,
+  updates: ReadonlyArray<VehicleStatus | NormalizedVehiclePatch>,
 ): void {
   for (const update of updates) {
-    if (!update.deviceId) continue;
-    const existing = pending.get(update.deviceId);
-    pending.set(update.deviceId, existing ? pickNewerVehicle(existing, update) : update);
+    const patch = toVehiclePatch(update);
+    if (!patch.vehicle.deviceId) continue;
+    const existing = pending.get(patch.vehicle.deviceId);
+    pending.set(
+      patch.vehicle.deviceId,
+      existing ? pickNewerVehiclePatch(existing, patch) : patch,
+    );
   }
 }
 
-/** Extrae y vacía el buffer. */
+/** Extrae y vacía el buffer como VehicleStatus (metadatos de presencia ya aplicados al fusionar). */
 export function takePendingVehicleUpdates(
-  pending: Map<string, VehicleStatus>,
-): VehicleStatus[] {
+  pending: Map<string, NormalizedVehiclePatch>,
+): NormalizedVehiclePatch[] {
   if (pending.size === 0) return [];
   const values = [...pending.values()];
   pending.clear();

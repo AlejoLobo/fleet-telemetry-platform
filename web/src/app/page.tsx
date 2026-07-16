@@ -37,7 +37,7 @@ import { AlertsModal } from "@/components/alerts/alerts-modal";
 import { useFleetE2eInjector } from "@/hooks/use-fleet-e2e-injector";
 import { isE2eTestMode } from "@/lib/e2e-test-mode";
 
-import type { FleetAlert, VehicleStatus } from "@/types/fleet";
+import type { FleetAlert, NormalizedVehiclePatch, VehicleStatus } from "@/types/fleet";
 import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 
 const CONNECTIVITY_TICK_MS = 5_000;
@@ -60,7 +60,7 @@ export default function DashboardPage() {
   const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>(DEFAULT_MONITOR_REFRESH_RATE);
   const [refreshRateReady, setRefreshRateReady] = useState(false);
 
-  const pendingVehicleUpdatesRef = useRef<Map<string, VehicleStatus>>(new Map());
+  const pendingVehicleUpdatesRef = useRef<Map<string, NormalizedVehiclePatch>>(new Map());
 
   const refreshAuthState = async () => {
     try {
@@ -119,7 +119,7 @@ export default function DashboardPage() {
   const refreshSelectedTelemetryRef = useRef(refreshSelectedTelemetry);
   refreshSelectedTelemetryRef.current = refreshSelectedTelemetry;
 
-  const applyVehicleUpdates = useCallback((updates: VehicleStatus[]) => {
+  const applyVehicleUpdates = useCallback((updates: Array<VehicleStatus | NormalizedVehiclePatch>) => {
     if (updates.length === 0) return;
     setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
   }, []);
@@ -133,7 +133,9 @@ export default function DashboardPage() {
   flushPendingVehicleUpdatesRef.current = flushPendingVehicleUpdates;
 
   const emitVehicleUpdateForE2e = useCallback((update: VehicleStatus) => {
-    bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, [update]);
+    bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, [
+      { vehicle: update, hasVehicleType: update.vehicleType != null },
+    ]);
   }, []);
 
   const emitAlertForE2e = useCallback((alert: FleetAlert) => {

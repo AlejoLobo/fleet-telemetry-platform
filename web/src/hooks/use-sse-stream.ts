@@ -22,13 +22,13 @@ import {
   ResyncSupersededError,
 } from "@/lib/sse-resync";
 import { REALTIME_EVENTS } from "@/lib/realtime-events";
-import type { FleetAlert, SseConnectionState, VehicleStatus } from "@/types/fleet";
+import type { FleetAlert, NormalizedVehiclePatch, SseConnectionState, VehicleStatus } from "@/types/fleet";
 
 type SseHandlers = {
   enabled?: boolean;
   /** Cambia al iniciar/cerrar sesión para forzar reconexión con credenciales actuales. */
   authToken?: string | null;
-  onFleetUpdate?: (vehicles: VehicleStatus[]) => void;
+  onFleetUpdate?: (vehicles: Array<VehicleStatus | NormalizedVehiclePatch>) => void;
   onAlert?: (alert: FleetAlert) => void;
   onStreamReset?: () => void | Promise<void>;
 };
