@@ -23,7 +23,8 @@ test.describe("Dashboard demo", () => {
 
   test("demo incluye motocicleta VH-005", async ({ page }) => {
     await prepareDemo(page);
-    const row = page.getByRole("button", { name: /VH-005/ });
+    // Filas del panel (button.group); el marcador Leaflet también es role=button con VH-005.
+    const row = page.locator("button.group").filter({ hasText: "VH-005" });
     await expect(row).toBeVisible();
     await expect(row.getByText("Motocicleta", { exact: true })).toBeVisible();
     await expect(row.getByLabel("Tipo de vehículo: Motocicleta")).toBeVisible();
