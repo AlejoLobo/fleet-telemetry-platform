@@ -125,7 +125,13 @@ describe("useSseStream FT-001", () => {
 
     await waitFor(() => expect(onFleetUpdate).toHaveBeenCalledTimes(1));
     expect(onFleetUpdate.mock.calls[0]?.[0]).toEqual([
-      expect.objectContaining({ deviceId: "00000000-0000-4000-8000-000000000094", lastSpeedKmh: 88 }),
+      expect.objectContaining({
+        vehicle: expect.objectContaining({
+          deviceId: "00000000-0000-4000-8000-000000000094",
+          lastSpeedKmh: 88,
+        }),
+        hasVehicleType: false,
+      }),
     ]);
   });
 
@@ -154,7 +160,7 @@ describe("useSseStream FT-001", () => {
     ];
 
     let patches: VehicleStatus[] = [];
-    const onFleetUpdate = (updates: VehicleStatus[]) => {
+    const onFleetUpdate = (updates: Array<VehicleStatus | import("@/types/fleet").NormalizedVehiclePatch>) => {
       patches = mergeVehicleUpdates(patches, updates);
     };
 

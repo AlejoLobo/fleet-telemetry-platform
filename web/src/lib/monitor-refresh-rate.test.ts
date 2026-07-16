@@ -100,8 +100,8 @@ describe("page.tsx hidratación y buffer", () => {
 
   it("no aplica buffer antes del timer y aplica al cumplirse", () => {
     vi.useFakeTimers();
-    const pending = new Map<string, VehicleStatus>();
-    const applied: VehicleStatus[][] = [];
+    const pending = new Map<string, import("@/types/fleet").NormalizedVehiclePatch>();
+    const applied: import("@/types/fleet").NormalizedVehiclePatch[][] = [];
     const flush = () => {
       const batch = takePendingVehicleUpdates(pending);
       if (batch.length) applied.push(batch);
@@ -112,7 +112,7 @@ describe("page.tsx hidratación y buffer", () => {
     expect(applied).toHaveLength(0);
     vi.advanceTimersByTime(1);
     expect(applied).toHaveLength(1);
-    expect(applied[0][0].lastSpeedKmh).toBe(1);
+    expect(applied[0][0].vehicle.lastSpeedKmh).toBe(1);
     window.clearInterval(timer);
     vi.useRealTimers();
   });

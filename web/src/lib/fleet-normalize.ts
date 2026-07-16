@@ -1,14 +1,19 @@
 /** Normaliza respuestas del backend al formato del frontend. */
-import type { FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
-import { normalizeVehicleType } from "@/lib/vehicle-types";
+import type {
+  FleetAlert,
+  NormalizedVehiclePatch,
+  TelemetryEvent,
+  VehicleStatus,
+} from "@/types/fleet";
+import { normalizeVehicleType, parseVehicleType } from "@/lib/vehicle-types";
 
-type RawVehicle = Partial<VehicleStatus> & {
+export type RawVehicle = Partial<VehicleStatus> & {
   deviceId?: string;
   vehicleName?: string;
   vehicleId?: string;
   name?: string;
-  vehicleType?: string;
-  VehicleType?: string;
+  vehicleType?: unknown;
+  VehicleType?: unknown;
   DeviceId?: string;
   VehicleId?: string;
   VehicleName?: string;
@@ -53,16 +58,25 @@ type RawAlert = Partial<FleetAlert> & {
   IsAcknowledged?: boolean;
 };
 
-function rawHadVehicleType(vehicle: RawVehicle): boolean {
-  return vehicle.vehicleType !== undefined || vehicle.VehicleType !== undefined;
+function rawHadVehicleTypeKey(vehicle: RawVehicle): boolean {
+  return Object.prototype.hasOwnProperty.call(vehicle, "vehicleType")
+    || Object.prototype.hasOwnProperty.call(vehicle, "VehicleType");
 }
 
 function rawVehicleTypeValue(vehicle: RawVehicle): unknown {
-  return vehicle.vehicleType ?? vehicle.VehicleType;
+  if (Object.prototype.hasOwnProperty.call(vehicle, "vehicleType")) {
+    return vehicle.vehicleType;
+  }
+  if (Object.prototype.hasOwnProperty.call(vehicle, "VehicleType")) {
+    return vehicle.VehicleType;
+  }
+  return undefined;
 }
 
-/** Normaliza un vehículo del API (PascalCase → camelCase). */
-export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
+function buildVehicleStatus(
+  vehicle: RawVehicle,
+  vehicleType: VehicleStatus["vehicleType"],
+): VehicleStatus {
   const deviceId =
     vehicle.deviceId ??
     vehicle.DeviceId ??
@@ -75,13 +89,11 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
     vehicle.name ??
     vehicle.Name ??
     "";
-  const hadType = rawHadVehicleType(vehicle);
 
   return {
     deviceId,
     vehicleName,
-    vehicleType: normalizeVehicleType(rawVehicleTypeValue(vehicle)),
-    ...(hadType ? { vehicleTypeFromPayload: true } : {}),
+    vehicleType,
     status: vehicle.status ?? vehicle.Status ?? "offline",
     lastSeenAt: vehicle.lastSeenAt ?? vehicle.LastSeenAt ?? null,
     lastEventId: vehicle.lastEventId ?? vehicle.LastEventId ?? null,
@@ -96,11 +108,38 @@ export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
   };
 }
 
+/**
+ * Snapshot completo: tipo ausente/inválido → car.
+ * No adjunta metadatos internos al modelo público.
+ */
+export function normalizeVehicle(vehicle: RawVehicle): VehicleStatus {
+  return buildVehicleStatus(vehicle, normalizeVehicleType(rawVehicleTypeValue(vehicle)));
+}
+
 /** Alias explícito para normalización de estado de vehículo. */
 export const normalizeVehicleStatus = normalizeVehicle;
 
 export function normalizeVehicles(vehicles: RawVehicle[]): VehicleStatus[] {
   return vehicles.map(normalizeVehicle);
+}
+
+/**
+ * Parche SSE/parcial: solo marca hasVehicleType cuando el payload trae un tipo canónico válido.
+ * Tipo inválido o null no reemplaza el valor previo en el merge.
+ */
+export function normalizeVehiclePatch(vehicle: RawVehicle): NormalizedVehiclePatch {
+  const rawType = rawVehicleTypeValue(vehicle);
+  const parsed = parseVehicleType(rawType);
+  const hasVehicleType = rawHadVehicleTypeKey(vehicle) && parsed != null;
+
+  return {
+    vehicle: buildVehicleStatus(vehicle, parsed ?? "car"),
+    hasVehicleType,
+  };
+}
+
+export function normalizeVehiclePatches(vehicles: RawVehicle[]): NormalizedVehiclePatch[] {
+  return vehicles.map(normalizeVehiclePatch);
 }
 
 /** Normaliza un evento de telemetría del API. */

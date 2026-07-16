@@ -201,30 +201,70 @@ describe("mergeVehicleUpdates", () => {
       vehicleType: "truck",
       vehicleName: "VH-001",
     })];
-    const speedPatch = [vehicle("00000000-0000-4000-8000-000000000001", {
-      lastSeenAt: "2026-07-10T10:05:00Z",
-      lastSpeedKmh: 99,
-      vehicleType: "car",
-      vehicleTypeFromPayload: false,
-    })];
+    const speedPatch = [{
+      vehicle: vehicle("00000000-0000-4000-8000-000000000001", {
+        lastSeenAt: "2026-07-10T10:05:00Z",
+        lastSpeedKmh: 99,
+        vehicleType: "car",
+      }),
+      hasVehicleType: false,
+    }];
 
     const merged = mergeVehicleUpdates(snapshot, speedPatch);
     expect(merged[0]?.vehicleType).toBe("truck");
     expect(merged[0]?.lastSpeedKmh).toBe(99);
+    expect(merged[0]).not.toHaveProperty("vehicleTypeFromPayload");
   });
 
-  it("Parche_con_vehicleTypeFromPayload_actualiza_tipo", () => {
+  it("Parche_con_vehicleType_valido_actualiza_tipo", () => {
     const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
       vehicleType: "car",
     })];
-    const typePatch = [vehicle("00000000-0000-4000-8000-000000000001", {
-      lastSeenAt: "2026-07-10T10:05:00Z",
-      vehicleType: "motorcycle",
-      vehicleTypeFromPayload: true,
-    })];
+    const typePatch = [{
+      vehicle: vehicle("00000000-0000-4000-8000-000000000001", {
+        lastSeenAt: "2026-07-10T10:05:00Z",
+        vehicleType: "motorcycle",
+      }),
+      hasVehicleType: true,
+    }];
 
     const merged = mergeVehicleUpdates(snapshot, typePatch);
     expect(merged[0]?.vehicleType).toBe("motorcycle");
+  });
+
+  it("Parche_con_tipo_invalido_conserva_tipo_anterior", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      vehicleType: "motorcycle",
+    })];
+    const typePatch = [{
+      vehicle: vehicle("00000000-0000-4000-8000-000000000001", {
+        lastSeenAt: "2026-07-10T10:05:00Z",
+        vehicleType: "car",
+      }),
+      hasVehicleType: false,
+    }];
+
+    const merged = mergeVehicleUpdates(snapshot, typePatch);
+    expect(merged[0]?.vehicleType).toBe("motorcycle");
+  });
+
+  it("Parche_offline_conserva_vehicleType", () => {
+    const snapshot = [vehicle("00000000-0000-4000-8000-000000000001", {
+      vehicleType: "bus",
+      status: "online",
+    })];
+    const offlinePatch = [{
+      vehicle: vehicle("00000000-0000-4000-8000-000000000001", {
+        lastSeenAt: "2026-07-10T10:05:00Z",
+        status: "offline",
+        vehicleType: "car",
+      }),
+      hasVehicleType: false,
+    }];
+
+    const merged = mergeVehicleUpdates(snapshot, offlinePatch);
+    expect(merged[0]?.vehicleType).toBe("bus");
+    expect(merged[0]?.status).toBe("offline");
   });
 
   it("Parche_sin_nombre_conserva_vehicleName_base", () => {

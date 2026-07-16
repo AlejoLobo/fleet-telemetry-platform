@@ -1,7 +1,11 @@
-import type { FleetAlert, VehicleStatus } from "@/types/fleet";
-import { normalizeVehicle, normalizeVehicles } from "@/lib/fleet-normalize";
-
-type RawVehicle = Parameters<typeof normalizeVehicle>[0];
+import type { FleetAlert, NormalizedVehiclePatch, VehicleStatus } from "@/types/fleet";
+import {
+  normalizeVehicle,
+  normalizeVehiclePatch,
+  normalizeVehiclePatches,
+  normalizeVehicles,
+  type RawVehicle,
+} from "@/lib/fleet-normalize";
 
 export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
   try {
@@ -19,15 +23,29 @@ export function parseFleetUpdatePayload(raw: string): VehicleStatus[] | null {
   }
 }
 
-export function parseVehicleUpdatePayload(raw: string): VehicleStatus | null {
+/** Parche individual SSE: conserva presencia de vehicleType para el merge. */
+export function parseVehicleUpdatePayload(raw: string): NormalizedVehiclePatch | null {
   try {
     const parsed = JSON.parse(raw) as RawVehicle;
-    const vehicle = normalizeVehicle(parsed);
-    return vehicle.deviceId ? vehicle : null;
+    const patch = normalizeVehiclePatch(parsed);
+    return patch.vehicle.deviceId ? patch : null;
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[SSE] Payload vehicle-update inválido:", error);
     }
+    return null;
+  }
+}
+
+export function parseFleetUpdateAsPatches(raw: string): NormalizedVehiclePatch[] | null {
+  try {
+    const parsed = JSON.parse(raw) as RawVehicle[] | RawVehicle;
+    if (Array.isArray(parsed)) {
+      return normalizeVehiclePatches(parsed);
+    }
+    const patch = normalizeVehiclePatch(parsed);
+    return patch.vehicle.deviceId ? [patch] : null;
+  } catch {
     return null;
   }
 }
