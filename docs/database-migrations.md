@@ -41,6 +41,8 @@ Versión `7` — persistencia operativa por `device_id` UUID:
 - **No hay merge automático de duplicados históricos**: si el mismo vehículo físico quedó con varias identidades, la limpieza es manual.
 - Compresión Timescale segmenta por `device_id` tras la migración.
 
+Versión `8` — columna `vehicle_type TEXT NOT NULL DEFAULT 'car'` en `fleet_devices`, con `CHECK` del catálogo cerrado (`car`, `motorcycle`, `van`, `truck`, `bus`, `pickup`). Filas legacy reciben `car`. No se infiere el tipo desde `vehicle_name`. El tipo se edita con `PATCH /api/devices/{deviceId}/profile`; el registro idempotente no sobrescribe un tipo ya persistido.
+
 ### Política v2 + v3 (sin doble backfill)
 
 ```
@@ -51,6 +53,7 @@ InitializeAsync:
   ApplyTimescaleMaintenanceMigrationV5Async()
   ApplyFleetDevicesMigrationV6Async()
   ApplyDeviceIdPersistenceMigrationV7Async()
+  ApplyVehicleTypeMigrationV8Async()
 ```
 
 | Escenario | Backfills ejecutados |

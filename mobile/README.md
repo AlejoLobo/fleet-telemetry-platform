@@ -23,10 +23,13 @@ Al iniciar la app:
 ## Identidad de dispositivo
 
 1. `DeviceId` UUID estable en SecureStore (`fleet.device.id`).
-2. Antes del sync, `POST /api/devices/register` (idempotente) obtiene `vehicleName` del backend.
-3. Los eventos de telemetría llevan `deviceId` (no `vehicleId` / `VH-###`).
-4. Header `X-Device-Id` debe coincidir con el payload.
-5. Renombrar en UI actualiza solo el nombre visible.
+2. Antes del sync, `POST /api/devices/register` (idempotente) obtiene `vehicleName` y `vehicleType` del backend.
+3. El tipo se selecciona en UI (catálogo: Automóvil, Motocicleta, Van, Camión, Bus, Camioneta) y se envía como código canónico (`car`, `motorcycle`, …).
+4. Perfil local: `fleet.device.vehicleName` + `fleet.profile.vehicleType` (legacy sin tipo → `car`).
+5. `PATCH /api/devices/{deviceId}/profile` actualiza nombre y tipo juntos; `DeviceId` no cambia.
+6. Los eventos de telemetría llevan `deviceId` (no incluyen el tipo; el tipo vive en el registro).
+7. Header `X-Device-Id` debe coincidir con el payload.
+8. No se puede editar el perfil mientras el tracking está activo.
 
 ### Comportamiento ante errores de auth
 
