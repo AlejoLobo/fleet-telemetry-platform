@@ -1,5 +1,5 @@
 // Panel principal del conductor: captura y sincroniza telemetría
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -57,6 +57,8 @@ export function DriverDashboard() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deviceIdReady, setDeviceIdReady] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
+  /** Tipo local al arrancar: el registro remoto no debe reaccionar a cambios de perfil. */
+  const initialVehicleTypeRef = useRef<VehicleType>(DEFAULT_VEHICLE_TYPE);
 
   const auth = useAuthSession();
   const canSync = auth.canSyncForDevice(deviceId);
@@ -92,6 +94,7 @@ export function DriverDashboard() {
         setDeviceId(loadedDeviceId);
         setDeviceIdReady(true);
         setIdentityError(null);
+        initialVehicleTypeRef.current = cachedType;
         setVehicleType(cachedType);
         setVehicleTypeDraft(cachedType);
         if (cachedName) {
@@ -122,13 +125,16 @@ export function DriverDashboard() {
     void auth.validateSessionForLocalDevice(deviceId);
   }, [deviceIdReady, deviceId, auth.validateSessionForLocalDevice]);
 
-  // Registro remoto cuando hay red y sync permitido; el backend asigna VH-###.
+  // Registro remoto cuando hay red y sync permitido; no re-registra al cambiar perfil.
   useEffect(() => {
     if (!deviceId || identityError || !canSync || !isOnline) return;
     let cancelled = false;
     void (async () => {
       try {
-        const profile = await ensureDeviceRegistered(deviceId, vehicleType);
+        const profile = await ensureDeviceRegistered(
+          deviceId,
+          initialVehicleTypeRef.current,
+        );
         if (!cancelled) {
           setVehicleName(profile.vehicleName);
           setVehicleNameDraft((prev) => (prev.trim() ? prev : profile.vehicleName));
@@ -146,7 +152,7 @@ export function DriverDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, identityError, canSync, isOnline, vehicleType]);
+  }, [deviceId, identityError, canSync, isOnline]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
