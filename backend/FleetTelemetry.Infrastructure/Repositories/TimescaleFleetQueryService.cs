@@ -60,7 +60,10 @@ public class TimescaleFleetQueryService : IFleetQueryService
                 && (!liveOnly || state.LastTimestamp >= onlineThreshold)
                 && (!excludeSimulated || state.LocationSource != "simulated")
             orderby state.DeviceId
-            select new FleetStatusJoinRow(state, device != null ? device.VehicleName : null)
+            select new FleetStatusJoinRow(
+                state,
+                device != null ? device.VehicleName : null,
+                device != null ? device.VehicleType : null)
         )
             .Take(take)
             .ToListAsync(cancellationToken);
@@ -69,7 +72,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
         var page = hasMore ? pageRecords.Take(pageSize).ToList() : pageRecords;
 
         var items = page
-            .Select(row => MapToStatus(row.State, row.VehicleName, headingDegrees: null, now))
+            .Select(row => MapToStatus(row.State, row.VehicleName, row.VehicleType, headingDegrees: null, now))
             .ToList();
 
         string? nextCursor = null;
@@ -123,7 +126,10 @@ public class TimescaleFleetQueryService : IFleetQueryService
                 on state.DeviceId equals device.DeviceId into devices
             from device in devices.DefaultIfEmpty()
             where state.DeviceId == deviceId
-            select new FleetStatusJoinRow(state, device != null ? device.VehicleName : null)
+            select new FleetStatusJoinRow(
+                state,
+                device != null ? device.VehicleName : null,
+                device != null ? device.VehicleType : null)
         ).SingleOrDefaultAsync(cancellationToken);
 
         if (row is null)
@@ -141,12 +147,13 @@ public class TimescaleFleetQueryService : IFleetQueryService
             ? GeoBearing.ComputeHeadingDegrees(previous, ToTelemetryPoint(row.State))
             : null;
 
-        return MapToStatus(row.State, row.VehicleName, heading, _timeProvider.GetUtcNow());
+        return MapToStatus(row.State, row.VehicleName, row.VehicleType, heading, _timeProvider.GetUtcNow());
     }
 
     private VehicleLatestStatusResponse MapToStatus(
         FleetVehicleStateRecord record,
         string? vehicleName,
+        string? vehicleType,
         double? headingDegrees,
         DateTimeOffset now)
     {
@@ -160,6 +167,7 @@ public class TimescaleFleetQueryService : IFleetQueryService
             VehicleName: string.IsNullOrWhiteSpace(vehicleName)
                 ? record.DeviceId.ToString("D")
                 : vehicleName,
+            VehicleType: Domain.ValueObjects.VehicleType.ParseOrDefault(vehicleType).Value,
             Status: connectivityStatus,
             LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
@@ -184,5 +192,8 @@ public class TimescaleFleetQueryService : IFleetQueryService
             Longitude = record.Longitude
         };
 
-    private sealed record FleetStatusJoinRow(FleetVehicleStateRecord State, string? VehicleName);
+    private sealed record FleetStatusJoinRow(
+        FleetVehicleStateRecord State,
+        string? VehicleName,
+        string? VehicleType);
 }

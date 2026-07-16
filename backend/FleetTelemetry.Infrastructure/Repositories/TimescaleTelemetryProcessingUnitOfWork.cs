@@ -259,10 +259,12 @@ public class TimescaleTelemetryProcessingUnitOfWork : ITelemetryProcessingUnitOf
                 var deviceId = telemetryEvent.DeviceId;
                 var device = await _deviceRegistry.GetDeviceAsync(deviceId, cancellationToken);
                 var vehicleName = device?.VehicleName ?? deviceId.ToString("D");
+                var vehicleType = device?.VehicleType ?? Domain.ValueObjects.VehicleType.Default.Value;
 
                 var vehicleUpdate = new VehicleLatestStatusResponse(
                     deviceId,
                     vehicleName,
+                    vehicleType,
                     connectivityStatus,
                     telemetryEvent.Timestamp,
                     telemetryEvent.SpeedKmh,
