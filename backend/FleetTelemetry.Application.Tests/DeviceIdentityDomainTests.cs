@@ -69,7 +69,64 @@ public class DeviceIdentityDomainTests
 
         Assert.Equal(deviceId, device.DeviceId);
         Assert.Equal("Camión Pereira", device.VehicleName);
+        Assert.Equal(VehicleType.CarCode, device.VehicleType);
         Assert.Equal(createdAt, device.CreatedAt);
         Assert.Equal(renamedAt, device.UpdatedAt);
+    }
+
+    [Theory]
+    [InlineData("car")]
+    [InlineData("MOTORCYCLE")]
+    [InlineData(" Van ")]
+    [InlineData("truck")]
+    [InlineData("bus")]
+    [InlineData("pickup")]
+    public void VehicleType_accepts_catalog_case_insensitive(string raw)
+    {
+        Assert.True(VehicleType.TryCreate(raw, out var type, out var error));
+        Assert.Null(error);
+        Assert.Equal(raw.Trim().ToLowerInvariant(), type!.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("boat")]
+    [InlineData("moto")]
+    public void VehicleType_rejects_invalid(string? raw)
+    {
+        Assert.False(VehicleType.TryCreate(raw, out var type, out var error));
+        Assert.Null(type);
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    [Fact]
+    public void FleetDevice_change_vehicle_type_keeps_device_id_and_name()
+    {
+        var deviceId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var createdAt = DateTimeOffset.Parse("2026-07-15T10:00:00Z");
+        var device = FleetDevice.Create(deviceId, "VH-010", createdAt, createdAt, "car");
+
+        var updatedAt = DateTimeOffset.Parse("2026-07-15T12:00:00Z");
+        device.ChangeVehicleType("motorcycle", updatedAt);
+
+        Assert.Equal(deviceId, device.DeviceId);
+        Assert.Equal("VH-010", device.VehicleName);
+        Assert.Equal(VehicleType.MotorcycleCode, device.VehicleType);
+        Assert.Equal(updatedAt, device.UpdatedAt);
+    }
+
+    [Fact]
+    public void FleetDevice_from_persistence_defaults_missing_type_to_car()
+    {
+        var device = FleetDevice.FromPersistence(
+            Guid.Parse("44444444-4444-4444-4444-444444444444"),
+            "VH-011",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            vehicleType: null);
+
+        Assert.Equal(VehicleType.CarCode, device.VehicleType);
     }
 }

@@ -35,3 +35,10 @@ public sealed class InvalidVehicleNameException : Exception
     {
     }
 }
+
+public sealed class InvalidVehicleTypeException : Exception
+{
+    public InvalidVehicleTypeException(string message) : base(message)
+    {
+    }
+}
