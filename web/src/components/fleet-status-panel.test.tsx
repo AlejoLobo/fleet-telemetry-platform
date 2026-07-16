@@ -172,13 +172,12 @@ describe("FleetStatusPanel vehicle row format", () => {
 
     render(<FleetStatusPanel vehicles={vehicles} />);
 
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
-    expect(screen.getByText("0 km/h")).toBeTruthy();
-    expect(screen.getByText("VH-001")).toBeTruthy();
+    expect(screen.getByText("VH-001 (En línea)")).toBeTruthy();
+    expect(screen.getByText("VH-002 (Desconectado)")).toBeTruthy();
     expect(screen.getByText("00000000-0000-4000-8000-000000000001")).toBeTruthy();
+    expect(screen.getByText(/— .+ Automóvil/)).toBeTruthy();
+    expect(screen.getByText(/0 km\/h .+ Van/)).toBeTruthy();
     expect(screen.getByLabelText("Tipo de vehículo: Van")).toBeTruthy();
-    expect(screen.getByText("Automóvil")).toBeTruthy();
-    expect(screen.getByText("Van")).toBeTruthy();
   });
 
   it("muestra iconos Lucide distintos por tipo en Demo", () => {
@@ -209,8 +208,8 @@ describe("FleetStatusPanel vehicle row format", () => {
 
     expect(screen.getByLabelText("Tipo de vehículo: Motocicleta")).toBeTruthy();
     expect(screen.getByLabelText("Tipo de vehículo: Camión")).toBeTruthy();
-    expect(screen.getByText("Motocicleta")).toBeTruthy();
-    expect(screen.getByText("Camión")).toBeTruthy();
+    expect(screen.getByText(/30 km\/h .+ Motocicleta/)).toBeTruthy();
+    expect(screen.getByText(/40 km\/h .+ Camión/)).toBeTruthy();
   });
 });
 

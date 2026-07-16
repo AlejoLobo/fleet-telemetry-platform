@@ -90,6 +90,10 @@ function mergeVehicleIdentity(
     deviceId: base.deviceId,
     vehicleName,
     vehicleType,
+    driverId:
+      patch.vehicle.driverId != null && patch.vehicle.driverId.trim().length > 0
+        ? patch.vehicle.driverId
+        : (base.driverId ?? patch.vehicle.driverId ?? null),
   };
 }
 

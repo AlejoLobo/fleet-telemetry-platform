@@ -213,6 +213,7 @@ function generateVehicleBundle(
     lastLongitude: latest.longitude,
     headingDegrees: Math.round(headingDegrees * 10) / 10,
     lastLocationSource: "simulated",
+    driverId: latest.driverId,
   };
 
   return { vehicle, events };
