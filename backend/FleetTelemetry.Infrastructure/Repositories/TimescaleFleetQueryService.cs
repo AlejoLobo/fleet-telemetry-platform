@@ -176,7 +176,8 @@ public class TimescaleFleetQueryService : IFleetQueryService
             LastHeadingDegrees: headingDegrees,
             LastLocationSource: record.LocationSource,
             LastEventId: record.LastEventId,
-            StatusEvaluatedAt: now);
+            StatusEvaluatedAt: now,
+            DriverId: record.DriverId);
     }
 
     private static void ValidatePageSize(int pageSize, int maxPageSize)

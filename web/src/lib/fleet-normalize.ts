@@ -28,6 +28,8 @@ export type RawVehicle = Partial<VehicleStatus> & {
   lastHeadingDegrees?: number | null;
   LastHeadingDegrees?: number | null;
   LastLocationSource?: string | null;
+  driverId?: string | null;
+  DriverId?: string | null;
 };
 
 type RawTelemetry = Partial<TelemetryEvent> & {
@@ -105,6 +107,7 @@ function buildVehicleStatus(
       vehicle.headingDegrees ?? vehicle.lastHeadingDegrees ?? vehicle.LastHeadingDegrees ?? null,
     lastLocationSource:
       vehicle.lastLocationSource ?? vehicle.LastLocationSource ?? null,
+    driverId: vehicle.driverId ?? vehicle.DriverId ?? null,
   };
 }
 

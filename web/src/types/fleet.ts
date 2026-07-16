@@ -17,6 +17,8 @@ export type VehicleStatus = {
   lastLongitude: number | null;
   headingDegrees?: number | null;
   lastLocationSource?: string | null;
+  /** Identificador/nombre del conductor asociado al último reporte. */
+  driverId?: string | null;
 };
 
 /**

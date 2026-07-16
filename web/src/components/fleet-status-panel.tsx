@@ -5,8 +5,6 @@ import {
   Car,
   CarFront,
   CarTaxiFront,
-  Clock,
-  Gauge,
   Navigation,
   Truck,
   type LucideIcon,
@@ -15,7 +13,8 @@ import type { AggregationSource } from "@/lib/analytics";
 import type { VehicleStatus, VehicleType } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
+import { esVehiculoEnLinea } from "@/lib/labels";
+import { formatFleetStatusCard } from "@/lib/vehicle-display-format";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { cn } from "@/lib/utils";
 
@@ -50,30 +49,6 @@ type FleetStatusPanelProps = {
 
 function formatCount(value: number): string {
   return value.toLocaleString("es-CO");
-}
-
-function formatSpeed(speedKmh: number | null): string {
-  if (speedKmh === null) return "—";
-  return `${speedKmh.toFixed(0)} km/h`;
-}
-
-function formatCoords(latitude: number | null, longitude: number | null): string {
-  if (latitude == null || longitude == null) return "—";
-  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-}
-
-function formatLastSeen(lastSeenAt: string | null): string {
-  if (!lastSeenAt) return "—";
-  return new Date(lastSeenAt).toLocaleTimeString("es-CO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function displayVehicleName(vehicle: VehicleStatus): string {
-  const name = vehicle.vehicleName?.trim();
-  return name && name.length > 0 ? name : "Vehículo";
 }
 
 /** Icono Lucide del tipo: siluetas reconocibles (moto ≠ camión ≠ auto). */
@@ -158,9 +133,9 @@ export function FleetStatusPanel({
           {vehicles.map((vehicle) => {
             const selected = vehicle.deviceId === selectedDeviceId;
             const online = esVehiculoEnLinea(vehicle.status);
-            const name = displayVehicleName(vehicle);
             const typeLabel = vehicleTypeLabel(vehicle.vehicleType);
             const tones = VEHICLE_TYPE_ICON_TONES[vehicle.vehicleType] ?? VEHICLE_TYPE_ICON_TONES.car;
+            const card = formatFleetStatusCard(vehicle);
 
             return (
               <button
@@ -194,36 +169,15 @@ export function FleetStatusPanel({
                   <VehicleTypeIcon type={vehicle.vehicleType} online={online} />
                 </div>
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate font-semibold text-slate-800">{name}</p>
-                    <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
-                      {etiquetaEstadoVehiculo(vehicle.status)}
-                    </Badge>
-                    {vehicle.lastLocationSource === "simulated" && (
-                      <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-[11px] font-medium text-slate-500">{typeLabel}</p>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="truncate font-semibold text-slate-800">{card.title}</p>
                   <p
-                    className="mt-0.5 break-all font-mono text-[11px] text-slate-500"
-                    title={vehicle.deviceId}
+                    className="break-all font-mono text-[11px] text-slate-500"
+                    title={card.deviceId}
                   >
-                    {vehicle.deviceId}
+                    {card.deviceId}
                   </p>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <Gauge className="h-3 w-3" />
-                      {formatSpeed(vehicle.lastSpeedKmh)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatLastSeen(vehicle.lastSeenAt)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    {formatCoords(vehicle.lastLatitude, vehicle.lastLongitude)}
-                  </p>
+                  <p className="text-xs text-slate-500">{card.metrics}</p>
                 </div>
               </button>
             );
