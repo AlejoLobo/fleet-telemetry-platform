@@ -36,6 +36,19 @@ export async function saveCachedVehicleName(vehicleName: string): Promise<void> 
   }
 }
 
+/** Restaura o elimina el nombre cacheado según el valor previo. */
+export async function restoreCachedVehicleName(vehicleName: string | null): Promise<void> {
+  try {
+    if (vehicleName == null || vehicleName.trim() === "") {
+      await SecureStore.deleteItemAsync(VEHICLE_NAME_KEY);
+      return;
+    }
+    await SecureStore.setItemAsync(VEHICLE_NAME_KEY, vehicleName.trim());
+  } catch (error) {
+    throw error;
+  }
+}
+
 export async function loadCachedVehicleType(): Promise<VehicleType> {
   try {
     const value = await SecureStore.getItemAsync(VEHICLE_TYPE_KEY);
@@ -61,6 +74,12 @@ export async function loadLocalDeviceProfile(): Promise<LocalDeviceProfile> {
     loadCachedVehicleType(),
   ]);
   return { vehicleName, vehicleType };
+}
+
+/** Restaura nombre y tipo al estado previo (incluye nombre null). */
+export async function restoreLocalDeviceProfile(previous: LocalDeviceProfile): Promise<void> {
+  await restoreCachedVehicleName(previous.vehicleName);
+  await saveCachedVehicleType(previous.vehicleType);
 }
 
 /**
