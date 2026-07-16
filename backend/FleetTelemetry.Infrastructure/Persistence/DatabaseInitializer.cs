@@ -15,6 +15,7 @@ public static class DatabaseInitializer
     private const int TimescaleMaintenanceSchemaVersion = 5;
     private const int FleetDevicesSchemaVersion = 6;
     private const int DeviceIdPersistenceSchemaVersion = 7;
+    private const int VehicleTypeSchemaVersion = 8;
 
     // Ejecuta DDL idempotente para hypertables e índices.
     public static async Task InitializeAsync(
@@ -68,6 +69,11 @@ public static class DatabaseInitializer
                     migrationHooks,
                     cancellationToken);
                 await ApplyDeviceIdPersistenceMigrationV7Async(
+                    connection,
+                    logger,
+                    migrationHooks,
+                    cancellationToken);
+                await ApplyVehicleTypeMigrationV8Async(
                     connection,
                     logger,
                     migrationHooks,
@@ -823,13 +829,19 @@ public static class DatabaseInitializer
             CREATE TABLE IF NOT EXISTS fleet_devices (
                 device_id UUID NOT NULL,
                 vehicle_name VARCHAR(100) NOT NULL,
+                vehicle_type TEXT NOT NULL DEFAULT 'car',
                 created_at TIMESTAMPTZ NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL,
                 CONSTRAINT "PK_fleet_devices" PRIMARY KEY (device_id),
-                CONSTRAINT "UQ_fleet_devices_vehicle_name" UNIQUE (vehicle_name)
+                CONSTRAINT "UQ_fleet_devices_vehicle_name" UNIQUE (vehicle_name),
+                CONSTRAINT "CK_fleet_devices_vehicle_type" CHECK (
+                    vehicle_type IN ('car', 'motorcycle', 'van', 'truck', 'bus', 'pickup')
+                )
             );
             """,
             cancellationToken);
+
+        await EnsureFleetDevicesVehicleTypeColumnAsync(connection, transaction, cancellationToken);
 
         await ExecuteSqlAsync(
             connection,
@@ -844,6 +856,102 @@ public static class DatabaseInitializer
                 CACHE 1;
             """,
             cancellationToken);
+    }
+
+    // Añade vehicle_type a bases existentes creadas antes de v8 (idempotente).
+    private static async Task EnsureFleetDevicesVehicleTypeColumnAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            ALTER TABLE fleet_devices
+            ADD COLUMN IF NOT EXISTS vehicle_type TEXT NOT NULL DEFAULT 'car';
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            UPDATE fleet_devices
+            SET vehicle_type = 'car'
+            WHERE vehicle_type IS NULL OR BTRIM(vehicle_type) = '';
+            """,
+            cancellationToken);
+
+        await ExecuteSqlAsync(
+            connection,
+            transaction,
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'CK_fleet_devices_vehicle_type'
+                      AND conrelid = 'fleet_devices'::regclass
+                ) THEN
+                    ALTER TABLE fleet_devices
+                    ADD CONSTRAINT "CK_fleet_devices_vehicle_type" CHECK (
+                        vehicle_type IN ('car', 'motorcycle', 'van', 'truck', 'bus', 'pickup')
+                    );
+                END IF;
+            END $$;
+            """,
+            cancellationToken);
+    }
+
+    // Catálogo cerrado de vehicle_type en fleet_devices; legacy → car.
+    private static async Task ApplyVehicleTypeMigrationV8Async(
+        DbConnection connection,
+        ILogger logger,
+        ISchemaMigrationHooks migrationHooks,
+        CancellationToken cancellationToken)
+    {
+        if (await SchemaVersionExistsAsync(connection, VehicleTypeSchemaVersion, cancellationToken))
+        {
+            logger.LogInformation(
+                "Vehicle type migration v{Version} already applied; preserving vehicle_type schema.",
+                VehicleTypeSchemaVersion);
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await EnsureFleetDevicesSchemaAsync(connection, transaction, cancellationToken);
+
+            await migrationHooks.OnBeforeRegisterVersionAsync(
+                VehicleTypeSchemaVersion,
+                cancellationToken);
+
+            await ExecuteSqlAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO schema_versions ("Version", "AppliedAt", "Description")
+                VALUES (
+                    8,
+                    NOW(),
+                    'Fleet devices vehicle_type catalog: car/motorcycle/van/truck/bus/pickup with default car');
+                """,
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation(
+                "Vehicle type migration v{Version} applied successfully.",
+                VehicleTypeSchemaVersion);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     // Relaciona telemetría y estado operativo por DeviceId UUID; conserva VehicleId legado como vehicle_name.
