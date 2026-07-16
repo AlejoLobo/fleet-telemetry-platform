@@ -9,6 +9,7 @@ import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-conf
 import { createVehicleMarkerIcon } from "@/lib/vehicle-marker";
 import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
 import { formatVehicleTooltip } from "@/lib/vehicle-display-format";
+import { VehicleConnectivityBadge } from "@/components/vehicle-connectivity-badge";
 import "leaflet/dist/leaflet.css";
 
 export type MapFocusTarget = {
@@ -128,7 +129,10 @@ export function LeafletFleetMap({
             >
               <Popup>
                 <div className="space-y-0.5 text-sm leading-snug">
-                  <strong>{tip.title}</strong>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{tip.name}</strong>
+                    <VehicleConnectivityBadge status={tip.status} />
+                  </div>
                   <div className="font-mono text-[11px]">{tip.deviceId}</div>
                   <div>{tip.driverName}</div>
                   <div>{tip.metrics}</div>

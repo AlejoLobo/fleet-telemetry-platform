@@ -1,15 +1,11 @@
 /** Formato unificado de tooltip (mapa) y card (Estado de flota). */
 import type { VehicleStatus } from "@/types/fleet";
-import { etiquetaEstadoVehiculo } from "@/lib/labels";
+import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 
 export function displayVehicleName(vehicle: Pick<VehicleStatus, "vehicleName">): string {
   const name = vehicle.vehicleName?.trim();
   return name && name.length > 0 ? name : "Vehículo";
-}
-
-export function formatVehicleTitleLine(vehicle: Pick<VehicleStatus, "vehicleName" | "status">): string {
-  return `${displayVehicleName(vehicle)} (${etiquetaEstadoVehiculo(vehicle.status)})`;
 }
 
 export function formatSpeed(speedKmh: number | null): string {
@@ -47,29 +43,45 @@ export function formatMetricsLine(
   ].join("  ");
 }
 
-/** Card Estado de flota (sin conductor ni coordenadas). */
+export type VehicleStatusBadgeInfo = {
+  label: string;
+  online: boolean;
+};
+
+export function formatStatusBadge(status: string): VehicleStatusBadgeInfo {
+  return {
+    label: etiquetaEstadoVehiculo(status),
+    online: esVehiculoEnLinea(status),
+  };
+}
+
+/** Card Estado de flota (sin conductor ni coordenadas). Estado va como badge aparte. */
 export function formatFleetStatusCard(vehicle: VehicleStatus): {
-  title: string;
+  name: string;
+  status: VehicleStatusBadgeInfo;
   deviceId: string;
   metrics: string;
 } {
   return {
-    title: formatVehicleTitleLine(vehicle),
+    name: displayVehicleName(vehicle),
+    status: formatStatusBadge(vehicle.status),
     deviceId: vehicle.deviceId,
     metrics: formatMetricsLine(vehicle),
   };
 }
 
-/** Tooltip / popup del marcador en mapa. */
+/** Tooltip / popup del marcador en mapa. Estado va como badge aparte. */
 export function formatVehicleTooltip(vehicle: VehicleStatus): {
-  title: string;
+  name: string;
+  status: VehicleStatusBadgeInfo;
   deviceId: string;
   driverName: string;
   metrics: string;
   coordinates: string;
 } {
   return {
-    title: formatVehicleTitleLine(vehicle),
+    name: displayVehicleName(vehicle),
+    status: formatStatusBadge(vehicle.status),
     deviceId: vehicle.deviceId,
     driverName: formatDriverName(vehicle.driverId),
     metrics: formatMetricsLine(vehicle),
