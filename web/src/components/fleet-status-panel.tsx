@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea } from "@/lib/labels";
 import { formatFleetStatusCard } from "@/lib/vehicle-display-format";
+import { VehicleConnectivityBadge } from "@/components/vehicle-connectivity-badge";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { cn } from "@/lib/utils";
 
@@ -170,7 +171,10 @@ export function FleetStatusPanel({
                 </div>
 
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <p className="truncate font-semibold text-slate-800">{card.title}</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate font-semibold text-slate-800">{card.name}</p>
+                    <VehicleConnectivityBadge status={card.status} />
+                  </div>
                   <p
                     className="break-all font-mono text-[11px] text-slate-500"
                     title={card.deviceId}

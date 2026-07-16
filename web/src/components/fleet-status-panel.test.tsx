@@ -172,8 +172,10 @@ describe("FleetStatusPanel vehicle row format", () => {
 
     render(<FleetStatusPanel vehicles={vehicles} />);
 
-    expect(screen.getByText("VH-001 (En línea)")).toBeTruthy();
-    expect(screen.getByText("VH-002 (Desconectado)")).toBeTruthy();
+    expect(screen.getByText("VH-001")).toBeTruthy();
+    expect(screen.getByText("VH-002")).toBeTruthy();
+    expect(screen.getByText("En línea")).toBeTruthy();
+    expect(screen.getByText("Desconectado")).toBeTruthy();
     expect(screen.getByText("00000000-0000-4000-8000-000000000001")).toBeTruthy();
     expect(screen.getByText(/— .+ Automóvil/)).toBeTruthy();
     expect(screen.getByText(/0 km\/h .+ Van/)).toBeTruthy();
