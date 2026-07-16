@@ -17,10 +17,45 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function markerColors(online: boolean) {
-  return online
-    ? { body: "#22c55e", border: "#15803d", accent: "#bbf7d0" }
-    : { body: "#9ca3af", border: "#6b7280", accent: "#e5e7eb" };
+function markerColors(online: boolean, type: VehicleStatus["vehicleType"]) {
+  // Colores por tipo (online); offline → gris uniforme.
+  if (!online) {
+    return { body: "#9ca3af", border: "#6b7280", accent: "#e5e7eb", badge: "#64748b" };
+  }
+
+  switch (type) {
+    case "motorcycle":
+      return { body: "#f59e0b", border: "#b45309", accent: "#fde68a", badge: "#d97706" };
+    case "truck":
+      return { body: "#3b82f6", border: "#1d4ed8", accent: "#bfdbfe", badge: "#2563eb" };
+    case "bus":
+      return { body: "#8b5cf6", border: "#6d28d9", accent: "#ddd6fe", badge: "#7c3aed" };
+    case "van":
+      return { body: "#14b8a6", border: "#0f766e", accent: "#99f6e4", badge: "#0d9488" };
+    case "pickup":
+      return { body: "#ef4444", border: "#b91c1c", accent: "#fecaca", badge: "#dc2626" };
+    case "car":
+    default:
+      return { body: "#22c55e", border: "#15803d", accent: "#bbf7d0", badge: "#16a34a" };
+  }
+}
+
+function typeBadgeLetter(type: VehicleStatus["vehicleType"]): string {
+  switch (type) {
+    case "motorcycle":
+      return "M";
+    case "truck":
+      return "C";
+    case "bus":
+      return "B";
+    case "van":
+      return "V";
+    case "pickup":
+      return "P";
+    case "car":
+    default:
+      return "A";
+  }
 }
 
 function vehicleLabel(vehicle: VehicleStatus): string {
@@ -120,20 +155,27 @@ function vehicleSvg(
 /** Icono de vehículo visto desde arriba; la punta apunta al rumbo (0° = norte). */
 export function createVehicleMarkerIcon(vehicle: VehicleStatus, selected: boolean): L.DivIcon {
   const online = esVehiculoEnLinea(vehicle.status);
-  const { body, border, accent } = markerColors(online);
+  const { body, border, accent, badge } = markerColors(online, vehicle.vehicleType);
   const heading = normalizeHeading(vehicle.headingDegrees);
   const scale = selected ? 1.12 : 1;
   const ring = selected
     ? "filter:drop-shadow(0 0 6px #38bdf8);"
     : "filter:drop-shadow(0 2px 4px rgba(15,23,42,0.25));";
+  const letter = typeBadgeLetter(vehicle.vehicleType);
 
   const html = `
-    <div style="display:flex;flex-direction:column;align-items:center;background:transparent;border:none;">
+    <div style="display:flex;flex-direction:column;align-items:center;background:transparent;border:none;position:relative;">
       <div style="${ring} transform:rotate(${heading}deg) scale(${scale}); transform-origin:center center;">
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48" aria-hidden="true">
           ${vehicleSvg(vehicle.vehicleType, body, border, accent)}
         </svg>
       </div>
+      <span style="
+        position:absolute;top:-2px;right:-2px;width:16px;height:16px;border-radius:9999px;
+        background:${badge};color:white;font-size:9px;font-weight:800;line-height:16px;
+        text-align:center;border:1.5px solid white;box-shadow:0 1px 2px rgba(15,23,42,0.25);
+        transform:none;
+      " aria-hidden="true">${letter}</span>
       <span style="
         margin-top:2px;padding:1px 7px;border-radius:9999px;
         background:rgba(255,255,255,0.95);font-size:10px;font-weight:700;

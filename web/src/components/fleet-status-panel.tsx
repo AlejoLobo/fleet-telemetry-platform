@@ -28,6 +28,15 @@ const VEHICLE_TYPE_ICONS: Record<VehicleType, LucideIcon> = {
   pickup: CarTaxiFront,
 };
 
+const VEHICLE_TYPE_ICON_TONES: Record<VehicleType, { online: string; offline: string; inkOnline: string }> = {
+  car: { online: "bg-emerald-500/15", offline: "bg-slate-200/60", inkOnline: "text-emerald-600" },
+  motorcycle: { online: "bg-amber-500/15", offline: "bg-slate-200/60", inkOnline: "text-amber-600" },
+  van: { online: "bg-teal-500/15", offline: "bg-slate-200/60", inkOnline: "text-teal-600" },
+  truck: { online: "bg-blue-500/15", offline: "bg-slate-200/60", inkOnline: "text-blue-600" },
+  bus: { online: "bg-violet-500/15", offline: "bg-slate-200/60", inkOnline: "text-violet-600" },
+  pickup: { online: "bg-red-500/15", offline: "bg-slate-200/60", inkOnline: "text-red-600" },
+};
+
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
   selectedDeviceId?: string | null;

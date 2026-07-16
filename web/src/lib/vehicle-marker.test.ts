@@ -63,9 +63,12 @@ describe("createVehicleMarkerIcon", () => {
     expect(icon.options.html).not.toContain("#22c55e");
   });
 
-  it("online usa color verde", () => {
-    const icon = createVehicleMarkerIcon(baseVehicle({ status: "online" }), false);
-    expect(icon.options.html).toContain("#22c55e");
+  it("online usa color distinto por tipo", () => {
+    const car = String(createVehicleMarkerIcon(baseVehicle({ vehicleType: "car", status: "online" }), false).options.html);
+    const moto = String(createVehicleMarkerIcon(baseVehicle({ vehicleType: "motorcycle", status: "online" }), false).options.html);
+    expect(car).toContain("#22c55e");
+    expect(moto).toContain("#f59e0b");
+    expect(moto).toContain(">M<");
   });
 
   it("seleccionado aplica resplandor azul", () => {
