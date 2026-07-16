@@ -8,51 +8,92 @@ import {
   randomTelemetryTimestamp,
   zoneForVehicleIndex,
 } from "@/lib/bogota-zones";
+import { formatVehicleDisplayName } from "@/lib/labels";
+import type { VehicleType } from "@/types/fleet";
+import { getE2eSeed, isE2eTestMode } from "@/lib/e2e-test-mode";
+import {
+  createSeededRandom,
+  randomBetween,
+  randomInt,
+  randomUuid,
+  type RandomSource,
+} from "@/lib/seeded-random";
 
 /** Datos sintéticos para el modo demostración del dashboard (sin backend). */
 
-const VEHICLE_NAMES = [
-  "Camión reparto",
-  "Furgoneta urbana",
-  "Van refrigerada",
-  "Camioneta ligera",
-  "Moto carga",
-  "Trailer corto",
+const DEMO_VEHICLE_NAMES = [
+  "VH-001",
+  "VH-002",
+  "VH-003",
+  "VH-004",
+  "VH-005",
+  "VH-006",
+];
+
+const DEMO_VEHICLE_TYPES: VehicleType[] = [
+  "truck",
+  "van",
+  "van",
+  "pickup",
+  "motorcycle",
+  "truck",
 ];
 
 const ALERT_TYPES = [
-  { type: "overspeed", severity: "critical" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} superó el límite de velocidad: ${v.toFixed(1)} km/h` },
-  { type: "low_fuel", severity: "warning" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} tiene combustible bajo: ${v.toFixed(1)}%` },
-  { type: "low_battery", severity: "warning" as const, message: (id: string, v: number) =>
-    `El vehículo ${id} tiene batería baja: ${v.toFixed(1)}%` },
+  {
+    type: "overspeed",
+    severity: "critical" as const,
+    message: (label: string, v: number) =>
+      `El vehículo ${label} superó el límite de velocidad: ${v.toFixed(1)} km/h`,
+  },
+  {
+    type: "low_fuel",
+    severity: "warning" as const,
+    message: (label: string, v: number) =>
+      `El vehículo ${label} tiene combustible bajo: ${v.toFixed(1)}%`,
+  },
+  {
+    type: "low_battery",
+    severity: "warning" as const,
+    message: (label: string, v: number) =>
+      `El vehículo ${label} tiene batería baja: ${v.toFixed(1)}%`,
+  },
 ];
 
 /** Conjunto completo de datos mock (vehículos, alertas, telemetría). */
 export type MockFleetDataset = {
   vehicles: VehicleStatus[];
   alerts: FleetAlert[];
-  telemetryByVehicle: Record<string, TelemetryEvent[]>;
+  telemetryByDevice: Record<string, TelemetryEvent[]>;
 };
 
 let cachedDataset: MockFleetDataset | null = null;
+let demoRefreshSequence = 0;
 
-function randomBetween(min: number, max: number): number {
-  return min + Math.random() * (max - min);
+function resolveRandomSource(): RandomSource {
+  if (!isE2eTestMode()) return Math.random;
+  return createSeededRandom((getE2eSeed() + demoRefreshSequence) >>> 0);
 }
 
-function randomInt(min: number, max: number): number {
-  return Math.floor(randomBetween(min, max + 1));
+/** Reinicia caché y secuencia demo; solo para pruebas automatizadas. */
+export function resetMockDatasetForTests(): void {
+  cachedDataset = null;
+  demoRefreshSequence = 0;
 }
 
-function randomId(): string {
-  return crypto.randomUUID();
+/** Secuencia de regeneración demo; solo para aserciones en pruebas. */
+export function getDemoRefreshSequenceForTests(): number {
+  return demoRefreshSequence;
 }
 
-function randomCoord(): { lat: number; lng: number } {
-  const zone = BOGOTA_ZONES[randomInt(0, BOGOTA_ZONES.length - 1)];
-  return randomPointInZone(zone);
+/** UUID determinístico por índice para mocks reproducibles. */
+export function mockDeviceId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+}
+
+function randomCoord(random: RandomSource): { lat: number; lng: number } {
+  const zone = BOGOTA_ZONES[randomInt(0, BOGOTA_ZONES.length - 1, random)];
+  return randomPointInZone(zone, random);
 }
 
 function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -68,18 +109,21 @@ function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number):
 }
 
 /** Genera coordenadas separadas por zona de Bogotá. */
-function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number; lng: number }[] {
+function randomDistinctCoords(
+  count: number,
+  random: RandomSource,
+  minDistanceM = 1200,
+): { lat: number; lng: number }[] {
   const coords: { lat: number; lng: number }[] = [];
 
-  // Primero: una coordenada por zona para garantizar dispersión urbana
   for (let i = 0; i < Math.min(count, BOGOTA_ZONES.length); i++) {
-    coords.push(randomPointInZone(zoneForVehicleIndex(i)));
+    coords.push(randomPointInZone(zoneForVehicleIndex(i), random));
   }
 
   let attempts = 0;
   while (coords.length < count && attempts < count * 40) {
     attempts += 1;
-    const candidate = randomCoord();
+    const candidate = randomCoord(random);
     const tooClose = coords.some(
       (c) => distanceMeters(c.lat, c.lng, candidate.lat, candidate.lng) < minDistanceM,
     );
@@ -87,7 +131,7 @@ function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number
   }
 
   while (coords.length < count) {
-    coords.push(randomCoord());
+    coords.push(randomCoord(random));
   }
 
   return coords;
@@ -97,12 +141,14 @@ function randomDistinctCoords(count: number, minDistanceM = 1200): { lat: number
 function generateVehicleBundle(
   index: number,
   coord: { lat: number; lng: number },
+  random: RandomSource,
+  sequence: number,
 ): { vehicle: VehicleStatus; events: TelemetryEvent[] } {
-  const id = `VH-${String(index + 1).padStart(3, "0")}`;
+  const deviceId = mockDeviceId(index);
   const zone = zoneForVehicleIndex(index);
-  const online = randomOnlineFlag();
-  const travelHeading = randomBetween(0, 360);
-  const eventCount = randomInt(6, 14);
+  const online = isE2eTestMode() ? true : randomOnlineFlag(random);
+  const travelHeading = randomBetween(0, 360, random);
+  const eventCount = isE2eTestMode() ? 8 : randomInt(6, 14, random);
   const events: TelemetryEvent[] = [];
 
   let lat = coord.lat;
@@ -110,27 +156,43 @@ function generateVehicleBundle(
 
   for (let i = 0; i < eventCount; i++) {
     const isLatest = i === 0;
-    const eventOnline = isLatest ? online : Math.random() > 0.35;
+    const eventOnline = isLatest ? online : random() > 0.35;
+    const speedKmh =
+      isE2eTestMode() && isLatest && index === 0
+        ? 20 + sequence * 5
+        : Math.round((eventOnline ? randomBetween(8, 115, random) : randomBetween(0, 15, random)) * 10) /
+          10;
+
     events.push({
-      eventId: randomId(),
-      vehicleId: id,
-      driverId: `DRV-${id.replace("VH-", "")}`,
+      eventId: isE2eTestMode() ? randomUuid(random) : crypto.randomUUID(),
+      deviceId,
+      driverId: `DRV-${String(index + 1).padStart(3, "0")}`,
       timestamp: isLatest
-        ? randomTelemetryTimestamp(online)
-        : randomTelemetryTimestamp(eventOnline),
+        ? randomTelemetryTimestamp(online, random)
+        : randomTelemetryTimestamp(eventOnline, random),
       latitude: lat,
       longitude: lng,
-      speedKmh: Math.round((eventOnline ? randomBetween(8, 115) : randomBetween(0, 15)) * 10) / 10,
-      fuelLevelPercent: Math.round(randomBetween(8, 98) * 10) / 10,
-      batteryPercent: Math.round(randomBetween(12, 100) * 10) / 10,
+      speedKmh,
+      fuelLevelPercent: Math.round(randomBetween(8, 98, random) * 10) / 10,
+      batteryPercent: Math.round(randomBetween(12, 100, random) * 10) / 10,
     });
 
-    const previous = moveByBearing(lat, lng, travelHeading + randomBetween(-35, 35), randomBetween(120, 350));
+    const previous = moveByBearing(
+      lat,
+      lng,
+      travelHeading + randomBetween(-35, 35, random),
+      randomBetween(120, 350, random),
+    );
     lat = previous.lat;
     lng = previous.lng;
   }
 
   events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  // En E2E, velocidad del vehículo 0 es determinista por secuencia (tras ordenar).
+  if (isE2eTestMode() && index === 0 && events[0]) {
+    events[0].speedKmh = 20 + sequence * 5;
+  }
 
   const latest = events[0];
   const previous = events[1];
@@ -139,40 +201,45 @@ function generateVehicleBundle(
       ? computeBearingDegrees(previous.latitude, previous.longitude, latest.latitude, latest.longitude)
       : travelHeading;
 
+  const demoIndex = index % DEMO_VEHICLE_NAMES.length;
   const vehicle: VehicleStatus = {
-    vehicleId: id,
-    name: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
+    deviceId,
+    vehicleName: DEMO_VEHICLE_NAMES[demoIndex] ?? `VH-${String(index + 1).padStart(3, "0")}`,
+    vehicleType: DEMO_VEHICLE_TYPES[demoIndex] ?? "car",
     status: online ? "online" : "offline",
     lastSeenAt: latest.timestamp,
     lastSpeedKmh: latest.speedKmh,
     lastLatitude: latest.latitude,
     lastLongitude: latest.longitude,
     headingDegrees: Math.round(headingDegrees * 10) / 10,
+    lastLocationSource: "simulated",
+    driverId: latest.driverId,
   };
 
   return { vehicle, events };
 }
 
 /** Genera alertas aleatorias para la flota mock. */
-function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
+function generateAlerts(vehicles: VehicleStatus[], random: RandomSource): FleetAlert[] {
   const alerts: FleetAlert[] = [];
-  const alertCount = randomInt(1, Math.min(4, vehicles.length));
+  const alertCount = randomInt(1, Math.min(4, vehicles.length), random);
 
   for (let i = 0; i < alertCount; i++) {
-    const vehicle = vehicles[randomInt(0, vehicles.length - 1)];
-    const template = ALERT_TYPES[randomInt(0, ALERT_TYPES.length - 1)];
+    const vehicle = vehicles[randomInt(0, vehicles.length - 1, random)];
+    const template = ALERT_TYPES[randomInt(0, ALERT_TYPES.length - 1, random)];
     const value =
       template.type === "overspeed"
-        ? randomBetween(125, 145)
-        : randomBetween(5, 18);
+        ? randomBetween(125, 145, random)
+        : randomBetween(5, 18, random);
+    const displayLabel = formatVehicleDisplayName(vehicle);
 
     alerts.push({
-      alertId: randomId(),
-      vehicleId: vehicle.vehicleId,
+      alertId: isE2eTestMode() ? randomUuid(random) : crypto.randomUUID(),
+      deviceId: vehicle.deviceId,
       alertType: template.type,
       severity: template.severity,
-      message: template.message(vehicle.vehicleId, value),
-      createdAt: new Date(Date.now() - randomInt(1, 120) * 60_000).toISOString(),
+      message: template.message(displayLabel, value),
+      createdAt: new Date(Date.now() - randomInt(1, 120, random) * 60_000).toISOString(),
       isAcknowledged: false,
     });
   }
@@ -183,27 +250,32 @@ function generateAlerts(vehicles: VehicleStatus[]): FleetAlert[] {
 function generateTelemetryBundles(
   bundles: { vehicle: VehicleStatus; events: TelemetryEvent[] }[],
 ): Record<string, TelemetryEvent[]> {
-  const byVehicle: Record<string, TelemetryEvent[]> = {};
+  const byDevice: Record<string, TelemetryEvent[]> = {};
   for (const bundle of bundles) {
-    byVehicle[bundle.vehicle.vehicleId] = bundle.events;
+    byDevice[bundle.vehicle.deviceId] = bundle.events;
   }
-  return byVehicle;
+  return byDevice;
 }
 
 /** Genera un dataset completo de flota simulada. */
 export function generateMockFleetDataset(vehicleCount?: number): MockFleetDataset {
-  const count = vehicleCount ?? randomInt(8, 12);
-  const coords = randomDistinctCoords(count);
-  const bundles = coords.map((coord, index) => generateVehicleBundle(index, coord));
+  const random = resolveRandomSource();
+  const sequence = demoRefreshSequence;
+  const count = vehicleCount ?? (isE2eTestMode() ? 10 : randomInt(8, 12, random));
+  const coords = randomDistinctCoords(count, random);
+  const bundles = coords.map((coord, index) =>
+    generateVehicleBundle(index, coord, random, sequence),
+  );
   const vehicles = bundles.map((b) => b.vehicle);
-  const alerts = generateAlerts(vehicles);
-  const telemetryByVehicle = generateTelemetryBundles(bundles);
+  const alerts = generateAlerts(vehicles, random);
+  const telemetryByDevice = generateTelemetryBundles(bundles);
 
-  return { vehicles, alerts, telemetryByVehicle };
+  return { vehicles, alerts, telemetryByDevice };
 }
 
 /** Regenera y cachea un nuevo dataset demo. */
 export function refreshMockDataset(vehicleCount?: number): MockFleetDataset {
+  demoRefreshSequence += 1;
   cachedDataset = generateMockFleetDataset(vehicleCount);
   return cachedDataset;
 }
@@ -211,13 +283,14 @@ export function refreshMockDataset(vehicleCount?: number): MockFleetDataset {
 /** Obtiene el dataset mock cacheado o genera uno nuevo. */
 export function getMockDataset(): MockFleetDataset {
   if (!cachedDataset) {
+    // Primera carga: secuencia 0 → se incrementa al refresh; aquí usamos 0 sin incrementar.
     cachedDataset = generateMockFleetDataset();
   }
   return cachedDataset;
 }
 
-export function getMockTelemetry(vehicleId: string): TelemetryEvent[] {
-  return getMockDataset().telemetryByVehicle[vehicleId] ?? [];
+export function getMockTelemetry(deviceId: string): TelemetryEvent[] {
+  return getMockDataset().telemetryByDevice[deviceId] ?? [];
 }
 
 /** Respuesta simulada del agente IA para modo demo. */

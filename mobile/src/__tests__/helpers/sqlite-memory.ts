@@ -2,6 +2,7 @@ type QueueRow = {
   local_id: number;
   event_id: string;
   vehicle_id: string;
+  device_id: string;
   driver_id: string | null;
   timestamp: string;
   latitude: number;
@@ -32,6 +33,11 @@ export function resetSqliteMemory(): void {
 
 export function getSqliteRows(): QueueRow[] {
   return rows;
+}
+
+/** Ajusta el autoincremento simulado tras sembrar filas legacy en pruebas. */
+export function setSqliteMemoryNextLocalId(value: number): void {
+  nextLocalId = value;
 }
 
 export function setFailNextBatchRetry(value: boolean): void {
@@ -76,28 +82,100 @@ export function createSqliteMemoryDb() {
       }
       return null;
     }),
-    getAllAsync: jest.fn(async (sql: string, nowIso?: string, limit?: number) => {
+    getAllAsync: jest.fn(async (sql: string, ...params: unknown[]) => {
+      if (sql.includes("PRAGMA table_info")) {
+        return [
+          { name: "local_id" },
+          { name: "event_id" },
+          { name: "vehicle_id" },
+          { name: "device_id" },
+          { name: "driver_id" },
+          { name: "timestamp" },
+          { name: "latitude" },
+          { name: "longitude" },
+          { name: "speed_kmh" },
+          { name: "fuel_level_percent" },
+          { name: "battery_percent" },
+          { name: "source" },
+          { name: "status" },
+          { name: "retry_count" },
+          { name: "next_attempt_at" },
+          { name: "last_attempt_at" },
+          { name: "last_error" },
+          { name: "locked_at" },
+          { name: "synced_at" },
+          { name: "created_at" },
+        ];
+      }
+      if (sql.includes("status IN ('pending','retry','processing')") && sql.includes("local_id")) {
+        return rows
+          .filter((row) => ["pending", "retry", "processing"].includes(row.status))
+          .map((row) => row as unknown as Record<string, unknown>);
+      }
       if (!sql.includes("telemetry_queue")) return [];
+
+      const nowIso = typeof params[0] === "string" ? params[0] : "";
+      let filterDeviceId: string | undefined;
+      let limit: number | undefined;
+      if (sql.includes("lower(device_id)")) {
+        filterDeviceId = typeof params[1] === "string" ? params[1] : undefined;
+        limit = typeof params[2] === "number" ? params[2] : undefined;
+      } else {
+        limit = typeof params[1] === "number" ? params[1] : undefined;
+      }
+
       const eligible = rows
         .filter((row) => ["pending", "retry"].includes(row.status))
-        .filter((row) => !row.next_attempt_at || row.next_attempt_at <= (nowIso ?? ""))
+        .filter((row) => !row.next_attempt_at || row.next_attempt_at <= nowIso)
+        .filter((row) =>
+          !filterDeviceId
+            || (typeof row.device_id === "string"
+              && row.device_id.toLowerCase() === filterDeviceId.toLowerCase()),
+        )
         .sort((a, b) => a.local_id - b.local_id);
       return (typeof limit === "number" ? eligible.slice(0, limit) : eligible) as unknown as Record<string, unknown>[];
     }),
     runAsync: jest.fn(async (sql: string, ...params: unknown[]) => {
+      if (sql.includes("INSERT OR REPLACE INTO schema_meta")) {
+        return { changes: 1 };
+      }
+      if (sql.includes("SET device_id = NULL WHERE local_id")) {
+        const localId = params[0] as number;
+        const row = findByLocalId(localId);
+        if (row) {
+          row.device_id = "";
+          return { changes: 1 };
+        }
+        return { changes: 0 };
+      }
+      if (sql.includes("SET device_id = ?") && sql.includes("vehicle_id = ?") && sql.includes("local_id = ?")) {
+        const deviceId = params[0] as string;
+        const vehicleId = params[1] as string;
+        const localId = params[2] as number;
+        const row = findByLocalId(localId);
+        if (row) {
+          row.device_id = deviceId;
+          row.vehicle_id = vehicleId;
+          return { changes: 1 };
+        }
+        return { changes: 0 };
+      }
       if (sql.includes("INSERT INTO telemetry_queue")) {
+        // event_id, vehicle_id, device_id, driver_id, timestamp, lat, lon, speed, fuel, battery, source, created_at
+        const deviceId = params[2] as string;
         const row: QueueRow = {
           local_id: nextLocalId++,
           event_id: params[0] as string,
           vehicle_id: params[1] as string,
-          driver_id: (params[2] as string | null) ?? null,
-          timestamp: params[3] as string,
-          latitude: params[4] as number,
-          longitude: params[5] as number,
-          speed_kmh: params[6] as number,
-          fuel_level_percent: (params[7] as number | null) ?? null,
-          battery_percent: (params[8] as number | null) ?? null,
-          source: params[9] as string,
+          device_id: deviceId,
+          driver_id: (params[3] as string | null) ?? null,
+          timestamp: params[4] as string,
+          latitude: params[5] as number,
+          longitude: params[6] as number,
+          speed_kmh: params[7] as number,
+          fuel_level_percent: (params[8] as number | null) ?? null,
+          battery_percent: (params[9] as number | null) ?? null,
+          source: params[10] as string,
           status: "pending",
           retry_count: 0,
           next_attempt_at: null,
@@ -105,7 +183,7 @@ export function createSqliteMemoryDb() {
           last_error: null,
           locked_at: null,
           synced_at: null,
-          created_at: params[10] as string,
+          created_at: params[11] as string,
         };
         rows.push(row);
         return { lastInsertRowId: row.local_id, changes: 1 };

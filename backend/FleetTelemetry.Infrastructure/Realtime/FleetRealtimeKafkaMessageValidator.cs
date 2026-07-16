@@ -64,8 +64,8 @@ internal static class FleetRealtimeKafkaMessageValidator
             throw new RealtimeKafkaInvalidPayloadException("vehicle-update payload must be an object.");
         }
 
-        RequireNonEmptyString(payload, "vehicleId");
-        RequireNonEmptyString(payload, "name");
+        RequireDeviceId(payload, "deviceId");
+        RequireNonEmptyString(payload, "vehicleName");
         RequireNonEmptyString(payload, "status");
         RequireTemporalProperty(payload, "lastSeenAt");
     }
@@ -78,7 +78,7 @@ internal static class FleetRealtimeKafkaMessageValidator
         }
 
         RequireNonEmptyString(payload, "alertId");
-        RequireNonEmptyString(payload, "vehicleId");
+        RequireDeviceId(payload, "deviceId");
         RequireNonEmptyString(payload, "alertType");
         RequireNonEmptyString(payload, "severity");
         RequireNonEmptyString(payload, "message");
@@ -109,6 +109,31 @@ internal static class FleetRealtimeKafkaMessageValidator
 
             index++;
         }
+    }
+
+    private static void RequireDeviceId(JsonElement payload, string propertyName)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property))
+        {
+            throw new RealtimeKafkaInvalidPayloadException(
+                $"Payload missing required property '{propertyName}'.");
+        }
+
+        if (property.ValueKind == JsonValueKind.String)
+        {
+            if (string.IsNullOrWhiteSpace(property.GetString())
+                || !Guid.TryParse(property.GetString(), out var guid)
+                || guid == Guid.Empty)
+            {
+                throw new RealtimeKafkaInvalidPayloadException(
+                    $"Payload property '{propertyName}' must be a non-empty GUID.");
+            }
+
+            return;
+        }
+
+        throw new RealtimeKafkaInvalidPayloadException(
+            $"Payload property '{propertyName}' must be a GUID string.");
     }
 
     private static void RequireNonEmptyString(JsonElement payload, string propertyName)

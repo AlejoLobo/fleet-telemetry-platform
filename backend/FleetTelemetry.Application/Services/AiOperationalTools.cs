@@ -1,5 +1,6 @@
 using FleetTelemetry.Application.Interfaces;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace FleetTelemetry.Application.Services;
 
@@ -7,6 +8,10 @@ public class AiOperationalTools
 {
     private const double StoppedSpeedThresholdKmh = 1;
     private const double DefaultHighSpeedKmh = 80;
+
+    private static readonly Regex GuidRegex = new(
+        @"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly IFleetQueryService _fleetQueryService;
     private readonly IFleetOperationalQueryService _operationalQueryService;
@@ -26,19 +31,20 @@ public class AiOperationalTools
     }
 
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetLatestVehicleStatusAsync(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken = default)
     {
-        var status = await _fleetQueryService.GetVehicleStatusAsync(vehicleId, cancellationToken);
+        var status = await _fleetQueryService.GetVehicleStatusAsync(deviceId, cancellationToken);
         if (status is null)
-            return ($"No hay telemetría registrada para el vehículo {vehicleId}.", ["GetLatestVehicleStatus"]);
+            return ($"No hay telemetría registrada para el dispositivo {deviceId:D}.", ["GetLatestVehicleStatus"]);
 
         var zone = status.LastLatitude is double lat && status.LastLongitude is double lng
             ? CriticalZoneCatalog.FindZoneAt(lat, lng)
             : null;
 
         var answer = new StringBuilder()
-            .AppendLine($"Estado de {status.VehicleId}:")
+            .AppendLine($"Estado de {status.DeviceId:D}:")
+            .AppendLine($"- Nombre: {status.VehicleName}")
             .AppendLine($"- Estado: {AiResponseFormatter.EtiquetaEstado(status.Status)}")
             .AppendLine($"- Última señal: {status.LastSeenAt:u}")
             .AppendLine($"- Velocidad: {status.LastSpeedKmh:F1} km/h")
@@ -104,7 +110,7 @@ public class AiOperationalTools
         var lines = stopped.Select(v =>
         {
             var zoneLabel = v.CriticalZoneName is not null ? $", zona {v.CriticalZoneName}" : string.Empty;
-            return $"- {v.VehicleId}: detenido {FormatDuration(v.StoppedDuration)} (desde {v.StoppedSince:u}{zoneLabel})";
+            return $"- {v.DeviceId:D}: detenido {FormatDuration(v.StoppedDuration)} (desde {v.StoppedSince:u}{zoneLabel})";
         });
 
         var sources = new List<string> { "GetVehiclesStoppedLongerThan", "IFleetOperationalQueryService" };
@@ -124,7 +130,7 @@ public class AiOperationalTools
             return ("No hay alertas críticas abiertas.", ["GetVehiclesWithCriticalAlerts"]);
 
         var lines = critical.Select(a =>
-            $"- {a.VehicleId}: {AiResponseFormatter.EtiquetaTipoAlerta(a.AlertType)} — {AiResponseFormatter.TraducirMensajeAlerta(a.VehicleId, a.Message)}");
+            $"- {a.DeviceId:D}: {AiResponseFormatter.EtiquetaTipoAlerta(a.AlertType)} — {AiResponseFormatter.TraducirMensajeAlerta(a.DeviceId, a.Message)}");
         return ($"Alertas críticas abiertas ({critical.Count}):\n{string.Join('\n', lines)}", ["GetVehiclesWithCriticalAlerts"]);
     }
 
@@ -138,25 +144,25 @@ public class AiOperationalTools
         if (above.Count == 0)
             return ($"Ningún vehículo supera {thresholdKmh:F0} km/h.", ["GetVehiclesAboveSpeed"]);
 
-        var lines = above.Select(v => $"- {v.VehicleId}: {v.LastSpeedKmh:F1} km/h");
+        var lines = above.Select(v => $"- {v.DeviceId:D}: {v.LastSpeedKmh:F1} km/h");
         return ($"Vehículos por encima de {thresholdKmh:F0} km/h ({above.Count}):\n{string.Join('\n', lines)}", ["GetVehiclesAboveSpeed"]);
     }
 
     public async Task<(string Answer, IReadOnlyList<string> Sources)> GetAnalyticsSummaryAsync(
-        string? vehicleId,
+        Guid? deviceId,
         CancellationToken cancellationToken = default)
     {
         var vehicles = await _fleetQueryService.GetAllFleetStatusesAsync(cancellationToken: cancellationToken);
         if (vehicles.Count == 0)
             return ("No hay datos de flota para generar analítica.", ["GetAnalyticsSummary"]);
 
-        var targetId = vehicleId ?? vehicles[0].VehicleId;
+        var targetId = deviceId ?? vehicles[0].DeviceId;
         var to = DateTimeOffset.UtcNow;
         var from = to.AddHours(-24);
         var avgSpeed = await _analyticsQueryService.GetAverageSpeedAsync(targetId, from, to, cancellationToken);
 
         var answer = new StringBuilder()
-            .AppendLine($"Resumen analítico (últimas 24 h) — vehículo {targetId}:")
+            .AppendLine($"Resumen analítico (últimas 24 h) — dispositivo {targetId:D}:")
             .AppendLine($"- Velocidad promedio: {avgSpeed:F1} km/h")
             .AppendLine($"- Vehículos en línea: {vehicles.Count(v => v.Status == "online")}/{vehicles.Count}")
             .AppendLine("- Fuente: TimescaleDB")
@@ -198,19 +204,15 @@ public class AiOperationalTools
         return double.TryParse(digits, out var value) && value > 0 ? value : null;
     }
 
-    public static string? ExtractVehicleId(string question)
+    public static Guid? ExtractDeviceId(string question)
     {
-        const string prefix = "VH-";
-        var upper = question.ToUpperInvariant();
-        var index = upper.IndexOf(prefix, StringComparison.Ordinal);
-        if (index < 0)
+        var match = GuidRegex.Match(question);
+        if (!match.Success)
             return null;
 
-        var end = index + prefix.Length;
-        while (end < upper.Length && (char.IsDigit(upper[end]) || upper[end] == '-'))
-            end++;
-
-        return upper[index..end];
+        return Guid.TryParse(match.Value, out var deviceId) && deviceId != Guid.Empty
+            ? deviceId
+            : null;
     }
 
     private static string FormatStoppedLine(DTOs.VehicleLatestStatusResponse vehicle)
@@ -219,7 +221,7 @@ public class AiOperationalTools
             ? CriticalZoneCatalog.FindZoneAt(lat, lng)?.Name
             : null;
         var zoneSuffix = zone is not null ? $", zona {zone}" : string.Empty;
-        return $"- {vehicle.VehicleId} (última señal: {vehicle.LastSeenAt:u}{zoneSuffix})";
+        return $"- {vehicle.DeviceId:D} (última señal: {vehicle.LastSeenAt:u}{zoneSuffix})";
     }
 
     private static string FormatDuration(TimeSpan duration)

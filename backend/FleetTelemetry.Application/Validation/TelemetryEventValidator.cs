@@ -21,11 +21,8 @@ public class TelemetryEventValidator
         if (request.EventId == Guid.Empty)
             throw new ArgumentException("EventId is required.");
 
-        if (string.IsNullOrWhiteSpace(request.VehicleId))
-            throw new ArgumentException("VehicleId is required.");
-
-        if (request.VehicleId.Trim().Length > _options.MaxVehicleIdLength)
-            throw new ArgumentException($"VehicleId must be <= {_options.MaxVehicleIdLength} characters.");
+        if (request.DeviceId == Guid.Empty)
+            throw new ArgumentException("DeviceId is required.");
 
         if (request.DriverId is not null && request.DriverId.Trim().Length > _options.MaxDriverIdLength)
             throw new ArgumentException($"DriverId must be <= {_options.MaxDriverIdLength} characters.");
@@ -66,7 +63,7 @@ public class TelemetryEventValidator
     public TelemetryEvent MapToDomain(TelemetryEventRequest request) =>
         TelemetryEvent.Create(
             request.EventId,
-            request.VehicleId.Trim(),
+            request.DeviceId,
             request.DriverId?.Trim(),
             request.Timestamp,
             request.Latitude,

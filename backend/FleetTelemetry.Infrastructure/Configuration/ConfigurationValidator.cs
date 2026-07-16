@@ -24,12 +24,27 @@ public static class ConfigurationValidator
                 throw new InvalidOperationException(
                     "Auth:DemoPassword no debe estar vacío cuando Auth está habilitado.");
             }
+
+            // Admin es opcional: si hay usuario admin, la contraseña debe estar definida.
+            if (!string.IsNullOrWhiteSpace(auth.AdminUsername)
+                && string.IsNullOrWhiteSpace(auth.AdminPassword))
+            {
+                throw new InvalidOperationException(
+                    "Auth:AdminPassword no debe estar vacío cuando Auth:AdminUsername está configurado y Auth está habilitado.");
+            }
         }
 
         ValidateKafkaOptions(configuration);
 
         if (environment.IsDevelopment())
             return;
+
+        // Production: enrolamiento demo nunca permitido.
+        if (auth.AllowDemoDeviceEnrollment)
+        {
+            throw new InvalidOperationException(
+                "Auth:AllowDemoDeviceEnrollment debe ser false en Production.");
+        }
 
         var timescale = configuration.GetSection(TimescaleDbOptions.SectionName).Get<TimescaleDbOptions>();
         if (timescale?.ConnectionString?.Contains(DefaultDbPassword, StringComparison.OrdinalIgnoreCase) == true)

@@ -32,6 +32,17 @@ Versión `4` — tabla `fleet_alert_states` (estado activo / cooldown por `Vehic
 
 Versión `5` — mantenimiento TimescaleDB sobre `telemetry_events` / `processed_events`: chunk interval 6 h, compresión (>7 días), retención cruda 90 días, agregado continuo `telemetry_hourly` (refresh 15 min), índice `ix_processed_events_processed_at` y job `cleanup_processed_events` (120 días, lotes de 100.000 cada 5 min). Ver [timescaledb-operations.md](timescaledb-operations.md).
 
+Versión `6` — registro de dispositivos `fleet_devices` (`device_id` UUID PK, `vehicle_name` UNIQUE) y secuencia `fleet_vehicle_name_seq` para asignación atómica de nombres `VH-###`. El `DeviceId` es identidad estable; el nombre es editable y no redefine la identidad.
+
+Versión `7` — persistencia operativa por `device_id` UUID:
+- Backfill de identidades legadas desde `telemetry_events`, `fleet_vehicle_state`, `fleet_alerts`, `fleet_alert_states` y `fleet_offline_publish_markers` (columna `"VehicleId"`).
+- Por cada valor histórico distinto: si parsea como UUID se reutiliza como `device_id`; si no, se genera uno nuevo. El antiguo `VehicleId` se conserva como `vehicle_name` inicial en `fleet_devices` (con sufijo corto si choca el UNIQUE).
+- Tablas operativas y `telemetry_events` pasan a clave/consulta por `device_id`; índices renombrados; agregado continuo `telemetry_hourly` se recrea agrupando por `device_id`.
+- **No hay merge automático de duplicados históricos**: si el mismo vehículo físico quedó con varias identidades, la limpieza es manual.
+- Compresión Timescale segmenta por `device_id` tras la migración.
+
+Versión `8` — columna `vehicle_type TEXT NOT NULL DEFAULT 'car'` en `fleet_devices`, con `CHECK` del catálogo cerrado (`car`, `motorcycle`, `van`, `truck`, `bus`, `pickup`). Filas legacy reciben `car`. No se infiere el tipo desde `vehicle_name`. El tipo se edita con `PATCH /api/devices/{deviceId}/profile`; el registro idempotente no sobrescribe un tipo ya persistido.
+
 ### Política v2 + v3 (sin doble backfill)
 
 ```
@@ -40,6 +51,9 @@ InitializeAsync:
   ApplyReadModelVerificationV3Async(v2AppliedNow)
   ApplyAlertStateMigrationV4Async()
   ApplyTimescaleMaintenanceMigrationV5Async()
+  ApplyFleetDevicesMigrationV6Async()
+  ApplyDeviceIdPersistenceMigrationV7Async()
+  ApplyVehicleTypeMigrationV8Async()
 ```
 
 | Escenario | Backfills ejecutados |
@@ -54,7 +68,7 @@ InitializeAsync:
 
 | Campo | Descripción |
 |-------|-------------|
-| `VehicleId` | PK |
+| `device_id` | PK (UUID del dispositivo) |
 | `LastEventId`, `LastTimestamp` | Último evento aplicado al estado |
 | `Latitude`, `Longitude`, `SpeedKmh`, … | Snapshot operativo |
 | `LocationSource` | `gps` / `simulated` del último evento |
@@ -64,7 +78,7 @@ Actualización transaccional en el Worker (misma transacción que `telemetry_eve
 
 - Solo reemplaza si `incoming.Timestamp > stored.LastTimestamp`, o mismo timestamp y `EventId` mayor.
 
-Backfill idempotente en `DatabaseInitializer` (`ORDER BY VehicleId, Timestamp DESC, EventId DESC`).
+Backfill idempotente en `DatabaseInitializer` (`ORDER BY device_id, Timestamp DESC, EventId DESC` tras v7; legado v2/v3 usa `"VehicleId"`).
 
 ## Ruta recomendada con EF Core Migrations
 

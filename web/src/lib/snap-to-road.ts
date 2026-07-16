@@ -38,7 +38,7 @@ export async function snapToNearestRoad(lat: number, lng: number): Promise<SnapR
 
 /** Ajusta todos los vehículos a la calle más cercana. */
 export async function snapVehiclesToRoads<
-  T extends { vehicleId: string; lastLatitude: number | null; lastLongitude: number | null },
+  T extends { deviceId: string; lastLatitude: number | null; lastLongitude: number | null },
 >(vehicles: T[]): Promise<T[]> {
   const tasks = vehicles.map(async (vehicle) => {
     if (vehicle.lastLatitude == null || vehicle.lastLongitude == null) return vehicle;

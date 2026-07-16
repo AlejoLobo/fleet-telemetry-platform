@@ -108,6 +108,7 @@ public static class DependencyInjection
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
             services.AddScoped<IAnalyticsQueryService, TimescaleAnalyticsQueryService>();
             services.AddScoped<IFleetStateAggregateRepository, TimescaleFleetStateAggregateRepository>();
+            services.AddScoped<IDeviceRegistry, TimescaleDeviceRegistry>();
             services.AddScoped<IOpsQueryService, OpsQueryService>();
             services.AddScoped<IReadinessCheckService, ReadinessCheckService>();
             services.AddScoped<AiOperationalTools>();
@@ -126,6 +127,9 @@ public static class DependencyInjection
             services.AddScoped<IngestTelemetryEventUseCase>();
             services.AddScoped<IngestTelemetryBatchUseCase>();
             services.AddScoped<AcknowledgeAlertUseCase>();
+            services.AddScoped<RegisterDeviceUseCase>();
+            services.AddScoped<RenameDeviceUseCase>();
+            services.AddScoped<UpdateDeviceProfileUseCase>();
         }
         else
         {
@@ -138,6 +142,7 @@ public static class DependencyInjection
             services.AddScoped<ITelemetryProcessingUnitOfWork, TimescaleTelemetryProcessingUnitOfWork>();
             services.AddScoped<ITelemetryRepository, TimescaleTelemetryRepository>();
             services.AddScoped<IAlertRepository, TimescaleAlertRepository>();
+            services.AddScoped<IDeviceRegistry, TimescaleDeviceRegistry>();
             services.AddScoped<ProcessTelemetryEventUseCase>();
             services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
             services.AddSingleton<IFleetRealtimePublisher, KafkaFleetRealtimePublisher>();

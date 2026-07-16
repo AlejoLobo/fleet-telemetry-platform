@@ -1,22 +1,69 @@
 import * as SQLite from "expo-sqlite";
+import { isValidDeviceId } from "@/services/device-id-store";
 import type { QueuedTelemetryEvent, TelemetryEventPayload } from "@/types/telemetry";
 
-const SCHEMA_VERSION = 2;
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+/** Versión lógica del esquema (schema_meta + PRAGMA user_version). */
+export const SCHEMA_VERSION = 5;
+
+/** Promesa de base ya abierta y migrada (una sola inicialización por proceso). */
+let readyDbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/** Contadores de inicialización; solo para aserciones en pruebas. */
+let initOpenCountForTests = 0;
+let initMigrateCountForTests = 0;
+
+export class SchemaMigrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SchemaMigrationError";
+  }
+}
 
 /** Reinicia la conexión SQLite; solo para pruebas automatizadas. */
 export function resetOfflineQueueForTests(): void {
-  dbPromise = null;
+  readyDbPromise = null;
+  initOpenCountForTests = 0;
+  initMigrateCountForTests = 0;
 }
 
-async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) dbPromise = SQLite.openDatabaseAsync("fleet_offline.db");
-  const db = await dbPromise;
+/** Estadísticas de apertura/migración; solo para pruebas automatizadas. */
+export function getOfflineQueueInitStatsForTests(): {
+  openCount: number;
+  migrateCount: number;
+} {
+  return {
+    openCount: initOpenCountForTests,
+    migrateCount: initMigrateCountForTests,
+  };
+}
+
+async function readColumnNames(db: SQLite.SQLiteDatabase): Promise<Set<string>> {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
+  return new Set(columns.map((c) => c.name));
+}
+
+async function ensureColumn(
+  db: SQLite.SQLiteDatabase,
+  names: Set<string>,
+  column: string,
+  ddl: string,
+): Promise<void> {
+  if (names.has(column)) return;
+  await db.execAsync(ddl);
+  names.add(column);
+}
+
+/**
+ * Migración incremental e idempotente.
+ * Siempre verifica columnas con PRAGMA table_info (no confía solo en schema_meta).
+ */
+async function migrateSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS telemetry_queue (
       local_id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id TEXT NOT NULL UNIQUE,
       vehicle_id TEXT NOT NULL,
+      device_id TEXT,
       driver_id TEXT,
       timestamp TEXT NOT NULL,
       latitude REAL NOT NULL,
@@ -37,32 +84,174 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
     CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
 
-  const versionRow = await db.getFirstAsync<{ value: string }>(`SELECT value FROM schema_meta WHERE key = 'version'`);
-  if (Number(versionRow?.value ?? 1) < SCHEMA_VERSION) {
-    await migrateToV2(db);
-    await db.runAsync(`INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`, String(SCHEMA_VERSION));
+  const versionRow = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM schema_meta WHERE key = 'version'`,
+  );
+  const currentVersion = Number(versionRow?.value ?? 1);
+
+  await db.withTransactionAsync(async () => {
+    const names = await readColumnNames(db);
+
+    // v2: reintentos / metadatos de sync
+    await ensureColumn(db, names, "source", `ALTER TABLE telemetry_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'gps'`);
+    await ensureColumn(db, names, "retry_count", `ALTER TABLE telemetry_queue ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`);
+    await ensureColumn(db, names, "next_attempt_at", `ALTER TABLE telemetry_queue ADD COLUMN next_attempt_at TEXT`);
+    await ensureColumn(db, names, "last_attempt_at", `ALTER TABLE telemetry_queue ADD COLUMN last_attempt_at TEXT`);
+    await ensureColumn(db, names, "last_error", `ALTER TABLE telemetry_queue ADD COLUMN last_error TEXT`);
+    await ensureColumn(db, names, "locked_at", `ALTER TABLE telemetry_queue ADD COLUMN locked_at TEXT`);
+    await ensureColumn(db, names, "synced_at", `ALTER TABLE telemetry_queue ADD COLUMN synced_at TEXT`);
+
+    // v3/v4/v5: device_id (nullable; CREATE IF NOT EXISTS no añade columnas a tablas viejas)
+    await ensureColumn(db, names, "device_id", `ALTER TABLE telemetry_queue ADD COLUMN device_id TEXT`);
+
+    // Invalidar device_id no-UUID en activos (backfill ocurre en migratePendingEventsToDeviceId).
+    const rows = await db.getAllAsync<Record<string, unknown>>(
+      `SELECT local_id, device_id FROM telemetry_queue
+       WHERE status IN ('pending','retry','processing')`,
+    );
+    for (const row of rows) {
+      const deviceId = typeof row.device_id === "string" ? row.device_id : "";
+      if (isValidDeviceId(deviceId)) continue;
+      if (!deviceId) continue;
+      await db.runAsync(
+        `UPDATE telemetry_queue SET device_id = NULL WHERE local_id = ?`,
+        row.local_id as number,
+      );
+    }
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_telemetry_queue_status_next
+        ON telemetry_queue (status, next_attempt_at);
+      CREATE INDEX IF NOT EXISTS idx_telemetry_queue_device_status
+        ON telemetry_queue (device_id, status, created_at);
+    `);
+
+    const verified = await readColumnNames(db);
+    if (!verified.has("device_id")) {
+      throw new SchemaMigrationError(
+        "Migración SQLite incompleta: telemetry_queue no tiene columna device_id",
+      );
+    }
+
+    await db.runAsync(
+      `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)`,
+      String(SCHEMA_VERSION),
+    );
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  });
+
+  // Verificación post-commit (también tras instalaciones ya en schema_meta=4 sin columna).
+  const finalNames = await readColumnNames(db);
+  if (!finalNames.has("device_id")) {
+    throw new SchemaMigrationError(
+      "telemetry_queue no tiene columna device_id tras migrar el esquema",
+    );
   }
-  return db;
+
+  // Si schema_meta decía estar al día pero faltaba la columna, la transacción ya la curó.
+  void currentVersion;
 }
 
-async function migrateToV2(db: SQLite.SQLiteDatabase): Promise<void> {
-  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(telemetry_queue)`);
-  const names = new Set(columns.map((c) => c.name));
-  const add = async (sql: string, col: string) => { if (!names.has(col)) await db.execAsync(sql); };
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN source TEXT NOT NULL DEFAULT 'gps'`, "source");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`, "retry_count");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN next_attempt_at TEXT`, "next_attempt_at");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN last_attempt_at TEXT`, "last_attempt_at");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN last_error TEXT`, "last_error");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN locked_at TEXT`, "locked_at");
-  await add(`ALTER TABLE telemetry_queue ADD COLUMN synced_at TEXT`, "synced_at");
+/**
+ * Abre la base y migra el esquema una sola vez.
+ * Llamadas concurrentes comparten la misma promesa; un fallo limpia el caché para reintentar.
+ */
+async function getDb(): Promise<SQLite.SQLiteDatabase> {
+  if (!readyDbPromise) {
+    readyDbPromise = (async () => {
+      initOpenCountForTests += 1;
+      const db = await SQLite.openDatabaseAsync("fleet_offline.db");
+      initMigrateCountForTests += 1;
+      await migrateSchema(db);
+      return db;
+    })().catch((error) => {
+      readyDbPromise = null;
+      throw error;
+    });
+  }
+
+  return readyDbPromise;
+}
+
+export type DeviceIdentityConflict = {
+  eventId: string;
+  storedDeviceId: string;
+  currentDeviceId: string;
+};
+
+export type DeviceIdMigrationResult = {
+  migrated: number;
+  unchanged: number;
+  conflicts: DeviceIdentityConflict[];
+};
+
+/**
+ * Migra eventos activos con device_id nulo/vacío/inválido al UUID estable.
+ * UUIDs válidos distintos no se sobrescriben: se reportan como conflicto.
+ * No modifica synced ni permanent_failure.
+ */
+export async function migratePendingEventsToDeviceId(deviceId: string): Promise<DeviceIdMigrationResult> {
+  const stableId = deviceId.trim();
+  if (!isValidDeviceId(stableId)) {
+    throw new Error("deviceId inválido para migración de cola");
+  }
+
+  const db = await getDb();
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT local_id, event_id, device_id, vehicle_id FROM telemetry_queue
+     WHERE status IN ('pending','retry','processing')`,
+  );
+
+  let migrated = 0;
+  let unchanged = 0;
+  const conflicts: DeviceIdentityConflict[] = [];
+
+  for (const row of rows) {
+    const eventId = String(row.event_id ?? "");
+    const current = typeof row.device_id === "string" ? row.device_id.trim() : "";
+
+    if (isValidDeviceId(current) && current.toLowerCase() === stableId.toLowerCase()) {
+      unchanged += 1;
+      continue;
+    }
+
+    if (isValidDeviceId(current) && current.toLowerCase() !== stableId.toLowerCase()) {
+      conflicts.push({
+        eventId,
+        storedDeviceId: current,
+        currentDeviceId: stableId,
+      });
+      continue;
+    }
+
+    // Nulo, vacío o inválido (VH-001, nombre libre, etc.): migrar al UUID actual.
+    await db.runAsync(
+      `UPDATE telemetry_queue SET device_id = ?, vehicle_id = ? WHERE local_id = ?`,
+      stableId,
+      stableId,
+      row.local_id as number,
+    );
+    migrated += 1;
+  }
+
+  return { migrated, unchanged, conflicts };
 }
 
 function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
+  const rawDeviceId =
+    (typeof row.device_id === "string" && row.device_id.trim())
+      ? row.device_id.trim()
+      : "";
+  const deviceId = isValidDeviceId(rawDeviceId)
+    ? rawDeviceId
+    : (isValidDeviceId(String(row.vehicle_id ?? ""))
+      ? String(row.vehicle_id).trim()
+      : rawDeviceId || String(row.vehicle_id ?? ""));
+
   return {
     localId: row.local_id as number,
     eventId: row.event_id as string,
-    vehicleId: row.vehicle_id as string,
+    deviceId,
     driverId: (row.driver_id as string | null) ?? null,
     timestamp: row.timestamp as string,
     latitude: row.latitude as number,
@@ -82,6 +271,7 @@ function mapRow(row: Record<string, unknown>): QueuedTelemetryEvent {
   };
 }
 
+
 function logQueueStateConflict(operation: string, expected: number, affected: number): void {
   if (expected !== affected) {
     console.warn(`[offline-queue] ${operation}: conflicto de estado (esperado=${expected}, afectado=${affected})`);
@@ -90,29 +280,46 @@ function logQueueStateConflict(operation: string, expected: number, affected: nu
 
 export async function enqueueEvent(event: TelemetryEventPayload, source: "gps" | "simulated" = "gps"): Promise<number> {
   const db = await getDb();
+  const deviceId = event.deviceId.trim();
   const result = await db.runAsync(
-    `INSERT INTO telemetry_queue (event_id, vehicle_id, driver_id, timestamp, latitude, longitude, speed_kmh,
+    `INSERT INTO telemetry_queue (event_id, vehicle_id, device_id, driver_id, timestamp, latitude, longitude, speed_kmh,
       fuel_level_percent, battery_percent, source, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    event.eventId, event.vehicleId, event.driverId, event.timestamp, event.latitude, event.longitude,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    event.eventId, deviceId, deviceId, event.driverId, event.timestamp, event.latitude, event.longitude,
     event.speedKmh, event.fuelLevelPercent, event.batteryPercent, source, new Date().toISOString(),
   );
   return result.lastInsertRowId;
 }
 
-export async function claimNextBatch(limit: number, nowIso: string): Promise<QueuedTelemetryEvent[]> {
+export async function claimNextBatch(
+  limit: number,
+  nowIso: string,
+  deviceId?: string,
+): Promise<QueuedTelemetryEvent[]> {
   const db = await getDb();
   await recoverStaleLocks(nowIso);
 
   let claimed: QueuedTelemetryEvent[] = [];
+  const stableId = deviceId?.trim() ?? "";
+  const filterByDevice = isValidDeviceId(stableId);
 
   await db.withTransactionAsync(async () => {
-    const rows = await db.getAllAsync<Record<string, unknown>>(
-      `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-       ORDER BY local_id ASC LIMIT ?`,
-      nowIso,
-      limit,
-    );
+    const rows = filterByDevice
+      ? await db.getAllAsync<Record<string, unknown>>(
+          `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry')
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           AND lower(device_id) = lower(?)
+           ORDER BY local_id ASC LIMIT ?`,
+          nowIso,
+          stableId,
+          limit,
+        )
+      : await db.getAllAsync<Record<string, unknown>>(
+          `SELECT * FROM telemetry_queue WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           ORDER BY local_id ASC LIMIT ?`,
+          nowIso,
+          limit,
+        );
 
     if (rows.length === 0) {
       claimed = [];
@@ -268,8 +475,15 @@ export async function purgeSyncedOlderThan(days: number): Promise<number> {
 
 export function toPayload(event: QueuedTelemetryEvent): TelemetryEventPayload {
   return {
-    eventId: event.eventId, vehicleId: event.vehicleId, driverId: event.driverId, timestamp: event.timestamp,
-    latitude: event.latitude, longitude: event.longitude, speedKmh: event.speedKmh,
-    fuelLevelPercent: event.fuelLevelPercent, batteryPercent: event.batteryPercent, locationSource: event.source,
+    eventId: event.eventId,
+    deviceId: event.deviceId,
+    driverId: event.driverId,
+    timestamp: event.timestamp,
+    latitude: event.latitude,
+    longitude: event.longitude,
+    speedKmh: event.speedKmh,
+    fuelLevelPercent: event.fuelLevelPercent,
+    batteryPercent: event.batteryPercent,
+    locationSource: event.source,
   };
 }

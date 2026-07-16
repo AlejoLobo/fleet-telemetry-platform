@@ -18,7 +18,8 @@ export type OpsFleetCounts = {
 };
 
 export type SelectedVehicleAnalytics = {
-  vehicleId: string;
+  deviceId: string;
+  vehicleName: string;
   averageSpeedKmh: number;
   eventCount: number;
 };
@@ -56,14 +57,16 @@ export function computeGlobalAnalyticsFromOps(
 }
 
 export function computeSelectedAnalytics(
-  vehicleId: string,
+  deviceId: string,
   telemetry: TelemetryEvent[],
+  vehicleName = "",
 ): SelectedVehicleAnalytics {
   const speeds = telemetry.map((t) => t.speedKmh);
   const avg = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
 
   return {
-    vehicleId,
+    deviceId,
+    vehicleName,
     averageSpeedKmh: Math.round(avg * 10) / 10,
     eventCount: telemetry.length,
   };

@@ -30,37 +30,61 @@ const validAcceptedRate = new Rate("telemetry_valid_accepted_rate");
 const invalidRejectedRate = new Rate("telemetry_invalid_rejected_rate");
 const validRequestDuration = new Trend("telemetry_valid_request_duration", true);
 
-function headers() {
+function headers(deviceId) {
   const h = { "Content-Type": "application/json" };
   if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
+  if (deviceId) h["X-Device-Id"] = deviceId;
   return h;
+}
+
+/** UUID estable por índice de vehículo (misma partición en múltiples corridas). */
+function deviceIdForIndex(index) {
+  const hex = String(index).padStart(12, "0");
+  return `aaaaaaaa-bbbb-4ccc-8ddd-${hex}`;
 }
 
 function buildDuplicateSeedPayload() {
   const eventId = uuidv4();
-  const vehicle = `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
-  const zone = BOGOTA_ZONES[Number.parseInt(vehicle.replace("VH-", ""), 10) % BOGOTA_ZONES.length];
+  const index = randomIntBetween(1, VEHICLE_COUNT);
+  const deviceId = deviceIdForIndex(index);
+  const zone = BOGOTA_ZONES[index % BOGOTA_ZONES.length];
   const timestamp = new Date(Date.now() - 60_000).toISOString();
-  return JSON.stringify({
-    eventId,
-    vehicleId: vehicle,
-    driverId: `DRV-${vehicle.replace("VH-", "")}`,
-    timestamp,
-    latitude: zone.lat,
-    longitude: zone.lng,
-    speedKmh: 42,
-    fuelLevelPercent: 55,
-    batteryPercent: 70,
-  });
+  return {
+    deviceId,
+    body: JSON.stringify({
+      eventId,
+      deviceId,
+      driverId: `DRV-${String(index).padStart(3, "0")}`,
+      timestamp,
+      latitude: zone.lat,
+      longitude: zone.lng,
+      speedKmh: 42,
+      fuelLevelPercent: 55,
+      batteryPercent: 70,
+    }),
+  };
 }
 
 export function setup() {
+  // Registra un subconjunto de dispositivos estables usados por la carga.
+  for (let i = 1; i <= Math.min(VEHICLE_COUNT, 50); i++) {
+    const deviceId = deviceIdForIndex(i);
+    const reg = http.post(
+      `${API_URL}/api/devices/register`,
+      JSON.stringify({ deviceId }),
+      { headers: headers(deviceId), responseCallback: http.expectedStatuses(200) },
+    );
+    if (reg.status !== 200) {
+      throw new Error(`Setup: registro device ${deviceId} falló con HTTP ${reg.status}`);
+    }
+  }
+
   const duplicatePayloadPool = Array.from({ length: DUPLICATE_POOL_SIZE }, () => buildDuplicateSeedPayload());
 
   for (let i = 0; i < duplicatePayloadPool.length; i++) {
-    const payload = duplicatePayloadPool[i];
-    const res = http.post(`${API_URL}/api/telemetry`, payload, {
-      headers: headers(),
+    const item = duplicatePayloadPool[i];
+    const res = http.post(`${API_URL}/api/telemetry`, item.body, {
+      headers: headers(item.deviceId),
       responseCallback: http.expectedStatuses(202),
     });
 
@@ -93,13 +117,8 @@ export const options = {
   },
 };
 
-function vehicleId() {
-  return `VH-${String(randomIntBetween(1, VEHICLE_COUNT)).padStart(3, "0")}`;
-}
-
-function vehicleNumber(vehicle) {
-  const match = /VH-(\d+)/.exec(vehicle);
-  return match ? Number.parseInt(match[1], 10) : 1;
+function deviceIndex() {
+  return randomIntBetween(1, VEHICLE_COUNT);
 }
 
 function randomPointInZone(zone) {
@@ -111,9 +130,8 @@ function randomPointInZone(zone) {
   };
 }
 
-function locationForVehicle(vehicle) {
-  const num = vehicleNumber(vehicle);
-  const zone = BOGOTA_ZONES[num % BOGOTA_ZONES.length];
+function locationForIndex(index) {
+  const zone = BOGOTA_ZONES[index % BOGOTA_ZONES.length];
   return randomPointInZone(zone);
 }
 
@@ -127,26 +145,30 @@ function randomTimestamp() {
   return new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
 }
 
-function buildValidPayload(eventId, vehicle) {
-  const { lat, lng } = locationForVehicle(vehicle);
+function buildValidPayload(eventId, index) {
+  const deviceId = deviceIdForIndex(index);
+  const { lat, lng } = locationForIndex(index);
   const online = Math.random() < 0.62;
-  return JSON.stringify({
-    eventId,
-    vehicleId: vehicle,
-    driverId: `DRV-${vehicle.replace("VH-", "")}`,
-    timestamp: randomTimestamp(),
-    latitude: lat,
-    longitude: lng,
-    speedKmh: online ? randomIntBetween(15, 130) : randomIntBetween(0, 12),
-    fuelLevelPercent: randomIntBetween(5, 95),
-    batteryPercent: randomIntBetween(25, 100),
-  });
+  return {
+    deviceId,
+    body: JSON.stringify({
+      eventId,
+      deviceId,
+      driverId: `DRV-${String(index).padStart(3, "0")}`,
+      timestamp: randomTimestamp(),
+      latitude: lat,
+      longitude: lng,
+      speedKmh: online ? randomIntBetween(15, 130) : randomIntBetween(0, 12),
+      fuelLevelPercent: randomIntBetween(5, 95),
+      batteryPercent: randomIntBetween(25, 100),
+    }),
+  };
 }
 
 function buildInvalidPayload() {
   return JSON.stringify({
     eventId: uuidv4(),
-    vehicleId: "",
+    deviceId: "00000000-0000-0000-0000-000000000000",
     driverId: "DRV-LOAD",
     timestamp: "fecha-invalida",
     latitude: 999,
@@ -178,11 +200,11 @@ export default function (data) {
   }
 
   if (roll < 0.15) {
-    const payload = pool[randomIntBetween(0, pool.length - 1)];
+    const item = pool[randomIntBetween(0, pool.length - 1)];
     duplicateEvents.add(1);
     const start = Date.now();
-    const res = http.post(`${API_URL}/api/telemetry`, payload, {
-      headers: headers(),
+    const res = http.post(`${API_URL}/api/telemetry`, item.body, {
+      headers: headers(item.deviceId),
       responseCallback: http.expectedStatuses(202),
     });
     const duration = Date.now() - start;
@@ -198,11 +220,11 @@ export default function (data) {
     return;
   }
 
-  const vehicle = vehicleId();
-  const payload = buildValidPayload(uuidv4(), vehicle);
+  const index = deviceIndex();
+  const item = buildValidPayload(uuidv4(), index);
   const start = Date.now();
-  const res = http.post(`${API_URL}/api/telemetry`, payload, {
-    headers: headers(),
+  const res = http.post(`${API_URL}/api/telemetry`, item.body, {
+    headers: headers(item.deviceId),
     responseCallback: http.expectedStatuses(202),
   });
   const duration = Date.now() - start;

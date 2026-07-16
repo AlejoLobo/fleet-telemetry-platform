@@ -13,10 +13,12 @@ namespace FleetTelemetry.Application.Tests;
 // FT-004: validación estricta de cursores en endpoints.
 public class CursorValidationTests
 {
+    private static readonly Guid DeviceA = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
     [Fact]
-    public async Task Fleet_cursor_sin_LastVehicleId_retorna_400()
+    public async Task Fleet_cursor_sin_LastDeviceId_retorna_400()
     {
-        var cursor = CursorCodec.Encode(new FleetCursorPayload(1, null, false, true));
+        var cursor = CursorCodec.Encode(new FleetCursorPayload(1, Guid.Empty, false, true));
         var controller = CreateFleetController([]);
 
         var result = await controller.GetAll(pageSize: 10, cursor: cursor, cancellationToken: CancellationToken.None);
@@ -25,9 +27,15 @@ public class CursorValidationTests
     }
 
     [Fact]
-    public async Task Fleet_cursor_con_LastVehicleId_vacio_retorna_400()
+    public async Task Fleet_cursor_con_LastDeviceId_vacio_retorna_400()
     {
-        var cursor = CursorCodec.Encode(new FleetCursorPayload(1, "   ", false, true));
+        // Cursor JSON legado con LastDeviceId vacío se decodifica como Guid.Empty.
+        var cursor = Convert.ToBase64String(
+                System.Text.Encoding.UTF8.GetBytes(
+                    """{"version":1,"lastDeviceId":"00000000-0000-0000-0000-000000000000","liveOnly":false,"excludeSimulated":true}"""))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
         var controller = CreateFleetController([]);
 
         var result = await controller.GetAll(pageSize: 10, cursor: cursor, cancellationToken: CancellationToken.None);
@@ -40,11 +48,11 @@ public class CursorValidationTests
     {
         var from = new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero);
         var to = from.AddHours(2);
-        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, "VH-001", from, to, null, Guid.NewGuid()));
+        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, DeviceA, from, to, null, Guid.NewGuid()));
         var controller = CreateTelemetryController();
 
         var result = await controller.GetByVehicle(
-            "VH-001",
+            DeviceA,
             from: null,
             to: null,
             pageSize: 10,
@@ -62,11 +70,11 @@ public class CursorValidationTests
     {
         var from = new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero);
         var to = from.AddHours(2);
-        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, "VH-001", from, to, to, null));
+        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, DeviceA, from, to, to, null));
         var controller = CreateTelemetryController();
 
         var result = await controller.GetByVehicle(
-            "VH-001",
+            DeviceA,
             from: null,
             to: null,
             pageSize: 10,
@@ -84,11 +92,11 @@ public class CursorValidationTests
     {
         var from = new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero);
         var to = from.AddHours(2);
-        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, "VH-001", from, to, to, Guid.Empty));
+        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, DeviceA, from, to, to, Guid.Empty));
         var controller = CreateTelemetryController();
 
         var result = await controller.GetByVehicle(
-            "VH-001",
+            DeviceA,
             from: null,
             to: null,
             pageSize: 10,
@@ -105,7 +113,8 @@ public class CursorValidationTests
     public async Task Cursor_con_propiedad_desconocida_retorna_400()
     {
         var unknownPayloadCursor = Convert.ToBase64String(
-            System.Text.Encoding.UTF8.GetBytes("""{"version":1,"lastVehicleId":"VH-001","liveOnly":false,"excludeSimulated":true,"extra":true}"""))
+            System.Text.Encoding.UTF8.GetBytes(
+                $$"""{"version":1,"lastDeviceId":"{{DeviceA:D}}","liveOnly":false,"excludeSimulated":true,"extra":true}"""))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
@@ -133,11 +142,11 @@ public class CursorValidationTests
     {
         var from = new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero);
         var to = from.AddHours(2);
-        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, "VH-001", from, to, to, Guid.NewGuid()));
+        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, DeviceA, from, to, to, Guid.NewGuid()));
         var controller = CreateTelemetryController();
 
         var result = await controller.GetByVehicle(
-            "VH-001",
+            DeviceA,
             from: from.AddHours(1),
             to: to,
             pageSize: 10,
@@ -155,11 +164,11 @@ public class CursorValidationTests
     {
         var from = new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero);
         var to = from.AddHours(2);
-        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, "VH-001", from, to, to, Guid.NewGuid()));
+        var cursor = CursorCodec.Encode(new TelemetryHistoryCursorPayload(1, DeviceA, from, to, to, Guid.NewGuid()));
         var controller = CreateTelemetryController();
 
         var result = await controller.GetByVehicle(
-            "VH-001",
+            DeviceA,
             from: from,
             to: to.AddHours(1),
             pageSize: 10,
@@ -176,16 +185,21 @@ public class CursorValidationTests
     public async Task Ningun_cursor_invalido_repite_la_primera_pagina()
     {
         var vehicles = Enumerable.Range(1, 5)
-            .Select(i => new VehicleLatestStatusResponse(
-                $"VH-{i:000}",
-                $"VH-{i:000}",
-                "online",
-                DateTimeOffset.UtcNow,
-                10,
-                1,
-                1,
-                null,
-                "gps"))
+            .Select(i =>
+            {
+                var deviceId = Guid.Parse($"00000000-0000-0000-0000-{i:D12}");
+                return new VehicleLatestStatusResponse(
+                    deviceId,
+                    deviceId.ToString("D"),
+                    "car",
+                    "online",
+                    DateTimeOffset.UtcNow,
+                    10,
+                    1,
+                    1,
+                    null,
+                    "gps");
+            })
             .ToList();
 
         var fleetQuery = new FakeFleetQueryService(vehicles);
@@ -193,8 +207,7 @@ public class CursorValidationTests
 
         var invalidCursors = new[]
         {
-            CursorCodec.Encode(new FleetCursorPayload(1, null, false, true)),
-            CursorCodec.Encode(new FleetCursorPayload(1, "", false, true)),
+            CursorCodec.Encode(new FleetCursorPayload(1, Guid.Empty, false, true)),
             new string('Z', CursorCodec.MaxCursorLength + 10),
         };
 
@@ -205,7 +218,7 @@ public class CursorValidationTests
         }
 
         var secondValidPage = await fleetQuery.GetFleetPageAsync(2, firstPage.NextCursor);
-        Assert.DoesNotContain(secondValidPage.Items, item => firstPage.Items.Any(f => f.VehicleId == item.VehicleId));
+        Assert.DoesNotContain(secondValidPage.Items, item => firstPage.Items.Any(f => f.DeviceId == item.DeviceId));
     }
 
     private static FleetController CreateFleetController(IReadOnlyList<VehicleLatestStatusResponse> vehicles) =>
@@ -229,7 +242,7 @@ public class CursorValidationTests
             Task.CompletedTask;
 
         public Task<CursorPage<Domain.Entities.TelemetryEvent>> GetVehicleHistoryPageAsync(
-            string vehicleId,
+            Guid deviceId,
             DateTimeOffset from,
             DateTimeOffset to,
             int pageSize,

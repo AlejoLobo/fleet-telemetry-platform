@@ -34,7 +34,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: null, tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -42,7 +42,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -50,7 +50,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: "  ", tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -58,7 +58,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -66,7 +66,7 @@ describe("expiración centralizada", () => {
     setAuthRuntimeSnapshot({ mode: "enabled", token: "secret", expiresAtIso: "invalid", tokenExpired: false });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -74,7 +74,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -87,7 +87,7 @@ describe("expiración centralizada", () => {
     });
     await expect(sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -95,7 +95,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    })).rejects.toBeInstanceOf(TelemetryApiError);
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002")).rejects.toBeInstanceOf(TelemetryApiError);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -109,7 +109,7 @@ describe("expiración centralizada", () => {
     mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "" });
     await sendSingleEvent({
       eventId: "11111111-1111-1111-1111-111111111111",
-      vehicleId: "VH-001",
+      deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
       driverId: null,
       timestamp: "2026-07-12T08:00:00Z",
       latitude: 1,
@@ -117,7 +117,7 @@ describe("expiración centralizada", () => {
       speedKmh: 3,
       fuelLevelPercent: null,
       batteryPercent: null,
-    });
+    }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002");
     const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer secret-token");
   });
@@ -138,7 +138,7 @@ describe("expiración centralizada", () => {
     try {
       await sendSingleEvent({
         eventId: "11111111-1111-1111-1111-111111111111",
-        vehicleId: "VH-001",
+        deviceId: "aaaaaaaa-bbbb-4ccc-8ddd-000000000001",
         driverId: null,
         timestamp: "2026-07-12T08:00:00Z",
         latitude: 1,
@@ -146,7 +146,7 @@ describe("expiración centralizada", () => {
         speedKmh: 3,
         fuelLevelPercent: null,
         batteryPercent: null,
-      });
+      }, "aaaaaaaa-bbbb-4ccc-8ddd-000000000002");
     } catch (error) {
       expect((error as TelemetryApiError).sanitizedMessage).not.toContain("secret-token");
     }

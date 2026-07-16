@@ -65,7 +65,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var second = await fleetQuery.GetFleetPageAsync(pageSize: 2, cursor: first.NextCursor);
 
         Assert.Equal(2, second.Items.Count);
-        Assert.DoesNotContain(second.Items, item => first.Items.Any(f => f.VehicleId == item.VehicleId));
+        Assert.DoesNotContain(second.Items, item => first.Items.Any(f => f.DeviceId == item.DeviceId));
     }
 
     [Fact]
@@ -80,13 +80,13 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
-        var collected = new List<string>();
+        var collected = new List<Guid>();
         string? cursor = null;
 
         while (true)
         {
             var page = await fleetQuery.GetFleetPageAsync(pageSize: 5, cursor);
-            collected.AddRange(page.Items.Select(i => i.VehicleId));
+            collected.AddRange(page.Items.Select(i => i.DeviceId));
 
             if (!page.HasMore || string.IsNullOrWhiteSpace(page.NextCursor))
                 break;
@@ -95,7 +95,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         }
 
         Assert.Equal(total, collected.Count);
-        Assert.Equal(collected.OrderBy(id => id, StringComparer.Ordinal), collected);
+        Assert.Equal(collected.OrderBy(id => id), collected);
         Assert.Equal(collected.Distinct().Count(), collected.Count);
     }
 
@@ -107,10 +107,10 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         await SeedFleetStatesWithTimestampsAsync(
-            ("VH-ONLINE-1", now.AddMinutes(-2)),
-            ("VH-ONLINE-2", now.AddMinutes(-4)),
-            ("VH-OFFLINE-1", now.AddMinutes(-10)),
-            ("VH-OFFLINE-2", now.AddMinutes(-30)));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-ONLINE-1"), now.AddMinutes(-2)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-ONLINE-2"), now.AddMinutes(-4)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-OFFLINE-1"), now.AddMinutes(-10)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-OFFLINE-2"), now.AddMinutes(-30)));
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
@@ -131,9 +131,9 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         await SeedFleetStatesWithSourcesAsync(
-            ("VH-GPS-1", "gps", now.AddMinutes(-1)),
-            ("VH-GPS-2", "gps", now.AddMinutes(-1)),
-            ("VH-SIM-1", "simulated", now.AddMinutes(-1)));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-GPS-1"), "gps", now.AddMinutes(-1)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-GPS-2"), "gps", now.AddMinutes(-1)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-SIM-1"), "simulated", now.AddMinutes(-1)));
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
@@ -200,7 +200,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var all = await fleetQuery.GetAllFleetStatusesAsync();
 
         Assert.Equal(total, all.Count);
-        Assert.Equal(all.OrderBy(v => v.VehicleId, StringComparer.Ordinal).Select(v => v.VehicleId), all.Select(v => v.VehicleId));
+        Assert.Equal(all.OrderBy(v => v.DeviceId).Select(v => v.DeviceId), all.Select(v => v.DeviceId));
     }
 
     [Fact]
@@ -211,16 +211,20 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         await SeedFleetStatesWithTimestampsAsync(
-            ("VH-ZZZ", now.AddMinutes(-1)),
-            ("VH-AAA", now.AddMinutes(-1)),
-            ("VH-MMM", now.AddMinutes(-1)));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-ZZZ"), now.AddMinutes(-1)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-AAA"), now.AddMinutes(-1)),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-MMM"), now.AddMinutes(-1)));
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
         var page = await fleetQuery.GetFleetPageAsync(pageSize: 10, cursor: null);
 
-        Assert.Equal(["VH-AAA", "VH-MMM", "VH-ZZZ"], page.Items.Select(i => i.VehicleId));
+        Assert.Equal(
+            new[] { DeviceIdTestHelper.CreateDeterministicGuid("VH-AAA"), DeviceIdTestHelper.CreateDeterministicGuid("VH-MMM"), DeviceIdTestHelper.CreateDeterministicGuid("VH-ZZZ") }
+                .OrderBy(id => id.ToString("D"), StringComparer.Ordinal)
+                .ToArray(),
+            page.Items.Select(i => i.DeviceId).ToArray());
     }
 
     [Fact]
@@ -237,13 +241,13 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         Assert.Equal(total, await db.FleetVehicleStates.CountAsync());
 
-        var collected = new List<string>();
+        var collected = new List<Guid>();
         string? cursor = null;
 
         while (true)
         {
             var page = await fleetQuery.GetFleetPageAsync(pageSize: 200, cursor);
-            collected.AddRange(page.Items.Select(i => i.VehicleId));
+            collected.AddRange(page.Items.Select(i => i.DeviceId));
 
             if (!page.HasMore || string.IsNullOrWhiteSpace(page.NextCursor))
                 break;
@@ -252,8 +256,8 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         }
 
         Assert.Equal(total, collected.Count);
-        Assert.Equal(total, collected.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(Enumerable.Range(1, total).Select(i => $"VH-{i:D4}"), collected);
+        Assert.Equal(total, collected.Distinct().Count());
+        Assert.Equal(Enumerable.Range(1, total).Select(i => Guid.Parse($"00000000-0000-0000-0000-{i:D12}")), collected);
     }
 
     [Fact]
@@ -267,17 +271,18 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var uow = scope.ServiceProvider.GetRequiredService<ITelemetryProcessingUnitOfWork>();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
-        var vehicleId = "VH-MIX-001";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-MIX-001");
+        var deviceIdStorage = deviceId.ToString("D");
         await uow.ProcessAsync(TelemetryEvent.Create(
-            Guid.NewGuid(), vehicleId, null, now.AddMinutes(-30), 4.6, -74.0, 40, 70, 90, "gps"));
+            Guid.NewGuid(), deviceId, null, now.AddMinutes(-30), 4.6, -74.0, 40, 70, 90, "gps"));
         await uow.ProcessAsync(TelemetryEvent.Create(
-            Guid.NewGuid(), vehicleId, null, now.AddMinutes(-1), 4.61, -74.01, 0, 70, 90, "simulated"));
+            Guid.NewGuid(), deviceId, null, now.AddMinutes(-1), 4.61, -74.01, 0, 70, 90, "simulated"));
 
         var filtered = await fleetQuery.GetFleetPageAsync(pageSize: 10, cursor: null, excludeSimulated: true);
         var all = await fleetQuery.GetFleetPageAsync(pageSize: 10, cursor: null, excludeSimulated: false);
 
-        Assert.DoesNotContain(filtered.Items, item => item.VehicleId == vehicleId);
-        var stored = Assert.Single(all.Items, item => item.VehicleId == vehicleId);
+        Assert.DoesNotContain(filtered.Items, item => item.DeviceId == deviceId);
+        var stored = Assert.Single(all.Items, item => item.DeviceId == deviceId);
         Assert.Equal("simulated", stored.LastLocationSource);
     }
 
@@ -320,7 +325,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         var states = Enumerable.Range(1, count)
             .Select(i => new FleetVehicleStateRecord
             {
-                VehicleId = $"VH-{i:D4}",
+                DeviceId = Guid.Parse($"00000000-0000-0000-0000-{i:D12}"),
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = lastTimestamp,
                 Latitude = 4.60 + i * 0.0001,
@@ -341,7 +346,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         }
     }
 
-    private async Task SeedFleetStatesWithTimestampsAsync(params (string VehicleId, DateTimeOffset LastTimestamp)[] states)
+    private async Task SeedFleetStatesWithTimestampsAsync(params (Guid DeviceId, DateTimeOffset LastTimestamp)[] states)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -350,7 +355,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.VehicleId,
+                DeviceId = item.DeviceId,
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,
@@ -365,7 +370,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
     }
 
     private async Task SeedFleetStatesWithSourcesAsync(
-        params (string VehicleId, string LocationSource, DateTimeOffset LastTimestamp)[] states)
+        params (Guid DeviceId, string LocationSource, DateTimeOffset LastTimestamp)[] states)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -374,7 +379,7 @@ public class FleetPaginationIntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.VehicleId,
+                DeviceId = item.DeviceId,
                 LastEventId = Guid.NewGuid(),
                 LastTimestamp = item.LastTimestamp,
                 Latitude = 4.65,

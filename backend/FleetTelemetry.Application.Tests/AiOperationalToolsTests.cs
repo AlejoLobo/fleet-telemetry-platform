@@ -9,13 +9,16 @@ namespace FleetTelemetry.Application.Tests;
 
 public class AiOperationalToolsTests
 {
+    private static readonly Guid DeviceA = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid DeviceB = Guid.Parse("22222222-2222-2222-2222-222222222222");
+
     [Theory]
-    [InlineData("VH-001 está detenido", "VH-001")]
-    [InlineData("estado de vh-002", "VH-002")]
-    public void ExtractVehicleId_parses_id(string question, string expected)
+    [InlineData("11111111-1111-1111-1111-111111111111 está detenido", "11111111-1111-1111-1111-111111111111")]
+    [InlineData("estado de 22222222-2222-2222-2222-222222222222", "22222222-2222-2222-2222-222222222222")]
+    public void ExtractDeviceId_parses_id(string question, string expected)
     {
-        var id = AiOperationalTools.ExtractVehicleId(question);
-        Assert.Equal(expected, id);
+        var id = AiOperationalTools.ExtractDeviceId(question);
+        Assert.Equal(Guid.Parse(expected), id);
     }
 
     [Fact]
@@ -40,8 +43,8 @@ public class AiOperationalToolsTests
             criticalZonesOnly: true,
             zoneName: null);
 
-        Assert.Contains("VH-001", answer);
-        Assert.DoesNotContain("VH-002", answer);
+        Assert.Contains(DeviceA.ToString("D"), answer);
+        Assert.DoesNotContain(DeviceB.ToString("D"), answer);
         Assert.Contains("CriticalZoneCatalog", sources);
     }
 
@@ -53,9 +56,9 @@ public class AiOperationalToolsTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<StoppedVehicleStatusDto>>(
             [
-                new("VH-001", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-25),
+                new(DeviceA, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-25),
                     TimeSpan.FromMinutes(25), 4.598, -74.075, "Centro"),
-                new("VH-002", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-30),
+                new(DeviceB, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-30),
                     TimeSpan.FromMinutes(30), 4.711, -74.032, null),
             ]);
     }
@@ -82,7 +85,7 @@ public class AiOperationalToolsTests
     private sealed class FakeAnalyticsQueryService : IAnalyticsQueryService
     {
         public Task<double> GetAverageSpeedAsync(
-            string vehicleId,
+            Guid deviceId,
             DateTimeOffset from,
             DateTimeOffset to,
             CancellationToken cancellationToken = default) =>

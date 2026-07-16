@@ -33,6 +33,13 @@ public sealed class IntegrationTestDatabase : IAsyncLifetime
             .WithDatabase("fleet")
             .WithUsername("fleet")
             .WithPassword("fleet")
+            // En entornos cloud con cgroup v2 restringido, privileged + host cgroupns evita fallos de arranque.
+            .WithPrivileged(true)
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.HostConfig ??= new Docker.DotNet.Models.HostConfig();
+                parameters.HostConfig.CgroupnsMode = "host";
+            })
             .Build();
 
         await _container.StartAsync();

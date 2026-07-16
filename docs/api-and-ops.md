@@ -11,13 +11,17 @@
 | `GET` | `/api/ops/summary` | Si Auth on | Resumen operativo |
 | `POST` | `/api/telemetry` | Si Auth on | Ingesta un evento → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Si Auth on | Lote (sync mobile) |
-| `GET` | `/api/telemetry/{vehicleId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
+| `POST` | `/api/devices/register` | Si Auth on | Registra DeviceId; asigna `vehicleName` (`VH-###`); `vehicleType` opcional (default `car`). Si ya existe, devuelve el perfil actual sin modificar el tipo |
+| `PATCH` | `/api/devices/{deviceId}/profile` | Si Auth on | Actualiza parcialmente `vehicleName` y/o `vehicleType` |
+| `PATCH` | `/api/devices/{deviceId}/name` | Si Auth on | Compatibilidad: renombra sin cambiar identidad (delega en perfil) |
+| `GET` | `/api/telemetry/{deviceId}` | No | Historial paginado (`?from=&to=&pageSize=&cursor=`) |
 | `GET` | `/api/fleet` | No | Flota paginada (`?pageSize=&cursor=&liveOnly=&excludeSimulated=`) |
-| `GET` | `/api/fleet/{vehicleId}` | No | Estado de un vehículo |
+| `GET` | `/api/fleet/{deviceId}` | No | Estado de un vehículo |
 | `GET` | `/api/alerts` | No | Alertas abiertas |
 | `PATCH` | `/api/alerts/{id}/acknowledge` | Si Auth on | Confirmar alerta |
 | `GET` | `/api/events/stream` | No | SSE |
-| `POST` | `/api/auth/login` | — | JWT (si Auth habilitado) |
+| `POST` | `/api/auth/login` | — | JWT operador (o admin con `device:manage` si hay `Auth:Admin*`) |
+| `POST` | `/api/auth/device-token` | — | Enrolamiento MVP: JWT `device` + `telemetry:write` + `device_id` |
 | `GET` | `/api/auth/status` | No | `{ enabled }` |
 | `POST` | `/api/ai/query` | No | Agente IA |
 
@@ -55,7 +59,13 @@ curl http://localhost:5000/api/ops/summary
 
 - Default: `Auth__Enabled=false` (demo abierta).
 - Con Auth: `JwtSecret` ≥ 32 caracteres y `DemoPassword` no vacío (`ConfigurationValidator`).
-- Login: `POST /api/auth/login` con usuario/password demo.
+- Login operador: `POST /api/auth/login` → JWT con `fleet:read`, `alert:acknowledge`, `ai:query`, `operations:read` (**sin** `telemetry:write`).
+- Login admin (opcional): configurar `Auth:AdminUsername` / `Auth:AdminPassword` → operador + `device:manage` (renombrar; **no** publica telemetría).
+- Enrolamiento de dispositivo (MVP **demo**, no productivo):
+  - **Development/Demo:** `POST /api/auth/device-token` permitido solo si `Auth:AllowDemoDeviceEnrollment=true`.
+  - **Production:** el endpoint demo está **prohibido** (HTTP 403) y el arranque falla si `AllowDemoDeviceEnrollment=true` con Auth habilitada. Antes de desplegar la app móvil con Auth en producción se requiere enrolamiento firmado, attestation, mTLS o secreto individual.
+  - Autorización MVP: solo cuentas demo/admin configuradas; no es attestation.
+- Ingesta/register exigen token de dispositivo con `device_id` coincidente (o bypass `device:manage` solo en rename).
 
 ## Ejemplos
 
@@ -64,9 +74,10 @@ curl http://localhost:5000/api/ops/summary
 ```bash
 curl -X POST http://localhost:5000/api/telemetry \
   -H "Content-Type: application/json" \
+  -H "X-Device-Id: 11111111-1111-1111-1111-111111111111" \
   -d "{
-    \"eventId\": \"11111111-1111-1111-1111-111111111111\",
-    \"vehicleId\": \"VH-001\",
+    \"eventId\": \"22222222-2222-2222-2222-222222222222\",
+    \"deviceId\": \"11111111-1111-1111-1111-111111111111\",
     \"driverId\": \"DRV-001\",
     \"timestamp\": \"2026-07-08T22:00:00Z\",
     \"latitude\": 4.6533,
@@ -77,7 +88,28 @@ curl -X POST http://localhost:5000/api/telemetry \
   }"
 ```
 
-Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y publica en `telemetry.raw`.
+Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y publica en `telemetry.raw`. `X-Device-Id` debe coincidir con `deviceId`.
+
+### Registro de dispositivo
+
+```bash
+curl -X POST http://localhost:5000/api/devices/register \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"11111111-1111-1111-1111-111111111111"}'
+# → { "deviceId": "...", "vehicleName": "VH-001", "vehicleType": "car" }
+
+curl -X POST http://localhost:5000/api/devices/register \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"11111111-1111-1111-1111-111111111111","vehicleType":"motorcycle"}'
+
+curl -X PATCH http://localhost:5000/api/devices/11111111-1111-1111-1111-111111111111/profile \
+  -H 'Content-Type: application/json' \
+  -d '{"vehicleType":"truck"}'
+
+curl -X PATCH http://localhost:5000/api/devices/11111111-1111-1111-1111-111111111111/name \
+  -H "Content-Type: application/json" \
+  -d '{"vehicleName":"Camión Norte"}'
+```
 
 ### Consulta
 
@@ -85,14 +117,15 @@ Respuesta: `202 Accepted`. La API valida el DTO (`TelemetryEventValidator`) y pu
 curl "http://localhost:5000/api/fleet?pageSize=100"
 curl "http://localhost:5000/api/fleet?pageSize=100&cursor=<opaco>"
 curl http://localhost:5000/api/alerts
-curl "http://localhost:5000/api/telemetry/VH-001?from=2026-07-08T00:00:00Z&pageSize=200"
+curl "http://localhost:5000/api/telemetry/11111111-1111-1111-1111-111111111111?from=2026-07-08T00:00:00Z&pageSize=200"
 ```
 
 #### Paginación por cursor
 
 - `GET /api/fleet` devuelve `CursorPage<VehicleLatestStatusResponse>`: `{ items, nextCursor, hasMore }`.
-- Cada ítem incluye `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
-- Orden estable: `VehicleId` ascendente. `pageSize` default 100, máximo 500.
+- Cada ítem incluye `vehicleType`, `lastEventId` además de `lastSeenAt`, `status`, coordenadas y `lastLocationSource`.
+- `vehicleType` proviene de `fleet_devices` (nunca null; legacy → `car`).
+- Orden estable: `DeviceId` ascendente. `pageSize` default 100, máximo 500.
 - `liveOnly`: filtra en SQL `LastTimestamp >= now - OnlineThresholdMinutes`.
 - `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).
 - El cursor es opaco (Base64URL + JSON validado). Reutilizarlo con filtros distintos → `400`.

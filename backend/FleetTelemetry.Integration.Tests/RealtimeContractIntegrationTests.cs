@@ -11,9 +11,11 @@ public class RealtimeContractIntegrationTests
     [Fact]
     public void KafkaPush_vehicle_update_llega_al_cliente_web()
     {
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-RT-CONTRACT");
         var payload = new VehicleLatestStatusResponse(
-            "VH-RT-CONTRACT",
-            "VH-RT-CONTRACT",
+            deviceId,
+            deviceId.ToString("D"),
+            "car",
             "online",
             DateTimeOffset.Parse("2026-07-10T10:00:00Z"),
             55,
@@ -33,14 +35,14 @@ public class RealtimeContractIntegrationTests
             EventType = FleetRealtimeEventTypes.VehicleUpdate,
             Payload = JsonDocument.Parse(payloadJson).RootElement,
             OccurredAt = DateTimeOffset.UtcNow,
-            VehicleId = payload.VehicleId
+            DeviceId = payload.DeviceId.ToString("D")
         };
 
         var serialized = FleetRealtimeKafkaMessage.Serialize(kafkaMessage);
         var deserialized = FleetRealtimeKafkaMessage.Deserialize(serialized);
 
         Assert.Equal(FleetRealtimeEventTypes.VehicleUpdate, deserialized.EventType);
-        Assert.Equal(payload.VehicleId, deserialized.VehicleId);
+        Assert.Equal(payload.DeviceId.ToString("D"), deserialized.DeviceId);
 
         var broker = new FleetSseBroker(TimeProvider.System);
         var published = broker.PublishExternal(

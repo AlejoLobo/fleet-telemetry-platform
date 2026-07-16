@@ -19,15 +19,15 @@ public sealed record AiQuestionIntent(
     AiQueryIntent Intent,
     int? StoppedMinutes,
     double? SpeedThresholdKmh,
-    string? VehicleId,
+    Guid? DeviceId,
     string? ZoneName,
     bool CriticalZonesOnly)
 {
     public static AiQuestionIntent FleetOverview() =>
         new(AiQueryIntent.FleetOverview, null, null, null, null, false);
 
-    public static AiQuestionIntent VehicleStatus(string vehicleId) =>
-        new(AiQueryIntent.VehicleStatus, null, null, vehicleId, null, false);
+    public static AiQuestionIntent VehicleStatus(Guid deviceId) =>
+        new(AiQueryIntent.VehicleStatus, null, null, deviceId, null, false);
 
     public static AiQuestionIntent CriticalAlerts() =>
         new(AiQueryIntent.CriticalAlerts, null, null, null, null, false);
@@ -49,8 +49,8 @@ public sealed record AiQuestionIntent(
     public static AiQuestionIntent SpeedAbove(double thresholdKmh) =>
         new(AiQueryIntent.SpeedAbove, null, thresholdKmh, null, null, false);
 
-    public static AiQuestionIntent Analytics(string? vehicleId) =>
-        new(AiQueryIntent.AnalyticsSummary, null, null, vehicleId, null, false);
+    public static AiQuestionIntent Analytics(Guid? deviceId) =>
+        new(AiQueryIntent.AnalyticsSummary, null, null, deviceId, null, false);
 
     public static AiQuestionIntent Unsupported() =>
         new(AiQueryIntent.UnsupportedQuery, null, null, null, null, false);
@@ -88,7 +88,7 @@ public static class AiQuestionParser
     {
         var text = question.Trim();
         var lower = text.ToLowerInvariant();
-        var vehicleId = AiOperationalTools.ExtractVehicleId(text);
+        var deviceId = AiOperationalTools.ExtractDeviceId(text);
         var minutes = ParseStoppedMinutes(lower);
         var speed = ParseSpeedThreshold(text);
         var zoneName = ExtractZoneName(lower);
@@ -101,7 +101,7 @@ public static class AiQuestionParser
         var mentionsCriticalSeverity = ContainsAny(lower, "crític", "critico", "critical", "grave");
         var mentionsSpeed = ContainsAny(lower, "veloc", "rápid", "rapido", "speed", "exceso");
         var mentionsAnalytics = ContainsAny(lower, "promedio", "analít", "analit", "analytics", "resumen anal");
-        var mentionsStatus = ContainsAny(lower, "estado", "status", "vehículo", "vehiculo");
+        var mentionsStatus = ContainsAny(lower, "estado", "status", "vehículo", "vehiculo", "dispositivo", "device");
         var mentionsOverview = ContainsAny(lower, "resumen", "overview", "flota", "cuántos", "cuantos");
 
         if (mentionsStopped && (minutes.HasValue || mentionsCriticalZone || zoneName is not null))
@@ -124,13 +124,13 @@ public static class AiQuestionParser
             return AiQuestionIntent.SpeedAbove(speed ?? DefaultSpeedKmh);
 
         if (mentionsAnalytics)
-            return AiQuestionIntent.Analytics(vehicleId);
+            return AiQuestionIntent.Analytics(deviceId);
 
-        if (vehicleId is not null && (mentionsStatus || mentionsStopped))
-            return AiQuestionIntent.VehicleStatus(vehicleId);
+        if (deviceId is not null && (mentionsStatus || mentionsStopped))
+            return AiQuestionIntent.VehicleStatus(deviceId.Value);
 
-        if (vehicleId is not null)
-            return AiQuestionIntent.VehicleStatus(vehicleId);
+        if (deviceId is not null)
+            return AiQuestionIntent.VehicleStatus(deviceId.Value);
 
         if (mentionsAlerts)
             return AiQuestionIntent.CriticalAlerts();

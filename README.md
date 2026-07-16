@@ -62,9 +62,10 @@ Los productores (app móvil Expo u otros clientes HTTP) envían telemetría a la
 | Capacidad | Implementación | Garantía / característica |
 |-----------|----------------|---------------------------|
 | Ingesta HTTP | `POST /api/telemetry` y batch | Validación de dominio + `202` sin bloquear por persistencia |
-| Mensajería | Kafka vía Redpanda local | Topic `telemetry.raw`, key `VehicleId` |
+| Mensajería | Kafka vía Redpanda local | Topic `telemetry.raw`, key `DeviceId` |
 | Procesamiento | Worker .NET | At-least-once, mismo offset hasta resultado terminal |
 | Persistencia | TimescaleDB hypertable | Idempotencia por `EventId` (`processed_events`) |
+| Identidad | `DeviceId` UUID + `VehicleName` + `VehicleType` | Nombre y tipo editables; renombrar/cambiar tipo no cambia partición ni historial |
 | Alertas | Evaluador + cooldown | Deduplicación de condiciones activas |
 | Tiempo real | SSE KafkaPush | `Last-Event-ID`, replay, `stream-reset`, resync |
 | Dashboard | Next.js 15 + React 19 | Modo API y mock; Vitest en CI |
@@ -117,7 +118,7 @@ sequenceDiagram
 
   C->>API: POST /api/telemetry o batch
   API->>API: Validar DTO / dominio
-  API->>K: Produce (key = VehicleId)
+  API->>K: Produce (key = DeviceId)
   API-->>C: 202 Accepted
   W->>K: Consume offset N
   W->>W: Validar contrato y dominio
@@ -215,41 +216,47 @@ Sin SSH público; puertos 5432 / 19092 sin exposición pública; 3000 / 5000 sol
 
 ### Modelo de datos simplificado
 
-Las relaciones son lógicas por `VehicleId` / `EventId`. El esquema TimescaleDB **no** declara foreign keys físicas entre estas tablas.
+Las relaciones son lógicas por `DeviceId` / `EventId`. El nombre visible (`VehicleName`) vive en `fleet_devices` y **no** redefine identidad. El esquema TimescaleDB **no** declara foreign keys físicas entre estas tablas.
 
 ```mermaid
 erDiagram
+  FLEET_DEVICES {
+    uuid DeviceId PK
+    text VehicleName UK
+    text vehicle_type
+  }
   TELEMETRY_EVENTS {
     uuid EventId PK
     timestamptz Timestamp PK
-    text VehicleId
+    uuid DeviceId
   }
   PROCESSED_EVENTS {
     uuid EventId PK
   }
   FLEET_ALERTS {
     uuid AlertId PK
-    text VehicleId
+    uuid DeviceId
   }
   FLEET_ALERT_STATES {
-    text VehicleId PK
+    uuid DeviceId PK
     text AlertType PK
   }
   FLEET_VEHICLE_STATE {
-    text VehicleId PK
+    uuid DeviceId PK
     timestamptz LastTimestamp
   }
   FLEET_CONNECTIVITY_WATERMARK {
     int Id PK
   }
   FLEET_OFFLINE_PUBLISH_MARKERS {
-    text VehicleId PK
+    uuid DeviceId PK
   }
+  FLEET_DEVICES ||--o| FLEET_VEHICLE_STATE : "DeviceId"
   TELEMETRY_EVENTS ||--o| PROCESSED_EVENTS : "EventId idempotencia"
-  TELEMETRY_EVENTS }o--|| FLEET_VEHICLE_STATE : "VehicleId read model"
-  FLEET_VEHICLE_STATE ||--o| FLEET_ALERTS : "VehicleId"
-  FLEET_VEHICLE_STATE ||--o| FLEET_ALERT_STATES : "VehicleId + tipo"
-  FLEET_VEHICLE_STATE ||--o| FLEET_OFFLINE_PUBLISH_MARKERS : "VehicleId"
+  TELEMETRY_EVENTS }o--|| FLEET_VEHICLE_STATE : "DeviceId read model"
+  FLEET_VEHICLE_STATE ||--o| FLEET_ALERTS : "DeviceId"
+  FLEET_VEHICLE_STATE ||--o| FLEET_ALERT_STATES : "DeviceId + tipo"
+  FLEET_VEHICLE_STATE ||--o| FLEET_OFFLINE_PUBLISH_MARKERS : "DeviceId"
 ```
 
 ---
@@ -361,6 +368,9 @@ Procedimiento completo de sustentación: [`docs/demo-sustentacion.md`](docs/demo
 | `GET` | `/api/ops/summary` | Resumen operativo |
 | `POST` | `/api/telemetry` | Ingesta → Kafka (`202`) |
 | `POST` | `/api/telemetry/batch` | Ingesta batch |
+| `POST` | `/api/devices/register` | Registro DeviceId; asigna `vehicleName`; `vehicleType` opcional (default `car`) |
+| `PATCH` | `/api/devices/{deviceId}/profile` | Actualiza nombre y/o tipo |
+| `PATCH` | `/api/devices/{deviceId}/name` | Renombrar (compatibilidad) |
 | `GET` | `/api/fleet` | Estado de flota (cursor) |
 | `GET` | `/api/alerts` | Alertas abiertas |
 | `GET` | `/api/events/stream` | SSE |
@@ -371,9 +381,10 @@ Procedimiento completo de sustentación: [`docs/demo-sustentacion.md`](docs/demo
 ```bash
 curl -X POST http://localhost:5000/api/telemetry \
   -H "Content-Type: application/json" \
+  -H "X-Device-Id: 11111111-1111-1111-1111-111111111111" \
   -d '{
-    "eventId": "11111111-1111-1111-1111-111111111111",
-    "vehicleId": "VH-001",
+    "eventId": "22222222-2222-2222-2222-222222222222",
+    "deviceId": "11111111-1111-1111-1111-111111111111",
     "driverId": "DRV-001",
     "timestamp": "2026-07-08T22:00:00Z",
     "latitude": 4.6533,

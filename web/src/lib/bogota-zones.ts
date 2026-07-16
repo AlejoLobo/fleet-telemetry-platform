@@ -1,4 +1,6 @@
 /** Zonas geográficas de Bogotá para datos de prueba. */
+import type { RandomSource } from "@/lib/seeded-random";
+
 export const BOGOTA_ZONES = [
   { name: "Chapinero", lat: 4.648, lng: -74.063, spread: 0.018 },
   { name: "Usaquén", lat: 4.711, lng: -74.032, spread: 0.015 },
@@ -15,9 +17,12 @@ export const BOGOTA_ZONES = [
 export type BogotaZone = (typeof BOGOTA_ZONES)[number];
 
 /** Punto aleatorio dentro de una zona (no todos en el mismo sitio). */
-export function randomPointInZone(zone: BogotaZone): { lat: number; lng: number } {
-  const angle = Math.random() * Math.PI * 2;
-  const radius = Math.random() * zone.spread;
+export function randomPointInZone(
+  zone: BogotaZone,
+  random: RandomSource = Math.random,
+): { lat: number; lng: number } {
+  const angle = random() * Math.PI * 2;
+  const radius = random() * zone.spread;
   return {
     lat: Math.round((zone.lat + Math.cos(angle) * radius) * 1e5) / 1e5,
     lng: Math.round((zone.lng + Math.sin(angle) * radius) * 1e5) / 1e5,
@@ -25,17 +30,20 @@ export function randomPointInZone(zone: BogotaZone): { lat: number; lng: number 
 }
 
 /** ~62% online, resto offline (variado, no todo igual). */
-export function randomOnlineFlag(): boolean {
-  return Math.random() < 0.62;
+export function randomOnlineFlag(random: RandomSource = Math.random): boolean {
+  return random() < 0.62;
 }
 
 /** Timestamp reciente (online) o antiguo (offline). */
-export function randomTelemetryTimestamp(online: boolean): string {
+export function randomTelemetryTimestamp(
+  online: boolean,
+  random: RandomSource = Math.random,
+): string {
   if (online) {
-    const secondsAgo = Math.floor(Math.random() * 240); // 0–4 min
+    const secondsAgo = Math.floor(random() * 240); // 0–4 min
     return new Date(Date.now() - secondsAgo * 1000).toISOString();
   }
-  const minutesAgo = 8 + Math.floor(Math.random() * 52); // 8–60 min
+  const minutesAgo = 8 + Math.floor(random() * 52); // 8–60 min
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
 }
 
@@ -44,9 +52,20 @@ export function zoneForVehicleIndex(index: number): BogotaZone {
   return BOGOTA_ZONES[index % BOGOTA_ZONES.length];
 }
 
-/** Obtiene la zona según el ID del vehículo (VH-001, etc.). */
-export function zoneForVehicleId(vehicleId: string): BogotaZone {
-  const match = /VH-(\d+)/i.exec(vehicleId);
-  const num = match ? Number.parseInt(match[1], 10) : vehicleId.length;
-  return BOGOTA_ZONES[num % BOGOTA_ZONES.length];
+function hashDeviceId(deviceId: string): number {
+  let hash = 0;
+  for (let i = 0; i < deviceId.length; i++) {
+    hash = (hash + deviceId.charCodeAt(i)) % BOGOTA_ZONES.length;
+  }
+  return hash;
+}
+
+/** Obtiene la zona según vehicleName (VH-###) o hash de deviceId. */
+export function zoneForDevice(deviceId: string, vehicleName?: string | null): BogotaZone {
+  const vhMatch = vehicleName ? /VH-(\d+)/i.exec(vehicleName) : null;
+  if (vhMatch) {
+    const num = Number.parseInt(vhMatch[1], 10);
+    return BOGOTA_ZONES[num % BOGOTA_ZONES.length];
+  }
+  return BOGOTA_ZONES[hashDeviceId(deviceId)];
 }

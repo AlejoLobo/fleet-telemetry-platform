@@ -16,7 +16,8 @@ export function KpiGrid({ globalAnalytics, selectedAnalytics, telemetryLoading }
       ? Math.round((globalAnalytics.activeVehicles / globalAnalytics.totalVehicles) * 100)
       : 0;
 
-  const selectedLabel = selectedAnalytics?.vehicleId ?? "—";
+  const selectedLabel = selectedAnalytics?.vehicleName
+    || (selectedAnalytics?.deviceId ? selectedAnalytics.deviceId.slice(0, 8) : "—");
   const selectedSpeed = telemetryLoading
     ? "…"
     : String(selectedAnalytics?.averageSpeedKmh ?? 0);

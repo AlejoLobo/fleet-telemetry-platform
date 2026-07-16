@@ -20,8 +20,8 @@ public sealed class FleetRealtimeKafkaMessage
     [JsonPropertyName("occurredAt")]
     public DateTimeOffset OccurredAt { get; init; }
 
-    [JsonPropertyName("vehicleId")]
-    public string? VehicleId { get; init; }
+    [JsonPropertyName("deviceId")]
+    public string? DeviceId { get; init; }
 
     private static readonly JsonSerializerOptions Options = new()
     {

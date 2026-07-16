@@ -8,6 +8,7 @@ import {
 } from "@/lib/fleet-pagination";
 import { apiClient } from "@/lib/api-client";
 import { computeGlobalAnalyticsFromOps } from "@/lib/analytics";
+import { testDeviceId, testVehicleName } from "@/test/device-fixtures";
 
 const mockFetch = vi.fn();
 
@@ -15,10 +16,10 @@ vi.mock("@/lib/utils", () => ({
   getApiBaseUrl: () => "http://localhost:5000",
 }));
 
-function vehicle(id: string): Record<string, unknown> {
+function vehicle(id: string, displayName?: string): Record<string, unknown> {
   return {
-    VehicleId: id,
-    Name: id,
+    DeviceId: id,
+    VehicleName: displayName ?? testVehicleName(Number.parseInt(id.slice(-3), 10) || 1),
     Status: "online",
     LastSeenAt: "2026-07-10T10:00:00Z",
     LastSpeedKmh: 1,
@@ -47,7 +48,7 @@ describe("fleet pagination client", () => {
       ok: true,
       json: async () =>
         ({
-          items: [vehicle("VH-001")],
+          items: [vehicle("00000000-0000-4000-8000-000000000001")],
           nextCursor: "cursor-1",
           hasMore: true,
         }) satisfies CursorPage<Record<string, unknown>>,
@@ -55,7 +56,7 @@ describe("fleet pagination client", () => {
 
     const page = await fetchFleetPage({ pageSize: 1 });
     expect(page.items).toHaveLength(1);
-    expect(page.items[0]?.vehicleId).toBe("VH-001");
+    expect(page.items[0]?.deviceId).toBe("00000000-0000-4000-8000-000000000001");
     expect(page.nextCursor).toBe("cursor-1");
     expect(page.hasMore).toBe(true);
   });
@@ -65,7 +66,7 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [vehicle("VH-001")],
+          items: [vehicle("00000000-0000-4000-8000-000000000001")],
           nextCursor: "c2",
           hasMore: true,
         }),
@@ -73,14 +74,14 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [vehicle("VH-002")],
+          items: [vehicle("00000000-0000-4000-8000-000000000002")],
           nextCursor: null,
           hasMore: false,
         }),
       });
 
     const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
-    expect(snapshot.vehicles.map((v) => v.vehicleId)).toEqual(["VH-001", "VH-002"]);
+    expect(snapshot.vehicles.map((v) => v.deviceId)).toEqual(["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]);
     expect(snapshot.partial).toBe(false);
     expect(snapshot.truncated).toBe(false);
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -90,7 +91,7 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        items: [vehicle("VH-001"), vehicle("VH-002")],
+        items: [vehicle("00000000-0000-4000-8000-000000000001"), vehicle("00000000-0000-4000-8000-000000000002")],
         nextCursor: "c2",
         hasMore: true,
       }),
@@ -107,7 +108,7 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        items: [vehicle("VH-001"), vehicle("VH-002")],
+        items: [vehicle("00000000-0000-4000-8000-000000000001"), vehicle("00000000-0000-4000-8000-000000000002")],
         nextCursor: null,
         hasMore: false,
       }),
@@ -123,7 +124,7 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        items: [vehicle("VH-001")],
+        items: [vehicle("00000000-0000-4000-8000-000000000001")],
         nextCursor: "c2",
         hasMore: true,
       }),
@@ -139,7 +140,7 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        items: [vehicle("VH-001"), vehicle("VH-002"), vehicle("VH-003")],
+        items: [vehicle("00000000-0000-4000-8000-000000000001"), vehicle("00000000-0000-4000-8000-000000000002"), vehicle("00000000-0000-4000-8000-000000000003")],
         nextCursor: null,
         hasMore: false,
       }),
@@ -155,7 +156,7 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        items: [vehicle("VH-001")],
+        items: [vehicle("00000000-0000-4000-8000-000000000001")],
         nextCursor: "same",
         hasMore: true,
       }),
@@ -171,11 +172,11 @@ describe("fleet pagination client", () => {
     let counter = 0;
     mockFetch.mockImplementation(async () => {
       counter += 1;
-      const id = `VH-${String(counter).padStart(3, "0")}`;
+      const id = testDeviceId(counter);
       return {
         ok: true,
         json: async () => ({
-          items: [vehicle(id)],
+          items: [vehicle(id, testVehicleName(counter))],
           nextCursor: counter < 10 ? `c-${counter}` : null,
           hasMore: counter < 10,
         }),
@@ -202,7 +203,7 @@ describe("fleet pagination client", () => {
         return {
           ok: true,
           json: async () => ({
-            items: [vehicle("VH-001")],
+            items: [vehicle("00000000-0000-4000-8000-000000000001")],
             nextCursor: "c2",
             hasMore: true,
           }),
@@ -224,7 +225,7 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [vehicle("VH-001")],
+          items: [vehicle("00000000-0000-4000-8000-000000000001")],
           nextCursor: "c2",
           hasMore: true,
         }),
@@ -232,14 +233,69 @@ describe("fleet pagination client", () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 500,
+        headers: { get: () => null },
         json: async () => ({ detail: "fallo" }),
       });
 
     const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
     expect(snapshot.partial).toBe(true);
     expect(snapshot.vehicles).toHaveLength(1);
-    expect(snapshot.error).toBeTruthy();
+    expect(snapshot.error).toContain("500");
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("429_en_primera_pagina_de_flota_propaga_ApiError", async () => {
+    const { ApiError } = await import("@/lib/http-error");
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: { get: (name: string) => (name === "Retry-After" ? "30" : null) },
+      json: async () => ({ error: "Demasiadas solicitudes" }),
+    });
+
+    await expect(fetchFleetSnapshot({ pageSize: 1 })).rejects.toMatchObject({
+      name: "ApiError",
+      status: 429,
+      retryAfterSeconds: 30,
+    });
+    expect(ApiError).toBeDefined();
+  });
+
+  it("error_de_red_en_primera_pagina_propaga_y_mensaje_resuelve_Docker", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(fetchFleetSnapshot({ pageSize: 1 })).rejects.toBeInstanceOf(TypeError);
+
+    const { resolveFleetFetchError } = await import("@/lib/fleet-fetch-error");
+    expect(resolveFleetFetchError(new TypeError("Failed to fetch"))).toContain("puerto 5000");
+  });
+
+  it("503_en_primera_pagina_mantiene_codigo_HTTP", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      headers: { get: () => null },
+      json: async () => ({ error: "unavailable" }),
+    });
+
+    await expect(fetchFleetSnapshot()).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("AbortError_en_pagina_posterior_no_es_error_de_red", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [vehicle("00000000-0000-4000-8000-000000000001")],
+          nextCursor: "c2",
+          hasMore: true,
+        }),
+      })
+      .mockRejectedValueOnce(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+
+    const snapshot = await fetchFleetSnapshot({ pageSize: 1 });
+    expect(snapshot.partial).toBe(true);
+    expect(snapshot.vehicles).toHaveLength(1);
+    expect(snapshot.error).toBeUndefined();
   });
 
   it("maxEvents_menor_que_pageSize_marca_truncated_sin_hasMore", async () => {
@@ -247,16 +303,16 @@ describe("fleet pagination client", () => {
       ok: true,
       json: async () => ({
         items: [
-          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
-          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
-          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+          { eventId: "e-1", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
         ],
         nextCursor: null,
         hasMore: false,
       }),
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 5, maxEvents: 2 });
     expect(snapshot.events).toHaveLength(2);
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.partial).toBe(true);
@@ -268,15 +324,15 @@ describe("fleet pagination client", () => {
       ok: true,
       json: async () => ({
         items: [
-          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
-          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-1", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
         ],
         nextCursor: null,
         hasMore: false,
       }),
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 5, maxEvents: 2 });
     expect(snapshot.events).toHaveLength(2);
     expect(snapshot.truncated).toBe(false);
     expect(snapshot.partial).toBe(false);
@@ -287,16 +343,16 @@ describe("fleet pagination client", () => {
       ok: true,
       json: async () => ({
         items: [
-          { eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
-          { eventId: "e-2", vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
-          { eventId: "e-3", vehicleId: "VH-001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
+          { eventId: "e-1", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+          { eventId: "e-2", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+          { eventId: "e-3", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:02:00Z", latitude: 1, longitude: 1, speedKmh: 30 },
         ],
         nextCursor: null,
         hasMore: false,
       }),
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 5, maxEvents: 2 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 5, maxEvents: 2 });
     expect(snapshot.events).toHaveLength(2);
     expect(snapshot.partial).toBe(true);
     expect(snapshot.truncated).toBe(true);
@@ -310,8 +366,8 @@ describe("fleet pagination client", () => {
         ok: true,
         json: async () => ({
           items: [
-            { eventId: `e-${counter}-1`, vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
-            { eventId: `e-${counter}-2`, vehicleId: "VH-001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
+            { eventId: `e-${counter}-1`, deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 },
+            { eventId: `e-${counter}-2`, deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:01:00Z", latitude: 1, longitude: 1, speedKmh: 20 },
           ],
           nextCursor: counter < 5 ? `c-${counter}` : null,
           hasMore: counter < 5,
@@ -319,7 +375,7 @@ describe("fleet pagination client", () => {
       };
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 2, maxEvents: 3 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 2, maxEvents: 3 });
     expect(snapshot.events.length).toBeLessThanOrEqual(3);
     expect(snapshot.events).toHaveLength(3);
   });
@@ -331,14 +387,14 @@ describe("fleet pagination client", () => {
       return {
         ok: true,
         json: async () => ({
-          items: [{ eventId: `e-${counter}`, vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+          items: [{ eventId: `e-${counter}`, deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
           nextCursor: counter < 5 ? `c-${counter}` : null,
           hasMore: counter < 5,
         }),
       };
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 1, maxEvents: 3 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 1, maxEvents: 3 });
     expect(snapshot.events).toHaveLength(3);
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.partial).toBe(true);
@@ -349,13 +405,13 @@ describe("fleet pagination client", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        items: [{ eventId: "e-1", vehicleId: "VH-001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
+        items: [{ eventId: "e-1", deviceId: "00000000-0000-4000-8000-000000000001", timestamp: "2026-07-10T10:00:00Z", latitude: 1, longitude: 1, speedKmh: 10 }],
         nextCursor: "same",
         hasMore: true,
       }),
     });
 
-    const snapshot = await fetchTelemetrySnapshot("VH-001", { pageSize: 1 });
+    const snapshot = await fetchTelemetrySnapshot("00000000-0000-4000-8000-000000000001", { pageSize: 1 });
     expect(snapshot.partial).toBe(true);
     expect(snapshot.error).toContain("Cursor repetido");
     expect(mockFetch).toHaveBeenCalledTimes(2);

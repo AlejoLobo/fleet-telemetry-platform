@@ -38,14 +38,14 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
+        Produce(host.Topic, payload, original.DeviceIdStorage, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 1, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var row = await db.TelemetryEvents.SingleAsync(e => e.EventId == original.EventId);
 
-        Assert.Equal(original.VehicleId, row.VehicleId);
+        Assert.Equal(original.DeviceId, row.DeviceId);
         Assert.Equal(original.DriverId, row.DriverId);
         Assert.Equal(original.Timestamp.UtcDateTime, row.Timestamp.UtcDateTime, TimeSpan.FromSeconds(1));
         Assert.Equal(original.Latitude, row.Latitude, precision: 4);
@@ -87,7 +87,7 @@ public class TelemetryEnvelopeIntegrationTests
                 });
 
             await host.StartAsync();
-            Produce(topic, envelopeJson, original.VehicleId, _kafka.BootstrapServers);
+            Produce(topic, envelopeJson, original.DeviceIdStorage, _kafka.BootstrapServers);
             await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
 
             using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
@@ -162,7 +162,7 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: false);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
+        Produce(host.Topic, payload, original.DeviceIdStorage, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 1, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
@@ -192,8 +192,8 @@ public class TelemetryEnvelopeIntegrationTests
         var payload = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
 
         await host.StartAsync();
-        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
-        Produce(host.Topic, payload, original.VehicleId, _kafka.BootstrapServers);
+        Produce(host.Topic, payload, original.DeviceIdStorage, _kafka.BootstrapServers);
+        Produce(host.Topic, payload, original.DeviceIdStorage, _kafka.BootstrapServers);
         await WaitUntilCommittedOffsetAsync(host.GroupId, host.Topic, 2, TimeSpan.FromSeconds(60));
 
         using var scope = CreateDbScope(database.ConnectionString);
@@ -249,7 +249,7 @@ public class TelemetryEnvelopeIntegrationTests
                   "occurredAt": "2026-07-12T08:30:00Z",
                   "payload": {
                     "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                    "vehicleId": "VH-ENV",
+                    "deviceId": "{DeviceIdTestHelper.CreateDeterministicGuid(\"VH-ENV\"):D}",
                     "driverId": "DRV-ENV",
                     "timestamp": "2026-07-12T09:00:00Z",
                     "latitude": 4.71,
@@ -277,7 +277,7 @@ public class TelemetryEnvelopeIntegrationTests
                 });
 
             await host.StartAsync();
-            Produce(topic, contradictoryEnvelope, original.VehicleId, _kafka.BootstrapServers);
+            Produce(topic, contradictoryEnvelope, original.DeviceIdStorage, _kafka.BootstrapServers);
             await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
 
             using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
@@ -319,7 +319,7 @@ public class TelemetryEnvelopeIntegrationTests
                   "occurredAt": "2026-07-12T08:30:00Z",
                   "payload": {
                     "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                    "vehicleId": "VH-ENV",
+                    "deviceId": "{DeviceIdTestHelper.CreateDeterministicGuid(\"VH-ENV\"):D}",
                     "driverId": "DRV-ENV",
                     "timestamp": "2026-07-12T08:30:00Z",
                     "latitude": 4.71,
@@ -468,7 +468,7 @@ public class TelemetryEnvelopeIntegrationTests
                 });
 
             await host.StartAsync();
-            Produce(topic, legacyWithReserved, original.VehicleId, _kafka.BootstrapServers);
+            Produce(topic, legacyWithReserved, original.DeviceIdStorage, _kafka.BootstrapServers);
             await WaitUntilCommittedOffsetAsync(group, topic, 1, TimeSpan.FromSeconds(60));
 
             using var dlqConsumer = CreateDlqConsumer(group, dlqTopic, _kafka.BootstrapServers);
@@ -492,7 +492,7 @@ public class TelemetryEnvelopeIntegrationTests
     {
         return TelemetryEvent.Create(
             eventId ?? Guid.NewGuid(),
-            "VH-ENV",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-ENV"),
             "DRV-ENV",
             new DateTimeOffset(2026, 7, 12, 10, 0, 0, TimeSpan.Zero),
             4.71,

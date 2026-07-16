@@ -94,7 +94,7 @@ public class TelemetryAlertEvaluatorTests
     public void Condicion_activa_dentro_del_cooldown_no_emite()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "overspeed", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "overspeed", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(speedKmh: 130),
             new Dictionary<string, FleetAlertConditionState> { ["overspeed"] = active },
@@ -109,7 +109,7 @@ public class TelemetryAlertEvaluatorTests
     public void Recuperacion_marca_inactiva_sin_usar_acknowledged()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "overspeed", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "overspeed", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(speedKmh: 80),
             new Dictionary<string, FleetAlertConditionState> { ["overspeed"] = active },
@@ -124,7 +124,7 @@ public class TelemetryAlertEvaluatorTests
     public void Nueva_incidencia_tras_recuperacion_respeta_cooldown()
     {
         var recovered = FleetAlertConditionState.Create(
-            "VH-001", "overspeed", false, T0, T0, T0.AddMinutes(1));
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "overspeed", false, T0, T0, T0.AddMinutes(1));
 
         var within = Evaluate(
             BaseEvent(speedKmh: 130),
@@ -145,7 +145,7 @@ public class TelemetryAlertEvaluatorTests
     public void Low_fuel_activo_con_fuel_null_conserva_IsActive()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "low_fuel", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_fuel", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(fuelLevelPercent: null),
             new Dictionary<string, FleetAlertConditionState> { ["low_fuel"] = active },
@@ -160,7 +160,7 @@ public class TelemetryAlertEvaluatorTests
     public void Low_battery_activo_con_battery_null_conserva_IsActive()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "low_battery", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_battery", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(batteryPercent: null),
             new Dictionary<string, FleetAlertConditionState> { ["low_battery"] = active },
@@ -186,7 +186,7 @@ public class TelemetryAlertEvaluatorTests
     public void Null_despues_del_cooldown_no_genera_recordatorio()
     {
         var activeFuel = FleetAlertConditionState.Create(
-            "VH-001", "low_fuel", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_fuel", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(fuelLevelPercent: null),
             new Dictionary<string, FleetAlertConditionState> { ["low_fuel"] = activeFuel },
@@ -202,7 +202,7 @@ public class TelemetryAlertEvaluatorTests
     public void Fuel_igual_15_recupera_low_fuel()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "low_fuel", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_fuel", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(fuelLevelPercent: 15),
             new Dictionary<string, FleetAlertConditionState> { ["low_fuel"] = active },
@@ -216,7 +216,7 @@ public class TelemetryAlertEvaluatorTests
     public void Battery_igual_20_recupera_low_battery()
     {
         var active = FleetAlertConditionState.Create(
-            "VH-001", "low_battery", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_battery", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(batteryPercent: 20),
             new Dictionary<string, FleetAlertConditionState> { ["low_battery"] = active },
@@ -230,7 +230,7 @@ public class TelemetryAlertEvaluatorTests
     public void Campo_NotObserved_no_altera_otros_tipos()
     {
         var fuelActive = FleetAlertConditionState.Create(
-            "VH-001", "low_fuel", true, T0, T0, T0);
+            Guid.Parse("11111111-1111-1111-1111-111111111111"), "low_fuel", true, T0, T0, T0);
         var result = Evaluate(
             BaseEvent(speedKmh: 130, fuelLevelPercent: null, batteryPercent: 80),
             new Dictionary<string, FleetAlertConditionState> { ["low_fuel"] = fuelActive },
@@ -259,7 +259,7 @@ public class TelemetryAlertEvaluatorTests
         double? batteryPercent = 80) =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-001",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
             null,
             T0,
             4.65,
