@@ -1,5 +1,16 @@
 /** Panel lateral con lista de vehículos y su estado. */
-import { Navigation, Clock, Gauge } from "lucide-react";
+import {
+  Bike,
+  Bus,
+  Car,
+  CarFront,
+  CarTaxiFront,
+  Clock,
+  Gauge,
+  Navigation,
+  Truck,
+  type LucideIcon,
+} from "lucide-react";
 import type { AggregationSource } from "@/lib/analytics";
 import type { VehicleStatus, VehicleType } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +18,15 @@ import { Badge } from "@/components/ui/badge";
 import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { cn } from "@/lib/utils";
+
+const VEHICLE_TYPE_ICONS: Record<VehicleType, LucideIcon> = {
+  car: Car,
+  motorcycle: Bike,
+  van: CarFront,
+  truck: Truck,
+  bus: Bus,
+  pickup: CarTaxiFront,
+};
 
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
@@ -47,66 +67,15 @@ function displayVehicleName(vehicle: VehicleStatus): string {
   return name && name.length > 0 ? name : "Vehículo";
 }
 
-/** Icono compacto del tipo de vehículo para la fila del panel. */
+/** Icono Lucide del tipo: siluetas reconocibles (moto ≠ camión ≠ auto). */
 function VehicleTypeIcon({ type, online }: { type: VehicleType; online: boolean }) {
-  const color = online ? "text-emerald-600" : "text-slate-400";
-
+  const Icon = VEHICLE_TYPE_ICONS[type] ?? Car;
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className={cn("h-5 w-5", color)}
+    <Icon
+      className={cn("h-5 w-5", online ? "text-emerald-600" : "text-slate-400")}
       aria-hidden="true"
-      fill="currentColor"
-    >
-      {type === "motorcycle" && (
-        <>
-          <circle cx="7" cy="18" r="2.5" />
-          <circle cx="17" cy="18" r="2.5" />
-          <path d="M9 18h8M12 6l-2 4h4l-2-4zM10 10v5h4v-5" />
-        </>
-      )}
-      {type === "van" && (
-        <>
-          <rect x="4" y="8" width="16" height="10" rx="2" />
-          <path d="M12 4l3 4H9l3-4z" />
-          <circle cx="7" cy="20" r="2" />
-          <circle cx="17" cy="20" r="2" />
-        </>
-      )}
-      {type === "truck" && (
-        <>
-          <rect x="3" y="8" width="18" height="10" rx="2" />
-          <rect x="15" y="10" width="6" height="8" rx="1" />
-          <circle cx="7" cy="20" r="2" />
-          <circle cx="17" cy="20" r="2" />
-        </>
-      )}
-      {type === "bus" && (
-        <>
-          <rect x="4" y="5" width="16" height="14" rx="3" />
-          <rect x="7" y="8" width="10" height="3" rx="1" opacity="0.5" />
-          <circle cx="8" cy="21" r="2" />
-          <circle cx="16" cy="21" r="2" />
-        </>
-      )}
-      {type === "pickup" && (
-        <>
-          <path d="M12 4l3 4H9l3-4z" />
-          <rect x="5" y="8" width="14" height="7" rx="2" />
-          <rect x="5" y="15" width="14" height="5" rx="1" />
-          <circle cx="8" cy="22" r="2" />
-          <circle cx="16" cy="22" r="2" />
-        </>
-      )}
-      {(type === "car" || !type) && (
-        <>
-          <path d="M12 4l3 4H9l3-4z" />
-          <rect x="5" y="8" width="14" height="10" rx="3" />
-          <circle cx="8" cy="20" r="2" />
-          <circle cx="16" cy="20" r="2" />
-        </>
-      )}
-    </svg>
+      strokeWidth={2.25}
+    />
   );
 }
 
@@ -224,6 +193,7 @@ export function FleetStatusPanel({
                       <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
                     )}
                   </div>
+                  <p className="mt-0.5 text-[11px] font-medium text-slate-500">{typeLabel}</p>
                   <p
                     className="mt-0.5 break-all font-mono text-[11px] text-slate-500"
                     title={vehicle.deviceId}

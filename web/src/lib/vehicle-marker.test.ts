@@ -29,8 +29,18 @@ describe("createVehicleMarkerIcon", () => {
   it.each(types)("genera SVG distinto para %s", (vehicleType) => {
     const icon = createVehicleMarkerIcon(baseVehicle({ vehicleType }), false);
     expect(icon.options.html).toContain("<svg");
-    expect(icon.options.iconSize).toEqual([44, 56]);
-    expect(icon.options.iconAnchor).toEqual([22, 28]);
+    expect(icon.options.html).toContain(`data-vehicle-type="${vehicleType}"`);
+    expect(icon.options.className).toBe("fleet-vehicle-marker");
+    expect(icon.options.iconSize).toEqual([48, 62]);
+    expect(icon.options.iconAnchor).toEqual([24, 30]);
+  });
+
+  it("moto y camión producen siluetas distintas", () => {
+    const moto = String(createVehicleMarkerIcon(baseVehicle({ vehicleType: "motorcycle" }), false).options.html);
+    const truck = String(createVehicleMarkerIcon(baseVehicle({ vehicleType: "truck" }), false).options.html);
+    expect(moto).toContain('data-vehicle-type="motorcycle"');
+    expect(truck).toContain('data-vehicle-type="truck"');
+    expect(moto).not.toEqual(truck);
   });
 
   it("etiqueta solo muestra vehicleName escapado", () => {
