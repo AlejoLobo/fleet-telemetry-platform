@@ -122,7 +122,7 @@ export function LeafletFleetMap({
           const lng = vehicle.lastLongitude!;
           return (
             <Marker
-              key={vehicle.deviceId}
+              key={`${vehicle.deviceId}:${vehicle.vehicleType}:${vehicle.status}`}
               position={[lat, lng]}
               icon={createVehicleMarkerIcon(vehicle, vehicle.deviceId === selectedDeviceId)}
             >

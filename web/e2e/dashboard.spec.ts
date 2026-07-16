@@ -23,10 +23,10 @@ test.describe("Dashboard demo", () => {
 
   test("demo incluye motocicleta VH-005", async ({ page }) => {
     await prepareDemo(page);
-    await expect(page.getByRole("button", { name: "Tipo de vehículo: Motocicleta" })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Tipo de vehículo: Motocicleta" }).getByText("VH-005"),
-    ).toBeVisible();
+    const row = page.getByRole("button", { name: /VH-005/ });
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Motocicleta", { exact: true })).toBeVisible();
+    await expect(row.getByLabel("Tipo de vehículo: Motocicleta")).toBeVisible();
   });
 });
 
