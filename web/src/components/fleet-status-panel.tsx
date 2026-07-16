@@ -79,9 +79,10 @@ function displayVehicleName(vehicle: VehicleStatus): string {
 /** Icono Lucide del tipo: siluetas reconocibles (moto ≠ camión ≠ auto). */
 function VehicleTypeIcon({ type, online }: { type: VehicleType; online: boolean }) {
   const Icon = VEHICLE_TYPE_ICONS[type] ?? Car;
+  const tones = VEHICLE_TYPE_ICON_TONES[type] ?? VEHICLE_TYPE_ICON_TONES.car;
   return (
     <Icon
-      className={cn("h-5 w-5", online ? "text-emerald-600" : "text-slate-400")}
+      className={cn("h-5 w-5", online ? tones.inkOnline : "text-slate-400")}
       aria-hidden="true"
       strokeWidth={2.25}
     />
@@ -159,6 +160,7 @@ export function FleetStatusPanel({
             const online = esVehiculoEnLinea(vehicle.status);
             const name = displayVehicleName(vehicle);
             const typeLabel = vehicleTypeLabel(vehicle.vehicleType);
+            const tones = VEHICLE_TYPE_ICON_TONES[vehicle.vehicleType] ?? VEHICLE_TYPE_ICON_TONES.car;
 
             return (
               <button
@@ -179,7 +181,7 @@ export function FleetStatusPanel({
                 <div
                   className={cn(
                     "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                    online ? "bg-emerald-500/10" : "bg-slate-200/60",
+                    online ? tones.online : tones.offline,
                   )}
                   aria-label={`Tipo de vehículo: ${typeLabel}`}
                 >
