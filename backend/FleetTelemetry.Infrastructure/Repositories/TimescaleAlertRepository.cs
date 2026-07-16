@@ -65,7 +65,7 @@ public class TimescaleAlertRepository : IAlertRepository
         var record = new FleetAlertRecord
         {
             AlertId = alert.AlertId,
-            VehicleId = alert.VehicleId,
+            DeviceId = alert.DeviceId,
             AlertType = alert.AlertType,
             Severity = alert.Severity,
             Message = alert.Message,
@@ -80,7 +80,7 @@ public class TimescaleAlertRepository : IAlertRepository
     private static FleetAlert MapToDomain(FleetAlertRecord record) =>
         FleetAlert.FromPersistence(
             record.AlertId,
-            record.VehicleId,
+            record.DeviceId,
             record.AlertType,
             record.Severity,
             record.Message,

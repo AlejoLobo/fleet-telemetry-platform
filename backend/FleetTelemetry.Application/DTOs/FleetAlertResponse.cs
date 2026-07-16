@@ -2,7 +2,7 @@ namespace FleetTelemetry.Application.DTOs;
 
 public record FleetAlertResponse(
     Guid AlertId,
-    string VehicleId,
+    Guid DeviceId,
     string AlertType,
     string Severity,
     string Message,

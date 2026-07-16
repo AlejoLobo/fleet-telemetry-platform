@@ -1,5 +1,6 @@
 /** Cliente HTTP para comunicarse con el backend .NET. */
 import type { AiQueryResponse, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
+import { normalizeAlerts } from "@/lib/fleet-normalize";
 import { getApiBaseUrl } from "@/lib/utils";
 import {
   fetchFleetSnapshot,
@@ -7,6 +8,9 @@ import {
   type FleetSnapshotResult,
   type TelemetrySnapshotResult,
 } from "@/lib/fleet-pagination";
+import { ApiError, readRetryAfterSeconds } from "@/lib/http-error";
+
+export { ApiError } from "@/lib/http-error";
 
 type LoginResponse = {
   token: string;
@@ -16,17 +20,6 @@ type LoginResponse = {
 type AuthStatusResponse = {
   enabled: boolean;
 };
-
-/** Error HTTP con código de estado. */
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
 
 /** Obtiene el token JWT del almacenamiento local. */
 function authHeaders(): Record<string, string> {
@@ -49,12 +42,12 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let detail = `Error ${response.status} en ${path}`;
     try {
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as { error?: string; retryAfterSeconds?: number };
       if (body.error) detail = body.error;
     } catch {
       // respuesta no JSON
     }
-    throw new ApiError(detail, response.status);
+    throw new ApiError(detail, response.status, readRetryAfterSeconds(response));
   }
 
   return response.json() as Promise<T>;
@@ -93,7 +86,8 @@ export const apiClient = {
     return fetchFleetSnapshot(options);
   },
   async fetchAlertsLive(): Promise<FleetAlert[]> {
-    return fetchJson<FleetAlert[]>("/api/alerts");
+    const alerts = await fetchJson<Record<string, unknown>[]>("/api/alerts");
+    return normalizeAlerts(alerts);
   },
 
   async fetchOpsSummary(): Promise<{
@@ -109,8 +103,8 @@ export const apiClient = {
     return summary;
   },
 
-  async fetchTelemetryLive(vehicleId: string): Promise<TelemetrySnapshotResult> {
-    return fetchTelemetrySnapshot(vehicleId);
+  async fetchTelemetryLive(deviceId: string): Promise<TelemetrySnapshotResult> {
+    return fetchTelemetrySnapshot(deviceId);
   },
 
   async queryAi(question: string): Promise<AiQueryResponse> {

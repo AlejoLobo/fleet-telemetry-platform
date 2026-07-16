@@ -51,10 +51,11 @@ internal sealed class FakeFleetRealtimePublisher : IFleetRealtimePublisher
     }
 
     public Task PublishVehicleUpdateAsync(
-        string vehicleId,
+        Guid deviceId,
         string payloadJson,
         CancellationToken cancellationToken = default)
     {
+        var vehicleId = deviceId.ToString("D");
         if (FailNextVehiclePublish
             || (FailOnVehicleId is not null && vehicleId == FailOnVehicleId))
         {

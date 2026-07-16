@@ -15,7 +15,7 @@ import {
 } from "@/lib/analytics";
 import type { AnalyticsSummary, FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 import { refreshMockDataset, getMockDataset } from "@/mocks/fleet-data";
-import { getApiBaseUrl } from "@/lib/utils";
+import { resolveFleetFetchError } from "@/lib/fleet-fetch-error";
 import {
   ResyncFailedError,
   ResyncSupersededError,
@@ -37,6 +37,7 @@ type FleetDataState = {
   telemetryPartial: boolean;
   telemetryTruncated: boolean;
   dataSource: FleetDataSource;
+  lastSuccessfulFleetAt: string | null;
 };
 
 const emptyGlobal: GlobalAnalytics = {
@@ -46,7 +47,11 @@ const emptyGlobal: GlobalAnalytics = {
   source: "TimescaleDB",
 };
 
-export function useFleetData(selectedVehicleId: string | null) {
+function findVehicleName(vehicles: VehicleStatus[], deviceId: string): string {
+  return vehicles.find((v) => v.deviceId === deviceId)?.vehicleName ?? "";
+}
+
+export function useFleetData(selectedDeviceId: string | null) {
   const [state, setState] = useState<FleetDataState>({
     vehicles: [],
     alerts: [],
@@ -62,6 +67,7 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryPartial: false,
     telemetryTruncated: false,
     dataSource: "api",
+    lastSuccessfulFleetAt: null,
   });
 
   const dataSourceRef = useRef<FleetDataSource>("api");
@@ -69,15 +75,20 @@ export function useFleetData(selectedVehicleId: string | null) {
   const telemetryRequestIdRef = useRef(0);
   const snapshotGenerationRef = useRef(0);
   const vehiclesRef = useRef<VehicleStatus[]>([]);
+  const selectedDeviceIdRef = useRef(selectedDeviceId);
+  selectedDeviceIdRef.current = selectedDeviceId;
 
   const isCurrentGeneration = (generation: number) =>
     generation === snapshotGenerationRef.current;
 
-  const loadFleetAndAlerts = useCallback(async (generation: number): Promise<boolean> => {
+  const loadFleetAndAlerts = useCallback(async (
+    generation: number,
+    options?: { silent?: boolean },
+  ): Promise<boolean> => {
     setState((prev) => ({
       ...prev,
-      fleetLoading: true,
-      fleetError: null,
+      fleetLoading: options?.silent ? prev.fleetLoading : true,
+      fleetError: options?.silent ? prev.fleetError : null,
       fleetPartial: false,
       fleetTruncated: false,
     }));
@@ -137,23 +148,25 @@ export function useFleetData(selectedVehicleId: string | null) {
             ? "Sin vehículos con telemetría. Publica eventos al API o usa modo Demo."
             : null),
         dataSource: "api",
+        lastSuccessfulFleetAt: new Date().toISOString(),
       }));
       dataSourceRef.current = "api";
       return true;
-    } catch {
+    } catch (error) {
       if (!isCurrentGeneration(generation)) return false;
-      setState((prev) => ({
-        ...prev,
+      const message = resolveFleetFetchError(error);
+      setState((previous) => ({
+        ...previous,
         fleetLoading: false,
-        fleetError: `No se pudo conectar con el backend (${getApiBaseUrl()}). Verifica que Docker, la API y el Worker estén activos.`,
+        fleetError: message,
         dataSource: "api",
       }));
-      return true;
+      return false;
     }
   }, []);
 
-  const loadTelemetryForVehicle = useCallback(async (
-    vehicleId: string,
+  const loadTelemetryForDevice = useCallback(async (
+    deviceId: string,
     generation: number,
   ) => {
     if (!isCurrentGeneration(generation)) return;
@@ -172,11 +185,12 @@ export function useFleetData(selectedVehicleId: string | null) {
     }));
 
     try {
-      const snapshot = await fetchTelemetrySnapshot(vehicleId, { signal: controller.signal });
+      const snapshot = await fetchTelemetrySnapshot(deviceId, { signal: controller.signal });
       if (requestId !== telemetryRequestIdRef.current) return;
       if (!isCurrentGeneration(generation)) return;
 
-      const selectedAnalytics = computeSelectedAnalytics(vehicleId, snapshot.events);
+      const vehicleName = findVehicleName(vehiclesRef.current, deviceId);
+      const selectedAnalytics = computeSelectedAnalytics(deviceId, snapshot.events, vehicleName);
       const telemetryWarning = snapshot.truncated
         ? `Historial parcial: se cargaron ${snapshot.events.length} eventos; existen más en el rango.`
         : snapshot.partial
@@ -197,10 +211,11 @@ export function useFleetData(selectedVehicleId: string | null) {
       if (requestId !== telemetryRequestIdRef.current) return;
       if (!isCurrentGeneration(generation)) return;
 
+      const message = resolveFleetFetchError(error);
       setState((prev) => ({
         ...prev,
         telemetryLoading: false,
-        telemetryError: error instanceof Error ? error.message : "Error al cargar telemetría",
+        telemetryError: message,
       }));
     }
   }, []);
@@ -223,18 +238,18 @@ export function useFleetData(selectedVehicleId: string | null) {
     const fleetOk = await loadFleetAndAlerts(generation);
     if (!fleetOk || !isCurrentGeneration(generation)) return;
 
-    const vehicleId = selectedVehicleId
-      && vehiclesRef.current.some((v) => v.vehicleId === selectedVehicleId)
-      ? selectedVehicleId
+    const deviceId = selectedDeviceId
+      && vehiclesRef.current.some((v) => v.deviceId === selectedDeviceId)
+      ? selectedDeviceId
       : null;
 
-    if (!vehicleId) {
+    if (!deviceId) {
       clearSelectedTelemetry();
       return;
     }
 
-    await loadTelemetryForVehicle(vehicleId, generation);
-  }, [clearSelectedTelemetry, loadFleetAndAlerts, loadTelemetryForVehicle, selectedVehicleId]);
+    await loadTelemetryForDevice(deviceId, generation);
+  }, [clearSelectedTelemetry, loadFleetAndAlerts, loadTelemetryForDevice, selectedDeviceId]);
 
   const loadDemoData = useCallback(async () => {
     telemetryAbortRef.current?.abort();
@@ -251,14 +266,18 @@ export function useFleetData(selectedVehicleId: string | null) {
 
     const dataset = refreshMockDataset(10);
     vehiclesRef.current = dataset.vehicles;
-    const vehicleId =
-      selectedVehicleId && dataset.vehicles.some((v) => v.vehicleId === selectedVehicleId)
-        ? selectedVehicleId
-        : (dataset.vehicles[0]?.vehicleId ?? null);
-    const telemetry = vehicleId ? dataset.telemetryByVehicle[vehicleId] ?? [] : [];
+    const deviceId =
+      selectedDeviceId && dataset.vehicles.some((v) => v.deviceId === selectedDeviceId)
+        ? selectedDeviceId
+        : (dataset.vehicles[0]?.deviceId ?? null);
+    const telemetry = deviceId ? dataset.telemetryByDevice[deviceId] ?? [] : [];
     const globalAnalytics = computeGlobalAnalytics(dataset.vehicles, dataset.alerts, "demo");
-    const selectedAnalytics = vehicleId
-      ? computeSelectedAnalytics(vehicleId, telemetry)
+    const selectedAnalytics = deviceId
+      ? computeSelectedAnalytics(
+          deviceId,
+          telemetry,
+          findVehicleName(dataset.vehicles, deviceId),
+        )
       : null;
 
     setState({
@@ -276,9 +295,10 @@ export function useFleetData(selectedVehicleId: string | null) {
       telemetryPartial: false,
       telemetryTruncated: false,
       dataSource: "demo",
+      lastSuccessfulFleetAt: new Date().toISOString(),
     });
     dataSourceRef.current = "demo";
-  }, [selectedVehicleId]);
+  }, [selectedDeviceId]);
 
   const refresh = useCallback(async () => {
     if (dataSourceRef.current === "demo") {
@@ -288,7 +308,18 @@ export function useFleetData(selectedVehicleId: string | null) {
     }
   }, [loadDemoData, loadFromApi]);
 
-  const refreshForResync = useCallback(async (vehicleId: string | null): Promise<ResyncSnapshotResult> => {
+  /** Solo historial del dispositivo seleccionado; no recarga flota ni alertas. */
+  const refreshSelectedTelemetry = useCallback(async () => {
+    if (dataSourceRef.current !== "api") return;
+
+    const deviceId = selectedDeviceIdRef.current;
+    if (!deviceId) return;
+    if (!vehiclesRef.current.some((v) => v.deviceId === deviceId)) return;
+
+    await loadTelemetryForDevice(deviceId, snapshotGenerationRef.current);
+  }, [loadTelemetryForDevice]);
+
+  const refreshForResync = useCallback(async (deviceId: string | null): Promise<ResyncSnapshotResult> => {
     telemetryAbortRef.current?.abort();
     const generation = ++snapshotGenerationRef.current;
 
@@ -298,10 +329,10 @@ export function useFleetData(selectedVehicleId: string | null) {
         throw new ResyncSupersededError();
       }
       return {
-        resolvedVehicleId: vehicleId
-          && vehiclesRef.current.some((v) => v.vehicleId === vehicleId)
-          ? vehicleId
-          : vehiclesRef.current[0]?.vehicleId ?? null,
+        resolvedDeviceId: deviceId
+          && vehiclesRef.current.some((v) => v.deviceId === deviceId)
+          ? deviceId
+          : vehiclesRef.current[0]?.deviceId ?? null,
         applied: true,
       };
     }
@@ -319,10 +350,10 @@ export function useFleetData(selectedVehicleId: string | null) {
       throw new ResyncFailedError(fleetSnapshot.error);
     }
 
-    const resolvedVehicleId = vehicleId
-      && fleetSnapshot.vehicles.some((v) => v.vehicleId === vehicleId)
-      ? vehicleId
-      : fleetSnapshot.vehicles[0]?.vehicleId ?? null;
+    const resolvedDeviceId = deviceId
+      && fleetSnapshot.vehicles.some((v) => v.deviceId === deviceId)
+      ? deviceId
+      : fleetSnapshot.vehicles[0]?.deviceId ?? null;
 
     let telemetrySnapshot: Awaited<ReturnType<typeof fetchTelemetrySnapshot>> = {
       events: [],
@@ -330,8 +361,8 @@ export function useFleetData(selectedVehicleId: string | null) {
       truncated: false,
     };
 
-    if (resolvedVehicleId) {
-      telemetrySnapshot = await fetchTelemetrySnapshot(resolvedVehicleId);
+    if (resolvedDeviceId) {
+      telemetrySnapshot = await fetchTelemetrySnapshot(resolvedDeviceId);
       if (!isCurrentGeneration(generation)) {
         throw new ResyncSupersededError();
       }
@@ -371,8 +402,12 @@ export function useFleetData(selectedVehicleId: string | null) {
       throw new ResyncSupersededError();
     }
 
-    const selectedAnalytics = resolvedVehicleId
-      ? computeSelectedAnalytics(resolvedVehicleId, telemetrySnapshot.events)
+    const selectedAnalytics = resolvedDeviceId
+      ? computeSelectedAnalytics(
+          resolvedDeviceId,
+          telemetrySnapshot.events,
+          findVehicleName(fleetSnapshot.vehicles, resolvedDeviceId),
+        )
       : null;
 
     vehiclesRef.current = fleetSnapshot.vehicles;
@@ -394,10 +429,11 @@ export function useFleetData(selectedVehicleId: string | null) {
         : null,
       telemetryError: null,
       dataSource: "api",
+      lastSuccessfulFleetAt: new Date().toISOString(),
     }));
     dataSourceRef.current = "api";
 
-    return { resolvedVehicleId, applied: true };
+    return { resolvedDeviceId, applied: true };
   }, [loadDemoData]);
 
   useEffect(() => {
@@ -408,18 +444,22 @@ export function useFleetData(selectedVehicleId: string | null) {
 
   useEffect(() => {
     if (dataSourceRef.current === "demo") {
-      if (!selectedVehicleId) {
+      if (!selectedDeviceId) {
         clearSelectedTelemetry();
         return;
       }
       const dataset = getMockDataset();
-      const telemetryForVehicle = dataset.telemetryByVehicle[selectedVehicleId] ?? [];
+      const telemetryForDevice = dataset.telemetryByDevice[selectedDeviceId] ?? [];
       setState((prev) => {
         if (prev.dataSource !== "demo") return prev;
         return {
           ...prev,
-          telemetry: telemetryForVehicle,
-          selectedAnalytics: computeSelectedAnalytics(selectedVehicleId, telemetryForVehicle),
+          telemetry: telemetryForDevice,
+          selectedAnalytics: computeSelectedAnalytics(
+            selectedDeviceId,
+            telemetryForDevice,
+            findVehicleName(dataset.vehicles, selectedDeviceId),
+          ),
         };
       });
       return;
@@ -427,18 +467,18 @@ export function useFleetData(selectedVehicleId: string | null) {
 
     if (state.fleetLoading) return;
 
-    if (!selectedVehicleId
-      || !state.vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
+    if (!selectedDeviceId
+      || !state.vehicles.some((v) => v.deviceId === selectedDeviceId)) {
       clearSelectedTelemetry();
       return;
     }
 
-    void loadTelemetryForVehicle(selectedVehicleId, snapshotGenerationRef.current);
+    void loadTelemetryForDevice(selectedDeviceId, snapshotGenerationRef.current);
   }, [
-    selectedVehicleId,
+    selectedDeviceId,
     state.fleetLoading,
     state.vehicles,
-    loadTelemetryForVehicle,
+    loadTelemetryForDevice,
     clearSelectedTelemetry,
   ]);
 
@@ -465,7 +505,9 @@ export function useFleetData(selectedVehicleId: string | null) {
     telemetryPartial: state.telemetryPartial,
     telemetryTruncated: state.telemetryTruncated,
     dataSource: state.dataSource,
+    lastSuccessfulFleetAt: state.lastSuccessfulFleetAt,
     refresh,
+    refreshSelectedTelemetry,
     refreshForResync,
     loadFromApi,
     loadDemoData,

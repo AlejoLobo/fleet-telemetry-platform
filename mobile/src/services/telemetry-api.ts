@@ -56,8 +56,14 @@ export function categorizeHttpStatus(status: number): TelemetryApiErrorCategory 
   return "protocol";
 }
 
-async function ensureTelemetryTransportReady(): Promise<Record<string, string>> {
+/** Construye headers de auth + X-Device-Id para llamadas al backend. */
+export async function ensureTelemetryTransportReady(
+  deviceId?: string | null,
+): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (deviceId && deviceId.trim()) {
+    headers["X-Device-Id"] = deviceId.trim();
+  }
   const auth = getAuthRuntimeSnapshot();
 
   if (auth.mode === "unknown") {
@@ -81,12 +87,17 @@ async function ensureTelemetryTransportReady(): Promise<Record<string, string>> 
   return headers;
 }
 
-async function postJson(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
+async function postJson(
+  path: string,
+  body: unknown,
+  deviceId?: string | null,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const headers = await ensureTelemetryTransportReady();
+    const headers = await ensureTelemetryTransportReady(deviceId);
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: "POST",
       headers,
@@ -115,12 +126,34 @@ async function postJson(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT
   }
 }
 
-export async function sendSingleEvent(event: TelemetryEventPayload): Promise<void> {
-  await postJson("/api/telemetry", { ...event, locationSource: event.locationSource ?? "gps" });
+function assertDeviceId(deviceId: string): string {
+  const normalized = deviceId.trim();
+  if (!normalized) {
+    throw new TelemetryApiError(0, "protocol", "deviceId vacío");
+  }
+  return normalized;
 }
 
-export async function sendBatchEvents(events: TelemetryEventPayload[]): Promise<void> {
-  await postJson("/api/telemetry/batch", {
-    events: events.map((event) => ({ ...event, locationSource: event.locationSource ?? "gps" })),
-  });
+export async function sendSingleEvent(
+  event: TelemetryEventPayload,
+  deviceId: string,
+): Promise<void> {
+  await postJson(
+    "/api/telemetry",
+    { ...event, locationSource: event.locationSource ?? "gps" },
+    assertDeviceId(deviceId),
+  );
+}
+
+export async function sendBatchEvents(
+  events: TelemetryEventPayload[],
+  deviceId: string,
+): Promise<void> {
+  await postJson(
+    "/api/telemetry/batch",
+    {
+      events: events.map((event) => ({ ...event, locationSource: event.locationSource ?? "gps" })),
+    },
+    assertDeviceId(deviceId),
+  );
 }

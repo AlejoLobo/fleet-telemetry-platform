@@ -18,6 +18,6 @@ public interface IFleetQueryService
         CancellationToken cancellationToken = default);
 
     Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken = default);
 }

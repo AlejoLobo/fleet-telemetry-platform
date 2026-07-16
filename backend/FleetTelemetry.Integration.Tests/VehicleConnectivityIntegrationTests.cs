@@ -44,7 +44,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         var telemetryEvent = CreateEvent(
-            "VH-CONN-ZERO",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-CONN-ZERO"),
             now.AddMinutes(-2),
             speedKmh: 0,
             latitude: 4.65,
@@ -54,7 +54,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
-        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -74,7 +74,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         var telemetryEvent = CreateEvent(
-            "VH-CONN-MOVE",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-CONN-MOVE"),
             now.AddMinutes(-1),
             speedKmh: 72,
             latitude: 4.66,
@@ -84,7 +84,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
-        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -102,7 +102,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         var telemetryEvent = CreateEvent(
-            "VH-CONN-OLD",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-CONN-OLD"),
             now.AddMinutes(-30),
             speedKmh: 40,
             latitude: 4.64,
@@ -112,7 +112,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
-        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -130,7 +130,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         var telemetryEvent = CreateEvent(
-            "VH-CONN-PARITY",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-CONN-PARITY"),
             now.AddMinutes(-3),
             speedKmh: 0,
             latitude: 4.67,
@@ -140,9 +140,9 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
-        var restStatus = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var restStatus = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var fleetPage = await fleetQuery.GetFleetPageAsync(pageSize: 10, cursor: null);
-        var pollingStatus = fleetPage.Items.Single(v => v.VehicleId == telemetryEvent.VehicleId);
+        var pollingStatus = fleetPage.Items.Single(v => v.DeviceId == telemetryEvent.DeviceId);
         var realtimePayload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -161,7 +161,7 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         _timeProvider.SetUtcNow(now);
 
         var telemetryEvent = CreateEvent(
-            "VH-CONN-STATUS",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-CONN-STATUS"),
             now.AddMinutes(-4),
             speedKmh: 15,
             latitude: 4.68,
@@ -173,8 +173,8 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
         var fleetQuery = scope.ServiceProvider.GetRequiredService<IFleetQueryService>();
 
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == telemetryEvent.VehicleId);
-        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.VehicleId);
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == telemetryEvent.DeviceId);
+        var status = await fleetQuery.GetVehicleStatusAsync(telemetryEvent.DeviceId);
         var payload = _publisher.DeserializeVehiclePayload<VehicleLatestStatusResponse>(
             _publisher.VehicleUpdates[0].PayloadJson);
 
@@ -196,15 +196,14 @@ public class VehicleConnectivityIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(telemetryEvent);
     }
 
-    private static TelemetryEvent CreateEvent(
-        string vehicleId,
+    private static TelemetryEvent CreateEvent(Guid deviceId,
         DateTimeOffset timestamp,
         double speedKmh,
         double latitude,
         double longitude) =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-INT-001",
             timestamp,
             latitude,

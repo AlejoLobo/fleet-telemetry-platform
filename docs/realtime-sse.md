@@ -50,7 +50,8 @@ En KafkaPush, un vehículo que deja de transmitir no genera `vehicle-update` por
 
 - Consulta incremental sobre `fleet_vehicle_state.LastTimestamp` (índice `ix_fleet_vehicle_state_last_timestamp`).
 - Detecta vehículos que acaban de cruzar el umbral.
-- Publica **una vez** `vehicle-update` con `status=offline` por `(VehicleId, LastEventId)`.
+- Publica **una vez** `vehicle-update` con `status=offline` por `(DeviceId, LastEventId)`.
+- El payload offline conserva `vehicleName` y `vehicleType` del registro del dispositivo (misma estructura que online).
 - No recorre toda la flota en cada ciclo; usa ventana deslizante entre umbrales consecutivos.
 
 Configuración (`Sse`):

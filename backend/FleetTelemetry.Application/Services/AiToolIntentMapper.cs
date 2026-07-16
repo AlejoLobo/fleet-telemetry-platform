@@ -15,11 +15,11 @@ public static class AiToolIntentMapper
             AiToolCatalog.GetStoppedVehicles => AiQuestionIntent.StoppedVehicles(),
             AiToolCatalog.GetVehiclesWithCriticalAlerts => AiQuestionIntent.CriticalAlerts(),
             AiToolCatalog.GetLatestVehicleStatus => AiQuestionIntent.VehicleStatus(
-                GetString(arguments, "vehicleId") ?? string.Empty),
+                GetGuid(arguments, "deviceId") ?? Guid.Empty),
             AiToolCatalog.GetVehiclesAboveSpeed => AiQuestionIntent.SpeedAbove(
                 GetDouble(arguments, "thresholdKmh") ?? 80),
             AiToolCatalog.GetAnalyticsSummary => AiQuestionIntent.Analytics(
-                GetString(arguments, "vehicleId")),
+                GetGuid(arguments, "deviceId")),
             AiToolCatalog.GetVehiclesStoppedLongerThan => AiQuestionIntent.StoppedLongerThan(
                 (int)(GetDouble(arguments, "minutes") ?? 20),
                 GetString(arguments, "zoneName"),
@@ -32,6 +32,19 @@ public static class AiToolIntentMapper
         args.TryGetValue(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static Guid? GetGuid(IReadOnlyDictionary<string, JsonElement> args, string name)
+    {
+        if (!args.TryGetValue(name, out var value))
+            return null;
+
+        if (value.ValueKind == JsonValueKind.String
+            && Guid.TryParse(value.GetString(), out var parsed)
+            && parsed != Guid.Empty)
+            return parsed;
+
+        return null;
+    }
 
     private static double? GetDouble(IReadOnlyDictionary<string, JsonElement> args, string name)
     {

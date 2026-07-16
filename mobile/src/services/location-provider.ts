@@ -53,14 +53,21 @@ export async function getCurrentReading(): Promise<LocationReading> {
   }
 }
 
+/**
+ * Bucle de captura periódica.
+ * `readLocation` es inyectable para pruebas; en producción usa getCurrentReading.
+ */
 export async function runCaptureLoop(
   onReading: (reading: LocationReading) => void | Promise<void>,
   intervalMs: number,
   shouldContinue: () => boolean,
+  readLocation: () => Promise<LocationReading> = getCurrentReading,
 ): Promise<void> {
   while (shouldContinue()) {
     const started = Date.now();
-    await onReading(await getCurrentReading());
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, intervalMs - (Date.now() - started))));
+    await onReading(await readLocation());
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, intervalMs - (Date.now() - started))),
+    );
   }
 }

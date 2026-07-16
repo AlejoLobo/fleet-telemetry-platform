@@ -70,6 +70,12 @@ body {
   border-radius: 0.875rem;
 }
 
+/* Sin caja blanca por defecto: los SVG de tipo deben verse sin marco. */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
 .leaflet-control-attribution {
   font-size: 10px;
   background: rgba(255, 255, 255, 0.95) !important;

@@ -30,7 +30,7 @@ public class KafkaDeadLetterPublisherIntegrationTests
         try
         {
             var message = CreateMessage(
-                originalPayload: """{"vehicleId":"VH-001"}""",
+                originalPayload: """{"deviceId":"11111111-1111-1111-1111-111111111111"}""",
                 reason: "invalid_payload",
                 originalTopic: "telemetry.raw",
                 partition: 2,

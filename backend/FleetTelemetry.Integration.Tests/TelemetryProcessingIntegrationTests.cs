@@ -68,14 +68,14 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         Assert.Equal(1, await db.TelemetryEvents.CountAsync(e => e.EventId == telemetryEvent.EventId));
 
         var storedEvent = await db.TelemetryEvents.SingleAsync(e => e.EventId == telemetryEvent.EventId);
-        Assert.Equal(telemetryEvent.VehicleId, storedEvent.VehicleId);
+        Assert.Equal(telemetryEvent.DeviceId, storedEvent.DeviceId);
         Assert.Equal(telemetryEvent.SpeedKmh, storedEvent.SpeedKmh);
 
         var alerts = await db.FleetAlerts
-            .Where(a => a.VehicleId == telemetryEvent.VehicleId)
+            .Where(a => a.DeviceId == telemetryEvent.DeviceId)
             .ToListAsync();
         Assert.NotEmpty(alerts);
-        Assert.All(alerts, alert => Assert.Equal(telemetryEvent.VehicleId, alert.VehicleId));
+        Assert.All(alerts, alert => Assert.Equal(telemetryEvent.DeviceId, alert.DeviceId));
     }
 
     [Fact]
@@ -90,10 +90,10 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         await uow.ProcessAsync(telemetryEvent);
 
         var overspeedAlert = await db.FleetAlerts
-            .SingleAsync(a => a.VehicleId == telemetryEvent.VehicleId && a.AlertType == "overspeed");
+            .SingleAsync(a => a.DeviceId == telemetryEvent.DeviceId && a.AlertType == "overspeed");
 
         Assert.Equal("critical", overspeedAlert.Severity);
-        Assert.Contains(telemetryEvent.VehicleId, overspeedAlert.Message);
+        Assert.Contains(telemetryEvent.DeviceIdStorage, overspeedAlert.Message);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
         }
 
         // JSON parcial deserializa, pero falla validación de dominio (Worker → reason invalid_payload).
-        const string partialJson = """{"vehicleId":"VH-001"}""";
+        const string partialJson = """{"deviceId":"11111111-1111-1111-1111-111111111111"}""";
         const string invalidDomainReason = "invalid_domain";
         var partialException = Assert.Throws<TelemetryKafkaContractException>(() =>
             TelemetryEventJsonSerializer.Deserialize(partialJson));
@@ -141,7 +141,7 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
     private static TelemetryEvent CreateOverspeedEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            $"VH-INT-{Guid.NewGuid():N}"[..16],
+            Guid.NewGuid(),
             "DRV-INT-001",
             DateTimeOffset.UtcNow,
             4.65,
@@ -153,7 +153,7 @@ public class TelemetryProcessingIntegrationTests : IAsyncLifetime
     private static TelemetryEvent CreateNormalEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            $"VH-INT-{Guid.NewGuid():N}"[..16],
+            Guid.NewGuid(),
             null,
             DateTimeOffset.UtcNow,
             4.60,

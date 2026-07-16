@@ -5,7 +5,7 @@ namespace FleetTelemetry.Application.Contracts;
 public sealed class TelemetryEventPayloadV1
 {
     public Guid EventId { get; init; }
-    public string VehicleId { get; init; } = string.Empty;
+    public Guid DeviceId { get; init; }
     public string? DriverId { get; init; }
     public DateTimeOffset Timestamp { get; init; }
     public double Latitude { get; init; }
@@ -18,7 +18,7 @@ public sealed class TelemetryEventPayloadV1
     public static TelemetryEventPayloadV1 FromDomain(TelemetryEvent telemetryEvent) => new()
     {
         EventId = telemetryEvent.EventId,
-        VehicleId = telemetryEvent.VehicleId,
+        DeviceId = telemetryEvent.DeviceId,
         DriverId = telemetryEvent.DriverId,
         Timestamp = telemetryEvent.Timestamp,
         Latitude = telemetryEvent.Latitude,

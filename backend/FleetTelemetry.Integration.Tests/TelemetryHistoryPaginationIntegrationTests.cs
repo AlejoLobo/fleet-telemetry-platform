@@ -35,18 +35,19 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
     {
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
-        var vehicleId = "VH-HIST-001";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HIST-001");
+        var deviceIdStorage = deviceId.ToString("D");
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         await SeedHistoryEventsAsync(
-            (vehicleId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
-            (vehicleId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
-            (vehicleId, baseTime.AddMinutes(30), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
+            (deviceId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+            (deviceId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
+            (deviceId, baseTime.AddMinutes(30), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
 
         var page = await repository.GetVehicleHistoryPageAsync(
-            vehicleId,
+            deviceId,
             baseTime,
             baseTime.AddHours(1),
             pageSize: 2,
@@ -63,20 +64,21 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
     {
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
-        var vehicleId = "VH-HIST-002";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HIST-002");
+        var deviceIdStorage = deviceId.ToString("D");
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         await SeedHistoryEventsAsync(
-            (vehicleId, baseTime.AddMinutes(10), Guid.Parse("11111111-1111-1111-1111-111111111111")),
-            (vehicleId, baseTime.AddMinutes(20), Guid.Parse("22222222-2222-2222-2222-222222222222")),
-            (vehicleId, baseTime.AddMinutes(30), Guid.Parse("33333333-3333-3333-3333-333333333333")));
+            (deviceId, baseTime.AddMinutes(10), Guid.Parse("11111111-1111-1111-1111-111111111111")),
+            (deviceId, baseTime.AddMinutes(20), Guid.Parse("22222222-2222-2222-2222-222222222222")),
+            (deviceId, baseTime.AddMinutes(30), Guid.Parse("33333333-3333-3333-3333-333333333333")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
 
         var from = baseTime;
         var to = baseTime.AddHours(1);
-        var first = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 1, cursor: null);
-        var second = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 1, cursor: first.NextCursor);
+        var first = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 1, cursor: null);
+        var second = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 1, cursor: first.NextCursor);
 
         Assert.Single(second.Items);
         Assert.Equal(baseTime.AddMinutes(20), second.Items[0].Timestamp);
@@ -88,14 +90,15 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
     {
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
-        var vehicleId = "VH-HIST-003";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HIST-003");
+        var deviceIdStorage = deviceId.ToString("D");
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         var eventIds = Enumerable.Range(1, 7)
             .Select(i => Guid.Parse($"dddddddd-dddd-dddd-dddd-{i:D12}"))
             .ToArray();
 
         var seed = eventIds
-            .Select((id, index) => (vehicleId, baseTime.AddMinutes(index * 5), id))
+            .Select((id, index) => (deviceId, baseTime.AddMinutes(index * 5), id))
             .ToArray();
         await SeedHistoryEventsAsync(seed);
 
@@ -109,7 +112,7 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
 
         while (true)
         {
-            var page = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 3, cursor);
+            var page = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 3, cursor);
             collected.AddRange(page.Items.Select(e => e.EventId));
 
             if (!page.HasMore || string.IsNullOrWhiteSpace(page.NextCursor))
@@ -128,26 +131,27 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
     {
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
-        var vehicleId = "VH-HIST-004";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HIST-004");
+        var deviceIdStorage = deviceId.ToString("D");
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         var to = baseTime.AddMinutes(25);
 
         await SeedHistoryEventsAsync(
-            (vehicleId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
-            (vehicleId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
-            (vehicleId, baseTime.AddMinutes(30), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
+            (deviceId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+            (deviceId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
+            (deviceId, baseTime.AddMinutes(30), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
 
         var from = baseTime;
-        var first = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 1, cursor: null);
+        var first = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 1, cursor: null);
 
         await SeedHistoryEventsAsync(
-            (vehicleId, baseTime.AddMinutes(40), Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd")));
+            (deviceId, baseTime.AddMinutes(40), Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd")));
 
-        var second = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 10, cursor: first.NextCursor);
-        var fullWithinBound = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 10, cursor: null);
+        var second = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 10, cursor: first.NextCursor);
+        var fullWithinBound = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 10, cursor: null);
 
         Assert.Equal(baseTime.AddMinutes(20), first.Items[0].Timestamp);
         Assert.Single(second.Items);
@@ -165,10 +169,10 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
         var timestamp = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-001", timestamp, timestamp, pageSize: 10, cursor: null));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-001"), timestamp, timestamp, pageSize: 10, cursor: null));
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-001", timestamp.AddHours(1), timestamp, pageSize: 10, cursor: null));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-001"), timestamp.AddHours(1), timestamp, pageSize: 10, cursor: null));
     }
 
     [Fact]
@@ -181,7 +185,7 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
         var to = from.AddDays(8);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-001", from, to, pageSize: 10, cursor: null));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-001"), from, to, pageSize: 10, cursor: null));
     }
 
     [Fact]
@@ -194,10 +198,10 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
         var to = from.AddHours(1);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-001", from, to, pageSize: 0, cursor: null));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-001"), from, to, pageSize: 0, cursor: null));
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-001", from, to, pageSize: 1001, cursor: null));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-001"), from, to, pageSize: 1001, cursor: null));
     }
 
     [Fact]
@@ -207,21 +211,21 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
 
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         await SeedHistoryEventsAsync(
-            ("VH-A", baseTime.AddMinutes(20), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
-            ("VH-A", baseTime.AddMinutes(10), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
-            ("VH-B", baseTime.AddMinutes(10), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-A"), baseTime.AddMinutes(20), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-A"), baseTime.AddMinutes(10), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-B"), baseTime.AddMinutes(10), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
 
         var from = baseTime;
         var to = baseTime.AddHours(1);
-        var page = await repository.GetVehicleHistoryPageAsync("VH-A", from, to, pageSize: 1, cursor: null);
+        var page = await repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-A"), from, to, pageSize: 1, cursor: null);
 
         Assert.NotNull(page.NextCursor);
 
         await Assert.ThrowsAsync<InvalidCursorException>(() =>
-            repository.GetVehicleHistoryPageAsync("VH-B", from, to, pageSize: 1, cursor: page.NextCursor));
+            repository.GetVehicleHistoryPageAsync(DeviceIdTestHelper.CreateDeterministicGuid("VH-B"), from, to, pageSize: 1, cursor: page.NextCursor));
     }
 
     [Fact]
@@ -229,27 +233,28 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
     {
         await IntegrationTestServiceBootstrap.ResetFleetDataAsync(_services);
 
-        var vehicleId = "VH-HIST-005";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HIST-005");
+        var deviceIdStorage = deviceId.ToString("D");
         var baseTime = new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero);
         await SeedHistoryEventsAsync(
-            (vehicleId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
-            (vehicleId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")));
+            (deviceId, baseTime.AddMinutes(10), Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+            (deviceId, baseTime.AddMinutes(20), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")));
 
         using var scope = _services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
 
         var from = baseTime;
         var to = baseTime.AddHours(1);
-        var page = await repository.GetVehicleHistoryPageAsync(vehicleId, from, to, pageSize: 1, cursor: null);
+        var page = await repository.GetVehicleHistoryPageAsync(deviceId, from, to, pageSize: 1, cursor: null);
 
         await Assert.ThrowsAsync<InvalidCursorException>(() =>
-            repository.GetVehicleHistoryPageAsync(vehicleId, from, to.AddMinutes(30), pageSize: 1, cursor: page.NextCursor));
+            repository.GetVehicleHistoryPageAsync(deviceId, from, to.AddMinutes(30), pageSize: 1, cursor: page.NextCursor));
 
         await Assert.ThrowsAsync<InvalidCursorException>(() =>
-            repository.GetVehicleHistoryPageAsync(vehicleId, from.AddMinutes(5), to, pageSize: 1, cursor: page.NextCursor));
+            repository.GetVehicleHistoryPageAsync(deviceId, from.AddMinutes(5), to, pageSize: 1, cursor: page.NextCursor));
     }
 
-    private async Task SeedHistoryEventsAsync(params (string VehicleId, DateTimeOffset Timestamp, Guid EventId)[] events)
+    private async Task SeedHistoryEventsAsync(params (Guid DeviceId, DateTimeOffset Timestamp, Guid EventId)[] events)
     {
         using var scope = _services.CreateScope();
         var uow = scope.ServiceProvider.GetRequiredService<ITelemetryProcessingUnitOfWork>();
@@ -258,7 +263,7 @@ public class TelemetryHistoryPaginationIntegrationTests : IAsyncLifetime
         {
             var telemetryEvent = TelemetryEvent.Create(
                 item.EventId,
-                item.VehicleId,
+                item.DeviceId,
                 "DRV-HIST",
                 item.Timestamp,
                 4.65,

@@ -4,7 +4,7 @@ public sealed class AlertingOptions
 {
     public const string SectionName = "Alerting";
 
-    // Ventana mínima entre alertas emitidas del mismo VehicleId + AlertType.
+    // Ventana mínima entre alertas emitidas del mismo DeviceId + AlertType.
     public int CooldownSeconds { get; set; } = 300;
 
     public double OverspeedThresholdKmh { get; set; } = 120;

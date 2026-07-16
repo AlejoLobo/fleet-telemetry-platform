@@ -1,9 +1,13 @@
 /** Tipos de datos del dominio de telemetría de flotas. */
 
+/** Tipo de vehículo reconocido por el backend y la UI. */
+export type VehicleType = "car" | "motorcycle" | "van" | "truck" | "bus" | "pickup";
+
 /** Estado actual de un vehículo en la flota. */
 export type VehicleStatus = {
-  vehicleId: string;
-  name: string;
+  deviceId: string;
+  vehicleName: string;
+  vehicleType: VehicleType;
   status: "online" | "offline" | string;
   lastSeenAt: string | null;
   lastEventId?: string | null;
@@ -13,12 +17,23 @@ export type VehicleStatus = {
   lastLongitude: number | null;
   headingDegrees?: number | null;
   lastLocationSource?: string | null;
+  /** Identificador/nombre del conductor asociado al último reporte. */
+  driverId?: string | null;
+};
+
+/**
+ * Parche SSE/parcial: el estado normalizado más la presencia de campos de identidad.
+ * `hasVehicleType` es true solo si el payload traía un tipo canónico válido.
+ */
+export type NormalizedVehiclePatch = {
+  vehicle: VehicleStatus;
+  hasVehicleType: boolean;
 };
 
 /** Alerta operativa de un vehículo. */
 export type FleetAlert = {
   alertId: string;
-  vehicleId: string;
+  deviceId: string;
   alertType: string;
   severity: string;
   message: string;
@@ -29,7 +44,7 @@ export type FleetAlert = {
 /** Evento de telemetría GPS y sensores. */
 export type TelemetryEvent = {
   eventId: string;
-  vehicleId: string;
+  deviceId: string;
   driverId: string | null;
   timestamp: string;
   latitude: number;
@@ -37,6 +52,7 @@ export type TelemetryEvent = {
   speedKmh: number;
   fuelLevelPercent: number | null;
   batteryPercent: number | null;
+  locationSource?: string | null;
 };
 
 /** Respuesta del agente IA a una consulta. */

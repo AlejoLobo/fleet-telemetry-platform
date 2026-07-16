@@ -40,7 +40,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
         await command.ExecuteNonQueryAsync();
 
         await SeedTelemetryOnlyAsync(
-            ("VH-NEW-001", new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero), Guid.Parse("abababab-abab-abab-abab-abababababab"), 30, 4.60, -74.10));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-NEW-001"), new DateTimeOffset(2026, 7, 10, 8, 0, 0, TimeSpan.Zero), Guid.Parse("abababab-abab-abab-abab-abababababab"), 30, 4.60, -74.10));
 
         _migrationHooks.Reset();
         await DatabaseInitializer.InitializeAsync(_services);
@@ -55,7 +55,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     {
         await ResetForV3RepairAsync(includeV2: true, includeV3: false);
         await SeedTelemetryOnlyAsync(
-            ("VH-V3-001", new DateTimeOffset(2026, 7, 10, 8, 30, 0, TimeSpan.Zero), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), 50, 4.65, -74.08));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-001"), new DateTimeOffset(2026, 7, 10, 8, 30, 0, TimeSpan.Zero), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), 50, 4.65, -74.08));
 
         _migrationHooks.Reset();
         await DatabaseInitializer.InitializeAsync(_services);
@@ -64,7 +64,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == "VH-V3-001");
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-001"));
         Assert.Equal(50, state.SpeedKmh);
         Assert.Equal(1, _migrationHooks.BackfillCount);
     }
@@ -74,11 +74,11 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     {
         await ResetForV3RepairAsync(includeV2: true, includeV3: false);
         await SeedTelemetryOnlyAsync(
-            ("VH-V3-PARTIAL", new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), 20, 4.55, -74.12),
-            ("VH-V3-MISSING", new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero), Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"), 40, 4.63, -74.07));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-PARTIAL"), new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), 20, 4.55, -74.12),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-MISSING"), new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero), Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"), 40, 4.63, -74.07));
 
         await SeedPartialFleetStateAsync(
-            ("VH-V3-PARTIAL", Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), 20, 4.55, -74.12));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-PARTIAL"), Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero), 20, 4.55, -74.12));
 
         _migrationHooks.Reset();
         await DatabaseInitializer.InitializeAsync(_services);
@@ -96,17 +96,17 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
         var olderTimestamp = new DateTimeOffset(2026, 7, 10, 9, 0, 0, TimeSpan.Zero);
 
         await SeedTelemetryOnlyAsync(
-            ("VH-V3-NO-REG", newerTimestamp, Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), 70, 4.71, -74.04),
-            ("VH-V3-NO-REG", olderTimestamp, Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"), 15, 4.50, -74.15));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-NO-REG"), newerTimestamp, Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), 70, 4.71, -74.04),
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-NO-REG"), olderTimestamp, Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"), 15, 4.50, -74.15));
 
         await SeedPartialFleetStateAsync(
-            ("VH-V3-NO-REG", Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), newerTimestamp, 70, 4.71, -74.04));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-NO-REG"), Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), newerTimestamp, 70, 4.71, -74.04));
 
         await DatabaseInitializer.InitializeAsync(_services);
 
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
-        var state = await db.FleetVehicleStates.SingleAsync(s => s.VehicleId == "VH-V3-NO-REG");
+        var state = await db.FleetVehicleStates.SingleAsync(s => s.DeviceId == DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-NO-REG"));
         Assert.Equal(newerTimestamp, state.LastTimestamp);
         Assert.Equal(70, state.SpeedKmh);
     }
@@ -116,7 +116,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     {
         await ResetForV3RepairAsync(includeV2: true, includeV3: false);
         await SeedTelemetryOnlyAsync(
-            ("VH-V3-FAIL", new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero), Guid.Parse("10101010-1010-1010-1010-101010101010"), 25, 4.58, -74.11));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-FAIL"), new DateTimeOffset(2026, 7, 10, 10, 0, 0, TimeSpan.Zero), Guid.Parse("10101010-1010-1010-1010-101010101010"), 25, 4.58, -74.11));
 
         _migrationHooks.ThrowOnVersionRegister = true;
         _migrationHooks.ThrowOnVersion = 3;
@@ -131,7 +131,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     {
         await ResetForV3RepairAsync(includeV2: true, includeV3: false);
         await SeedTelemetryOnlyAsync(
-            ("VH-V3-ONCE", new DateTimeOffset(2026, 7, 10, 11, 0, 0, TimeSpan.Zero), Guid.Parse("12121212-1212-1212-1212-121212121212"), 40, 4.63, -74.07));
+            (DeviceIdTestHelper.CreateDeterministicGuid("VH-V3-ONCE"), new DateTimeOffset(2026, 7, 10, 11, 0, 0, TimeSpan.Zero), Guid.Parse("12121212-1212-1212-1212-121212121212"), 40, 4.63, -74.07));
 
         _migrationHooks.Reset();
         await DatabaseInitializer.InitializeAsync(_services);
@@ -181,7 +181,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     }
 
     private async Task SeedTelemetryOnlyAsync(
-        params (string VehicleId, DateTimeOffset Timestamp, Guid EventId, double SpeedKmh, double Lat, double Lng)[] events)
+        params (Guid DeviceId, DateTimeOffset Timestamp, Guid EventId, double SpeedKmh, double Lat, double Lng)[] events)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -191,7 +191,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
             db.TelemetryEvents.Add(new TelemetryEventRecord
             {
                 EventId = item.EventId,
-                VehicleId = item.VehicleId,
+                DeviceId = item.DeviceId,
                 Timestamp = item.Timestamp,
                 CapturedAt = item.Timestamp,
                 Latitude = item.Lat,
@@ -205,7 +205,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
     }
 
     private async Task SeedPartialFleetStateAsync(
-        params (string VehicleId, Guid EventId, DateTimeOffset Timestamp, double SpeedKmh, double Lat, double Lng)[] states)
+        params (Guid DeviceId, Guid EventId, DateTimeOffset Timestamp, double SpeedKmh, double Lat, double Lng)[] states)
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
@@ -214,7 +214,7 @@ public class ReadModelMigrationV3IntegrationTests : IAsyncLifetime
         {
             db.FleetVehicleStates.Add(new FleetVehicleStateRecord
             {
-                VehicleId = item.VehicleId,
+                DeviceId = item.DeviceId,
                 LastEventId = item.EventId,
                 LastTimestamp = item.Timestamp,
                 Latitude = item.Lat,

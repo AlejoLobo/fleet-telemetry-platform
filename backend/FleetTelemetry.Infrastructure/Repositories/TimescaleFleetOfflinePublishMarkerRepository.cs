@@ -15,38 +15,38 @@ public sealed class TimescaleFleetOfflinePublishMarkerRepository : IFleetOffline
     }
 
     public async Task<bool> ShouldPublishOfflineAsync(
-        string vehicleId,
+        Guid deviceId,
         Guid lastEventId,
         CancellationToken cancellationToken = default)
     {
         var marker = await _dbContext.FleetOfflinePublishMarkers
             .AsNoTracking()
-            .SingleOrDefaultAsync(m => m.VehicleId == vehicleId, cancellationToken);
+            .SingleOrDefaultAsync(m => m.DeviceId == deviceId, cancellationToken);
 
         return marker is null || marker.LastEventId != lastEventId;
     }
 
     public async Task MarkOfflinePublishedAsync(
-        string vehicleId,
+        Guid deviceId,
         Guid lastEventId,
         DateTimeOffset statusEvaluatedAt,
         CancellationToken cancellationToken = default)
     {
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
-            INSERT INTO fleet_offline_publish_markers ("VehicleId", "LastEventId", "StatusEvaluatedAt")
-            VALUES ({vehicleId}, {lastEventId}, {statusEvaluatedAt})
-            ON CONFLICT ("VehicleId") DO UPDATE
+            INSERT INTO fleet_offline_publish_markers (device_id, "LastEventId", "StatusEvaluatedAt")
+            VALUES ({deviceId}, {lastEventId}, {statusEvaluatedAt})
+            ON CONFLICT (device_id) DO UPDATE
             SET "LastEventId" = EXCLUDED."LastEventId",
                 "StatusEvaluatedAt" = EXCLUDED."StatusEvaluatedAt"
             """,
             cancellationToken);
     }
 
-    public async Task MarkOnlineAsync(string vehicleId, CancellationToken cancellationToken = default)
+    public async Task MarkOnlineAsync(Guid deviceId, CancellationToken cancellationToken = default)
     {
         await _dbContext.FleetOfflinePublishMarkers
-            .Where(m => m.VehicleId == vehicleId)
+            .Where(m => m.DeviceId == deviceId)
             .ExecuteDeleteAsync(cancellationToken);
     }
 }

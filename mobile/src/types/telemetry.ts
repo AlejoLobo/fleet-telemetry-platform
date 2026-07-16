@@ -2,7 +2,8 @@
 
 export type TelemetryEventPayload = {
   eventId: string;
-  vehicleId: string;
+  /** Identidad técnica inmutable (UUID); no es el nombre visible. */
+  deviceId: string;
   driverId: string | null;
   timestamp: string;
   latitude: number;
@@ -45,6 +46,7 @@ export type SyncStatus =
   | "forbidden"
   | "deferred"
   | "configuration_error"
+  | "device_identity_conflict"
   | "failed";
 
 export type SyncResult = {

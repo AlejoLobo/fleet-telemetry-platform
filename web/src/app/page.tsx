@@ -1,13 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useFleetData } from "@/hooks/use-fleet-data";
 import { useSseStream } from "@/hooks/use-sse-stream";
 import { mergeVehicleUpdates, pruneVehiclePatches } from "@/lib/fleet-merge";
+import { applyLocalConnectivity } from "@/lib/local-connectivity";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { esSeveridadCritica } from "@/lib/labels";
+import { mockDeviceId } from "@/mocks/fleet-data";
+import {
+  DEFAULT_MONITOR_REFRESH_RATE,
+  loadMonitorRefreshRate,
+  monitorRefreshRateToMs,
+  saveMonitorRefreshRate,
+  type MonitorRefreshRate,
+} from "@/lib/monitor-refresh-rate";
+import {
+  bufferPendingVehicleUpdates,
+  takePendingVehicleUpdates,
+} from "@/lib/pending-vehicle-updates";
+import {
+  buildDisplayGlobalAnalytics,
+  buildDisplaySelectedAnalytics,
+} from "@/lib/display-analytics";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
@@ -17,12 +34,16 @@ import { TelemetryTable } from "@/components/telemetry-table";
 import { AiChatPanel } from "@/components/ai-chat-panel";
 import { LoginPanel } from "@/components/auth/login-panel";
 import { AlertsModal } from "@/components/alerts/alerts-modal";
+import { useFleetE2eInjector } from "@/hooks/use-fleet-e2e-injector";
+import { isE2eTestMode } from "@/lib/e2e-test-mode";
 
-import type { FleetAlert, VehicleStatus } from "@/types/fleet";
+import type { FleetAlert, NormalizedVehiclePatch, VehicleStatus } from "@/types/fleet";
 import type { MapFocusTarget } from "@/components/maps/leaflet-fleet-map";
 
+const CONNECTIVITY_TICK_MS = 5_000;
+
 export default function DashboardPage() {
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("VH-001");
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(mockDeviceId(0));
   const [liveVehiclePatches, setLiveVehiclePatches] = useState<VehicleStatus[]>([]);
   const [liveAlerts, setLiveAlerts] = useState<FleetAlert[]>([]);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
@@ -34,6 +55,12 @@ export default function DashboardPage() {
   const [alertsAttention, setAlertsAttention] = useState(false);
   const [mapAutoFit, setMapAutoFit] = useState(true);
   const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
+  const [connectivityNowMs, setConnectivityNowMs] = useState(() => Date.now());
+  // Valor determinista en SSR/hidratación; se restaura tras montar.
+  const [refreshRate, setRefreshRate] = useState<MonitorRefreshRate>(DEFAULT_MONITOR_REFRESH_RATE);
+  const [refreshRateReady, setRefreshRateReady] = useState(false);
+
+  const pendingVehicleUpdatesRef = useRef<Map<string, NormalizedVehiclePatch>>(new Map());
 
   const refreshAuthState = async () => {
     try {
@@ -51,11 +78,28 @@ export default function DashboardPage() {
     void refreshAuthState();
   }, []);
 
+  useEffect(() => {
+    // Normaliza y reescribe valores legados (realtime/30/60) como "5" en localStorage.
+    const restored = loadMonitorRefreshRate();
+    setRefreshRate(restored);
+    saveMonitorRefreshRate(restored);
+    setRefreshRateReady(true);
+  }, []);
+
+  // Solo reloj local de frescura; no descarga datos ni depende del selector.
+  useEffect(() => {
+    setConnectivityNowMs(Date.now());
+    const timer = window.setInterval(
+      () => setConnectivityNowMs(Date.now()),
+      CONNECTIVITY_TICK_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
   const {
     vehicles,
     alerts,
     telemetry,
-    analytics,
     globalAnalytics,
     selectedAnalytics,
     telemetryLoading,
@@ -64,42 +108,111 @@ export default function DashboardPage() {
     dataSource,
     fleetTruncated,
     refresh,
+    refreshSelectedTelemetry,
     refreshForResync,
     loadFromApi,
     loadDemoData,
-  } = useFleetData(selectedVehicleId);
+  } = useFleetData(selectedDeviceId);
+
+  const loadDemoDataRef = useRef(loadDemoData);
+  loadDemoDataRef.current = loadDemoData;
+  const refreshSelectedTelemetryRef = useRef(refreshSelectedTelemetry);
+  refreshSelectedTelemetryRef.current = refreshSelectedTelemetry;
+
+  const applyVehicleUpdates = useCallback((updates: Array<VehicleStatus | NormalizedVehiclePatch>) => {
+    if (updates.length === 0) return;
+    setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
+  }, []);
+
+  const flushPendingVehicleUpdates = useCallback(() => {
+    const pending = takePendingVehicleUpdates(pendingVehicleUpdatesRef.current);
+    applyVehicleUpdates(pending);
+  }, [applyVehicleUpdates]);
+
+  const flushPendingVehicleUpdatesRef = useRef(flushPendingVehicleUpdates);
+  flushPendingVehicleUpdatesRef.current = flushPendingVehicleUpdates;
+
+  const emitVehicleUpdateForE2e = useCallback((update: VehicleStatus) => {
+    bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, [
+      { vehicle: update, hasVehicleType: update.vehicleType != null },
+    ]);
+  }, []);
+
+  const emitAlertForE2e = useCallback((alert: FleetAlert) => {
+    setLiveAlerts((prev) => [alert, ...prev]);
+    setAlertsAttention(true);
+  }, []);
+
+  const getPendingVehicleCountForE2e = useCallback(
+    () => pendingVehicleUpdatesRef.current.size,
+    [],
+  );
+
+  useFleetE2eInjector({
+    emitVehicleUpdate: emitVehicleUpdateForE2e,
+    emitAlert: emitAlertForE2e,
+    getPendingVehicleCount: getPendingVehicleCountForE2e,
+  });
 
   const { connectionState } = useSseStream({
     enabled: dataSource === "api",
     authToken,
     onFleetUpdate: (updates) => {
-      setLiveVehiclePatches((prev) => mergeVehicleUpdates(prev, updates));
+      bufferPendingVehicleUpdates(pendingVehicleUpdatesRef.current, updates);
     },
     onAlert: (alert) => {
       setLiveAlerts((prev) => [alert, ...prev]);
       setAlertsAttention(true);
     },
     onStreamReset: async () => {
+      pendingVehicleUpdatesRef.current.clear();
       setLiveVehiclePatches([]);
       setLiveAlerts([]);
       setAlertsAttention(false);
-      const result = await refreshForResync(selectedVehicleId);
-      setSelectedVehicleId(result.resolvedVehicleId);
+      const result = await refreshForResync(selectedDeviceId);
+      setSelectedDeviceId(result.resolvedDeviceId);
     },
   });
 
+  // Ciclo visual: buffer SSE + telemetría seleccionada (API) o regeneración demo.
+  // En E2E, el intervalo hace flush del buffer real (mismo camino que SSE + Actualizar).
+  useEffect(() => {
+    if (!refreshRateReady) return;
+
+    const ms = monitorRefreshRateToMs(refreshRate);
+    const e2e = isE2eTestMode();
+
+    if (dataSource === "demo" && !e2e) {
+      const timer = window.setInterval(() => {
+        void loadDemoDataRef.current();
+      }, ms);
+      return () => window.clearInterval(timer);
+    }
+
+    if (dataSource === "api" || (dataSource === "demo" && e2e)) {
+      const timer = window.setInterval(() => {
+        flushPendingVehicleUpdatesRef.current();
+        if (dataSource === "api") {
+          void refreshSelectedTelemetryRef.current();
+        }
+      }, ms);
+      return () => window.clearInterval(timer);
+    }
+  }, [refreshRate, dataSource, refreshRateReady]);
+
   useEffect(() => {
     if (vehicles.length === 0) {
-      if (selectedVehicleId !== null) setSelectedVehicleId(null);
+      if (selectedDeviceId !== null) setSelectedDeviceId(null);
       return;
     }
 
-    if (!selectedVehicleId || !vehicles.some((v) => v.vehicleId === selectedVehicleId)) {
-      setSelectedVehicleId(vehicles[0].vehicleId);
+    if (!selectedDeviceId || !vehicles.some((v) => v.deviceId === selectedDeviceId)) {
+      setSelectedDeviceId(vehicles[0].deviceId);
     }
-  }, [vehicles, selectedVehicleId]);
+  }, [vehicles, selectedDeviceId]);
 
   const resetLiveViewState = () => {
+    pendingVehicleUpdatesRef.current.clear();
     setLiveVehiclePatches([]);
     setLiveAlerts([]);
     setAlertsAttention(false);
@@ -118,18 +231,35 @@ export default function DashboardPage() {
     await loadDemoData();
   };
 
+  const handleRefreshRateChange = (rate: MonitorRefreshRate) => {
+    saveMonitorRefreshRate(rate);
+    setRefreshRate(rate);
+  };
+
+  const handleManualRefresh = async () => {
+    flushPendingVehicleUpdates();
+    await refresh();
+  };
+
   useEffect(() => {
     setLiveVehiclePatches((prev) => pruneVehiclePatches(prev, vehicles));
   }, [vehicles]);
 
   const displayVehicles = useMemo(() => {
-    if (dataSource === "demo") return vehicles;
-    if (liveVehiclePatches.length === 0) return vehicles;
-    return mergeVehicleUpdates(vehicles, liveVehiclePatches);
-  }, [dataSource, liveVehiclePatches, vehicles]);
+    const e2e = isE2eTestMode();
+    const shouldMergePatches =
+      liveVehiclePatches.length > 0 && (dataSource !== "demo" || e2e);
+    const merged = shouldMergePatches
+      ? mergeVehicleUpdates(vehicles, liveVehiclePatches)
+      : vehicles;
+    if (dataSource === "demo" && !e2e) return merged;
+    if (dataSource === "demo" && e2e) return merged;
+    return applyLocalConnectivity(merged, connectivityNowMs);
+  }, [dataSource, liveVehiclePatches, vehicles, connectivityNowMs]);
 
   const displayAlerts = useMemo(() => {
-    if (dataSource === "demo") return alerts;
+    // En E2E (y en API) las alertas live se muestran de inmediato.
+    if (dataSource === "demo" && !isE2eTestMode()) return alerts;
     const merged = [...liveAlerts, ...alerts];
     const seen = new Set<string>();
     return merged.filter((a) => {
@@ -141,10 +271,29 @@ export default function DashboardPage() {
 
   const criticalAlertCount = displayAlerts.filter((a) => esSeveridadCritica(a.severity)).length;
 
-  const handleFocusVehicle = (vehicleId: string) => {
-    setSelectedVehicleId(vehicleId);
+  const displayGlobalAnalytics = useMemo(
+    () =>
+      buildDisplayGlobalAnalytics({
+        dataSource,
+        displayVehicles,
+        displayAlerts,
+        fleetTruncated,
+        globalAnalytics,
+      }),
+    [dataSource, displayVehicles, displayAlerts, fleetTruncated, globalAnalytics],
+  );
+
+  const selectedVehicle = displayVehicles.find((v) => v.deviceId === selectedDeviceId) ?? null;
+
+  const displaySelectedAnalytics = useMemo(
+    () => buildDisplaySelectedAnalytics(selectedAnalytics, selectedVehicle),
+    [selectedAnalytics, selectedVehicle],
+  );
+
+  const handleFocusVehicle = (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
     setMapAutoFit(false);
-    setMapFocus({ vehicleId, tick: Date.now() });
+    setMapFocus({ deviceId, tick: Date.now() });
   };
 
   const handleAcknowledgeAlert = async (alertId: string) => {
@@ -175,18 +324,24 @@ export default function DashboardPage() {
         alertCount={displayAlerts.length}
         criticalAlertCount={criticalAlertCount}
         alertsAttention={alertsAttention}
+        refreshRate={refreshRate}
+        refreshRateReady={refreshRateReady}
+        onRefreshRateChange={handleRefreshRateChange}
         onOpenAlerts={() => {
           setAlertsAttention(false);
           setAlertsOpen(true);
         }}
         onLoadApi={handleLoadApi}
         onLoadDemo={handleLoadDemo}
-        onRefresh={refresh}
+        onRefresh={() => {
+          void handleManualRefresh();
+        }}
       />
 
       <AlertsModal
         open={alertsOpen}
         alerts={displayAlerts}
+        vehicles={displayVehicles}
         onClose={() => setAlertsOpen(false)}
         onAcknowledge={dataSource === "api" ? handleAcknowledgeAlert : undefined}
         acknowledgingId={acknowledgingId}
@@ -215,8 +370,8 @@ export default function DashboardPage() {
 
         <section className="animate-fade-up">
           <KpiGrid
-            globalAnalytics={globalAnalytics}
-            selectedAnalytics={selectedAnalytics}
+            globalAnalytics={displayGlobalAnalytics}
+            selectedAnalytics={displaySelectedAnalytics}
             telemetryLoading={telemetryLoading}
           />
         </section>
@@ -225,7 +380,7 @@ export default function DashboardPage() {
           <div className="xl:col-span-8">
             <FleetMapPanel
               vehicles={displayVehicles}
-              selectedVehicleId={selectedVehicleId}
+              selectedDeviceId={selectedDeviceId}
               focusTarget={mapFocus}
               autoFit={mapAutoFit}
             />
@@ -233,19 +388,19 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-6 xl:col-span-4">
             <FleetStatusPanel
               vehicles={displayVehicles}
-              selectedVehicleId={selectedVehicleId}
+              selectedDeviceId={selectedDeviceId}
               fleetTruncated={fleetTruncated}
-              aggregationSource={globalAnalytics.aggregationSource}
-              totalVehiclesGlobal={globalAnalytics.totalVehicles}
-              activeVehiclesGlobal={globalAnalytics.activeVehicles}
-              onSelectVehicle={setSelectedVehicleId}
+              aggregationSource={displayGlobalAnalytics.aggregationSource}
+              totalVehiclesGlobal={displayGlobalAnalytics.totalVehicles}
+              activeVehiclesGlobal={displayGlobalAnalytics.activeVehicles}
+              onSelectVehicle={setSelectedDeviceId}
               onFocusVehicle={handleFocusVehicle}
             />
           </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <TelemetryTable events={telemetry} vehicleId={selectedVehicleId} />
+          <TelemetryTable events={telemetry} vehicle={selectedVehicle} />
           <AiChatPanel useDemoResponses={dataSource === "demo"} />
         </section>
       </main>

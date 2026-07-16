@@ -7,8 +7,9 @@ import {
 import type { FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 
 const vehicle = (id: string, status: string): VehicleStatus => ({
-  vehicleId: id,
-  name: id,
+  deviceId: id,
+  vehicleName: id,
+  vehicleType: "car",
   status,
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 40,
@@ -18,11 +19,11 @@ const vehicle = (id: string, status: string): VehicleStatus => ({
 
 describe("analytics", () => {
   it("calcula KPI globales de flota", () => {
-    const vehicles = [vehicle("VH-001", "online"), vehicle("VH-002", "offline")];
+    const vehicles = [vehicle("00000000-0000-4000-8000-000000000001", "online"), vehicle("00000000-0000-4000-8000-000000000002", "offline")];
     const alerts: FleetAlert[] = [
       {
         alertId: "1",
-        vehicleId: "VH-001",
+        deviceId: "00000000-0000-4000-8000-000000000001",
         alertType: "x",
         severity: "low",
         message: "",
@@ -41,7 +42,7 @@ describe("analytics", () => {
     const telemetry: TelemetryEvent[] = [
       {
         eventId: "1",
-        vehicleId: "VH-001",
+        deviceId: "00000000-0000-4000-8000-000000000001",
         driverId: null,
         timestamp: "",
         latitude: 0,
@@ -52,7 +53,7 @@ describe("analytics", () => {
       },
       {
         eventId: "2",
-        vehicleId: "VH-001",
+        deviceId: "00000000-0000-4000-8000-000000000001",
         driverId: null,
         timestamp: "",
         latitude: 0,
@@ -62,7 +63,7 @@ describe("analytics", () => {
         batteryPercent: null,
       },
     ];
-    const selected = computeSelectedAnalytics("VH-001", telemetry);
+    const selected = computeSelectedAnalytics("00000000-0000-4000-8000-000000000001", telemetry);
     expect(selected.averageSpeedKmh).toBe(70);
     expect(selected.eventCount).toBe(2);
   });
@@ -97,11 +98,11 @@ describe("analytics Ops vs snapshot", () => {
   });
 
   it("Ops_failure_marca_metricas_como_snapshot_parcial", () => {
-    const vehicles = [vehicle("VH-001", "online"), vehicle("VH-002", "online")];
+    const vehicles = [vehicle("00000000-0000-4000-8000-000000000001", "online"), vehicle("00000000-0000-4000-8000-000000000002", "online")];
     const alerts: FleetAlert[] = [
       {
         alertId: "a1",
-        vehicleId: "VH-001",
+        deviceId: "00000000-0000-4000-8000-000000000001",
         alertType: "overspeed",
         severity: "critical",
         message: "x",

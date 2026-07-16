@@ -105,7 +105,8 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
             0,
             TimeSpan.Zero);
 
-        var vehicleId = "VH-HOURLY-001";
+        var deviceId = DeviceIdTestHelper.CreateDeterministicGuid("VH-HOURLY-001");
+        var deviceIdStorage = deviceId.ToString("D");
         var eventA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         var eventB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
@@ -113,16 +114,16 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
         {
             insert.CommandText = """
                 INSERT INTO telemetry_events (
-                    "EventId", "VehicleId", "DriverId", "Timestamp",
+                    "EventId", device_id, "DriverId", "Timestamp",
                     "Latitude", "Longitude", "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt")
                 VALUES
-                    (@eventA, @vehicleId, 'DRV-1', @tsA, 4.65, -74.08, 40, 50, 80, NOW()),
-                    (@eventB, @vehicleId, 'DRV-1', @tsB, 4.65, -74.08, 60, 40, 70, NOW())
+                    (@eventA, @deviceId, 'DRV-1', @tsA, 4.65, -74.08, 40, 50, 80, NOW()),
+                    (@eventB, @deviceId, 'DRV-1', @tsB, 4.65, -74.08, 60, 40, 70, NOW())
                 ON CONFLICT ("EventId", "Timestamp") DO NOTHING;
                 """;
             insert.Parameters.AddWithValue("eventA", eventA);
             insert.Parameters.AddWithValue("eventB", eventB);
-            insert.Parameters.AddWithValue("vehicleId", vehicleId);
+            insert.Parameters.AddWithValue("deviceId", deviceId);
             insert.Parameters.AddWithValue("tsA", bucketStart.AddMinutes(10));
             insert.Parameters.AddWithValue("tsB", bucketStart.AddMinutes(20));
             await insert.ExecuteNonQueryAsync();
@@ -145,10 +146,10 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
         query.CommandText = """
             SELECT "SampleCount", "AverageSpeedKmh", "MaxSpeedKmh"
             FROM telemetry_hourly
-            WHERE "VehicleId" = @vehicleId
+            WHERE device_id = @deviceId
               AND "Bucket" = @bucket;
             """;
-        query.Parameters.AddWithValue("vehicleId", vehicleId);
+        query.Parameters.AddWithValue("deviceId", deviceId);
         query.Parameters.AddWithValue("bucket", bucketStart);
 
         await using var reader = await query.ExecuteReaderAsync();
@@ -221,7 +222,7 @@ public class TimescaleMaintenanceMigrationV5IntegrationTests : IAsyncLifetime
                 SELECT 1
                 FROM timescaledb_information.compression_settings
                 WHERE hypertable_name = 'telemetry_events'
-                  AND attname = 'VehicleId'
+                  AND attname = 'device_id'
                   AND segmentby_column_index = 1
             )
             AND EXISTS (

@@ -249,7 +249,7 @@ public class TelemetryMessageCoordinatorTests
     private static TelemetryEvent CreateValidEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-COORD",
+            Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

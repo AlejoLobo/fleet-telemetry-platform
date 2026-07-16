@@ -8,7 +8,7 @@ public interface ITelemetryRepository
     Task SaveAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken = default);
 
     Task<CursorPage<TelemetryEvent>> GetVehicleHistoryPageAsync(
-        string vehicleId,
+        Guid deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
         int pageSize,

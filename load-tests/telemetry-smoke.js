@@ -14,10 +14,31 @@ export const options = {
   },
 };
 
-export default function () {
+export function setup() {
+  const deviceId = uuidv4();
+  const registerRes = http.post(
+    `${API_URL}/api/devices/register`,
+    JSON.stringify({ deviceId }),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Device-Id": deviceId,
+      },
+    },
+  );
+
+  if (registerRes.status !== 200) {
+    throw new Error(`Setup: registro de dispositivo falló con HTTP ${registerRes.status}`);
+  }
+
+  return { deviceId };
+}
+
+export default function (data) {
+  const deviceId = data.deviceId;
   const payload = JSON.stringify({
     eventId: uuidv4(),
-    vehicleId: "VH-SMOKE",
+    deviceId,
     driverId: "DRV-SMOKE",
     timestamp: new Date().toISOString(),
     latitude: 4.711,
@@ -29,7 +50,10 @@ export default function () {
   });
 
   const res = http.post(`${API_URL}/api/telemetry`, payload, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Device-Id": deviceId,
+    },
   });
 
   check(res, {

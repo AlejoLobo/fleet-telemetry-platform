@@ -17,11 +17,11 @@ public class AiToolIntentMapperTests
     {
         var args = new Dictionary<string, JsonElement>
         {
-            ["vehicleId"] = JsonSerializer.SerializeToElement("VH-001")
+            ["deviceId"] = JsonSerializer.SerializeToElement(Guid.Parse("11111111-1111-1111-1111-111111111111"))
         };
         var intent = AiToolIntentMapper.FromToolCall(AiToolCatalog.GetLatestVehicleStatus, args);
         Assert.Equal(AiQueryIntent.VehicleStatus, intent.Intent);
-        Assert.Equal("VH-001", intent.VehicleId);
+        Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), intent.DeviceId);
     }
 
     [Fact]

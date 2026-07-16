@@ -1,31 +1,74 @@
 /** Panel lateral con lista de vehículos y su estado. */
-import { Navigation, Clock, Gauge } from "lucide-react";
+import {
+  Bike,
+  Bus,
+  Car,
+  CarFront,
+  CarTaxiFront,
+  Navigation,
+  Truck,
+  type LucideIcon,
+} from "lucide-react";
 import type { AggregationSource } from "@/lib/analytics";
-import type { VehicleStatus } from "@/types/fleet";
+import type { VehicleStatus, VehicleType } from "@/types/fleet";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { esVehiculoEnLinea, etiquetaEstadoVehiculo } from "@/lib/labels";
+import { esVehiculoEnLinea } from "@/lib/labels";
+import { formatFleetStatusCard } from "@/lib/vehicle-display-format";
+import { VehicleConnectivityBadge } from "@/components/vehicle-connectivity-badge";
+import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { cn } from "@/lib/utils";
+
+const VEHICLE_TYPE_ICONS: Record<VehicleType, LucideIcon> = {
+  car: Car,
+  motorcycle: Bike,
+  van: CarFront,
+  truck: Truck,
+  bus: Bus,
+  pickup: CarTaxiFront,
+};
+
+const VEHICLE_TYPE_ICON_TONES: Record<VehicleType, { online: string; offline: string; inkOnline: string }> = {
+  car: { online: "bg-emerald-500/15", offline: "bg-slate-200/60", inkOnline: "text-emerald-600" },
+  motorcycle: { online: "bg-amber-500/15", offline: "bg-slate-200/60", inkOnline: "text-amber-600" },
+  van: { online: "bg-teal-500/15", offline: "bg-slate-200/60", inkOnline: "text-teal-600" },
+  truck: { online: "bg-blue-500/15", offline: "bg-slate-200/60", inkOnline: "text-blue-600" },
+  bus: { online: "bg-violet-500/15", offline: "bg-slate-200/60", inkOnline: "text-violet-600" },
+  pickup: { online: "bg-red-500/15", offline: "bg-slate-200/60", inkOnline: "text-red-600" },
+};
 
 type FleetStatusPanelProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string | null;
+  selectedDeviceId?: string | null;
   fleetTruncated?: boolean;
   aggregationSource?: AggregationSource;
   totalVehiclesGlobal?: number;
   activeVehiclesGlobal?: number;
-  onSelectVehicle?: (vehicleId: string) => void;
-  onFocusVehicle?: (vehicleId: string) => void;
+  onSelectVehicle?: (deviceId: string) => void;
+  onFocusVehicle?: (deviceId: string) => void;
 };
 
 function formatCount(value: number): string {
   return value.toLocaleString("es-CO");
 }
 
+/** Icono Lucide del tipo: siluetas reconocibles (moto ≠ camión ≠ auto). */
+function VehicleTypeIcon({ type, online }: { type: VehicleType; online: boolean }) {
+  const Icon = VEHICLE_TYPE_ICONS[type] ?? Car;
+  const tones = VEHICLE_TYPE_ICON_TONES[type] ?? VEHICLE_TYPE_ICON_TONES.car;
+  return (
+    <Icon
+      className={cn("h-5 w-5", online ? tones.inkOnline : "text-slate-400")}
+      aria-hidden="true"
+      strokeWidth={2.25}
+    />
+  );
+}
+
 /** Lista interactiva de vehículos con velocidad y estado. */
 export function FleetStatusPanel({
   vehicles,
-  selectedVehicleId,
+  selectedDeviceId,
   fleetTruncated = false,
   aggregationSource = "snapshot",
   totalVehiclesGlobal,
@@ -89,21 +132,23 @@ export function FleetStatusPanel({
             </div>
           )}
           {vehicles.map((vehicle) => {
-            const selected = vehicle.vehicleId === selectedVehicleId;
+            const selected = vehicle.deviceId === selectedDeviceId;
             const online = esVehiculoEnLinea(vehicle.status);
-            const speed = vehicle.lastSpeedKmh ?? 0;
+            const typeLabel = vehicleTypeLabel(vehicle.vehicleType);
+            const tones = VEHICLE_TYPE_ICON_TONES[vehicle.vehicleType] ?? VEHICLE_TYPE_ICON_TONES.car;
+            const card = formatFleetStatusCard(vehicle);
 
             return (
               <button
-                key={vehicle.vehicleId}
+                key={vehicle.deviceId}
                 type="button"
-                onClick={() => onSelectVehicle?.(vehicle.vehicleId)}
+                onClick={() => onSelectVehicle?.(vehicle.deviceId)}
                 onDoubleClick={(event) => {
                   event.preventDefault();
-                  onFocusVehicle?.(vehicle.vehicleId);
+                  onFocusVehicle?.(vehicle.deviceId);
                 }}
                 className={cn(
-                  "group flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-all duration-200",
+                  "group flex w-full items-start gap-3 rounded-xl border p-3.5 text-left transition-all duration-200",
                   selected
                     ? "border-primary/40 bg-primary/5 shadow-glow ring-1 ring-primary/20"
                     : "border-border bg-slate-50 hover:border-slate-300 hover:bg-white hover:shadow-soft",
@@ -112,8 +157,9 @@ export function FleetStatusPanel({
                 <div
                   className={cn(
                     "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                    online ? "bg-emerald-500/10" : "bg-slate-200/60",
+                    online ? tones.online : tones.offline,
                   )}
+                  aria-label={`Tipo de vehículo: ${typeLabel}`}
                 >
                   <span
                     className={cn(
@@ -121,43 +167,21 @@ export function FleetStatusPanel({
                       online ? "bg-emerald-500 animate-pulse-soft" : "bg-slate-400",
                     )}
                   />
-                  <Gauge
-                    className={cn("h-4 w-4", online ? "text-emerald-600" : "text-slate-400")}
-                  />
+                  <VehicleTypeIcon type={vehicle.vehicleType} online={online} />
                 </div>
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate font-semibold text-slate-800">{vehicle.vehicleId}</p>
-                    <Badge variant={online ? "success" : "outline"} className="shrink-0 text-[10px]">
-                      {etiquetaEstadoVehiculo(vehicle.status)}
-                    </Badge>
-                    {vehicle.lastLocationSource === "simulated" && (
-                      <Badge variant="outline" className="shrink-0 text-[10px]">Simulado</Badge>
-                    )}
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate font-semibold text-slate-800">{card.name}</p>
+                    <VehicleConnectivityBadge status={card.status} />
                   </div>
-                  {vehicle.name && (
-                    <p className="truncate text-xs text-slate-500">{vehicle.name}</p>
-                  )}
-                  <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <Gauge className="h-3 w-3" />
-                      {speed.toFixed(0)} km/h
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {vehicle.lastSeenAt
-                        ? new Date(vehicle.lastSeenAt).toLocaleTimeString("es-CO", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "—"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="hidden shrink-0 sm:block">
-                  <SpeedRing speed={speed} online={online} />
+                  <p
+                    className="break-all font-mono text-[11px] text-slate-500"
+                    title={card.deviceId}
+                  >
+                    {card.deviceId}
+                  </p>
+                  <p className="text-xs text-slate-500">{card.metrics}</p>
                 </div>
               </button>
             );
@@ -165,32 +189,6 @@ export function FleetStatusPanel({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-/** Anillo circular que muestra velocidad relativa. */
-function SpeedRing({ speed, online }: { speed: number; online: boolean }) {
-  const max = 120;
-  const pct = Math.min(speed / max, 1);
-  const circumference = 2 * Math.PI * 14;
-  const offset = circumference * (1 - pct);
-
-  return (
-    <svg width="36" height="36" className="-rotate-90">
-      <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3" />
-      <circle
-        cx="18"
-        cy="18"
-        r="14"
-        fill="none"
-        stroke={online ? "#10b981" : "#94a3b8"}
-        strokeWidth="3"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-        className="transition-all duration-500"
-      />
-    </svg>
   );
 }
 

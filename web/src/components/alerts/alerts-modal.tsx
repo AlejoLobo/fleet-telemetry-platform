@@ -3,13 +3,14 @@
 
 import { useEffect } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ShieldAlert, X } from "lucide-react";
-import type { FleetAlert } from "@/types/fleet";
+import type { FleetAlert, VehicleStatus } from "@/types/fleet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   esSeveridadCritica,
   etiquetaSeveridad,
   etiquetaTipoAlerta,
+  resolveAlertDeviceLabel,
   traducirMensajeAlerta,
 } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 type AlertsModalProps = {
   open: boolean;
   alerts: FleetAlert[];
+  vehicles?: VehicleStatus[];
   onClose: () => void;
   onAcknowledge?: (alertId: string) => Promise<void>;
   acknowledgingId?: string | null;
@@ -81,6 +83,7 @@ export function AlertsModalTrigger({
 export function AlertsModal({
   open,
   alerts,
+  vehicles,
   onClose,
   onAcknowledge,
   acknowledgingId,
@@ -161,14 +164,19 @@ export function AlertsModal({
                       <Badge variant={critical ? "critical" : "warning"}>
                         {etiquetaSeveridad(alert.severity)}
                       </Badge>
-                      <span className="font-semibold text-slate-800">{alert.vehicleId}</span>
+                      <span className="font-semibold text-slate-800">
+                        {resolveAlertDeviceLabel(alert, vehicles)}
+                      </span>
                       <span className="text-xs text-slate-400">·</span>
                       <span className="text-xs font-medium text-slate-500">
                         {etiquetaTipoAlerta(alert.alertType)}
                       </span>
                     </div>
                     <p className="text-sm leading-relaxed text-slate-700">
-                      {traducirMensajeAlerta(alert)}
+                      {traducirMensajeAlerta({
+                        ...alert,
+                        displayLabel: resolveAlertDeviceLabel(alert, vehicles),
+                      })}
                     </p>
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <p className="flex items-center gap-1.5 text-xs text-slate-400">

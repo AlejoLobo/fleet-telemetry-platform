@@ -4,12 +4,14 @@ import {
   markClaimedBatchRetryAtomic,
   markEventPermanentFailure,
   markEventsSynced,
+  migratePendingEventsToDeviceId,
   purgeSyncedOlderThan,
   releaseClaimedEvents,
   toPayload,
 } from "@/db/offline-queue";
 import { handleUnauthorizedFromApi, markForbiddenFromApi } from "@/services/auth-service";
 import { getAuthRuntimeSnapshot } from "@/services/auth-runtime";
+import { ensureDeviceRegistered } from "@/services/device-registry";
 import { sendBatchEvents, sendSingleEvent, TelemetryApiError } from "@/services/telemetry-api";
 import {
   classifySyncError,
@@ -20,7 +22,18 @@ import {
 import type { QueuedTelemetryEvent, SyncResult, SyncStatus } from "@/types/telemetry";
 
 const BATCH_SIZE = 25;
-let syncInFlight: Promise<SyncResult> | null = null;
+
+type ActiveSync = {
+  deviceId: string;
+  promise: Promise<SyncResult>;
+  /** Generación de solicitudes acumuladas (incluye la pasada inicial). */
+  requestedGeneration: number;
+  /** Última generación ya procesada por el poseedor. */
+  processedGeneration: number;
+};
+
+/** Autoridad global de exclusión: una sola sync remota a la vez. */
+let activeSync: ActiveSync | null = null;
 
 type SyncAccumulator = {
   synced: number;
@@ -63,7 +76,11 @@ function canStartRemoteSync(): SyncStatus | null {
   return null;
 }
 
-export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE): Promise<SyncResult> {
+export async function syncPendingQueue(
+  isOnline: boolean,
+  deviceId: string,
+  batchSize = BATCH_SIZE,
+): Promise<SyncResult> {
   if (!isOnline) {
     return {
       synced: 0,
@@ -72,6 +89,18 @@ export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE
       permanentFailures: 0,
       remaining: await countPendingEvents(),
       status: "offline",
+    };
+  }
+
+  const normalizedDeviceId = deviceId.trim();
+  if (!normalizedDeviceId) {
+    return {
+      synced: 0,
+      failed: 0,
+      retried: 0,
+      permanentFailures: 0,
+      remaining: await countPendingEvents(),
+      status: "configuration_error",
     };
   }
 
@@ -87,37 +116,128 @@ export async function syncPendingQueue(isOnline: boolean, batchSize = BATCH_SIZE
     };
   }
 
-  if (syncInFlight) return syncInFlight;
-  syncInFlight = runSync(batchSize).finally(() => {
-    syncInFlight = null;
-  });
-  return syncInFlight;
+  // Adquisición segura: reconsultar el mutex después de cada await.
+  while (activeSync) {
+    if (activeSync.deviceId === normalizedDeviceId) {
+      activeSync.requestedGeneration += 1;
+      return activeSync.promise;
+    }
+    try {
+      await activeSync.promise;
+    } catch {
+      // Liberación la realiza el poseedor.
+    }
+  }
+
+  const holder: ActiveSync = {
+    deviceId: normalizedDeviceId,
+    promise: null as unknown as Promise<SyncResult>,
+    requestedGeneration: 1,
+    processedGeneration: 0,
+  };
+
+  const runWithReentry = async (): Promise<SyncResult> => {
+    let last: SyncResult = toSyncResult(emptyAccumulator(), 0);
+    try {
+      for (;;) {
+        const targetGen = holder.requestedGeneration;
+        holder.processedGeneration = targetGen;
+        last = await runSync(normalizedDeviceId, batchSize);
+        if (holder.requestedGeneration > targetGen) {
+          continue;
+        }
+        // Liberar solo si no entró una solicitud nueva en el mismo turno.
+        if (activeSync === holder && holder.requestedGeneration === targetGen) {
+          activeSync = null;
+        }
+        if (holder.requestedGeneration > targetGen) {
+          if (activeSync === null) {
+            activeSync = holder;
+          }
+          continue;
+        }
+        return last;
+      }
+    } catch (error) {
+      if (activeSync === holder) {
+        activeSync = null;
+      }
+      throw error;
+    }
+  };
+
+  holder.promise = runWithReentry();
+  activeSync = holder;
+  return holder.promise;
 }
 
 /** Libera el mutex de sincronización; solo para pruebas automatizadas. */
 export function resetSyncCoordinatorForTests(): void {
-  syncInFlight = null;
+  activeSync = null;
 }
 
-async function runSync(batchSize: number): Promise<SyncResult> {
+async function runSync(deviceId: string, batchSize: number): Promise<SyncResult> {
   const accumulator = emptyAccumulator();
   await purgeSyncedOlderThan(7);
 
+  let migration;
+  try {
+    migration = await migratePendingEventsToDeviceId(deviceId);
+    await ensureDeviceRegistered(deviceId);
+  } catch (error) {
+    return toSyncResult(
+      await applyRegistrationFailure(accumulator, error),
+      await countPendingEvents(),
+    );
+  }
+
   while (true) {
-    const batch = await claimNextBatch(batchSize, new Date().toISOString());
+    // Solo reclama eventos del DeviceId actual; no mezcla identidades conflictivas.
+    const batch = await claimNextBatch(batchSize, new Date().toISOString(), deviceId);
     if (!batch.length) break;
 
     if (batch.length === 1) {
-      const outcome = await syncSingleEvent(batch[0], accumulator);
+      const outcome = await syncSingleEvent(batch[0], accumulator, deviceId);
       if (outcome.stop) break;
       continue;
     }
 
-    const outcome = await syncBatch(batch, accumulator);
+    const outcome = await syncBatch(batch, accumulator, deviceId);
     if (outcome.stop) break;
   }
 
+  if (migration.conflicts.length > 0 && accumulator.status === "completed") {
+    accumulator.status = "device_identity_conflict";
+  }
+
   return toSyncResult(accumulator, await countPendingEvents());
+}
+
+async function applyRegistrationFailure(
+  accumulator: SyncAccumulator,
+  error: unknown,
+): Promise<SyncAccumulator> {
+  const classification = classifySyncError(error);
+  if (classification.action === "stop_auth_required") {
+    await handleUnauthorizedFromApi();
+    accumulator.status = "auth_required";
+    return accumulator;
+  }
+  if (classification.action === "stop_forbidden") {
+    markForbiddenFromApi(sanitizeError(error));
+    accumulator.status = "forbidden";
+    return accumulator;
+  }
+  if (classification.action === "stop_configuration" || classification.action === "isolate_validation") {
+    accumulator.status = "configuration_error";
+    return accumulator;
+  }
+  if (classification.action === "stop_transient") {
+    accumulator.status = "deferred";
+    return accumulator;
+  }
+  accumulator.status = "failed";
+  return accumulator;
 }
 
 function buildStoppedOutcome(
@@ -158,19 +278,23 @@ async function resolveUnvisitedSiblings(
   );
 }
 
-async function syncBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function syncBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   try {
-    await sendBatchEvents(batch.map(toPayload));
+    await sendBatchEvents(batch.map(toPayload), deviceId);
     await markEventsSynced(batch.map((item) => item.eventId));
     accumulator.synced += batch.length;
     return { stop: false };
   } catch (error) {
     const classification = classifySyncError(error);
     if (classification.action === "isolate_validation") {
-      return isolateValidationBatch(batch, accumulator);
+      return isolateValidationBatch(batch, accumulator, deviceId);
     }
     if (classification.action === "split_payload") {
-      return splitAndSendBatch(batch, accumulator);
+      return splitAndSendBatch(batch, accumulator, deviceId);
     }
     return handleGlobalBatchFailure(batch, classification, error, accumulator);
   }
@@ -187,7 +311,11 @@ async function markIndividualPayloadTooLarge(
   accumulator.failed += 1;
 }
 
-async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function splitAndSendBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   if (batch.length === 1) {
     await markIndividualPayloadTooLarge(batch[0].eventId, new Set(), accumulator);
     return { stop: false };
@@ -197,12 +325,12 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
   const firstHalf = batch.slice(0, midpoint);
   const secondHalf = batch.slice(midpoint);
 
-  const firstOutcome = await syncBatch(firstHalf, accumulator);
+  const firstOutcome = await syncBatch(firstHalf, accumulator, deviceId);
   if (firstOutcome.stop) {
     return resolveUnvisitedSiblings(secondHalf, firstOutcome, accumulator);
   }
 
-  const secondOutcome = await syncBatch(secondHalf, accumulator);
+  const secondOutcome = await syncBatch(secondHalf, accumulator, deviceId);
   if (secondOutcome.stop) {
     return secondOutcome;
   }
@@ -210,13 +338,17 @@ async function splitAndSendBatch(batch: QueuedTelemetryEvent[], accumulator: Syn
   return { stop: false };
 }
 
-async function isolateValidationBatch(batch: QueuedTelemetryEvent[], accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function isolateValidationBatch(
+  batch: QueuedTelemetryEvent[],
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   const resolvedIds = new Set<string>();
 
   for (let index = 0; index < batch.length; index += 1) {
     const item = batch[index];
     try {
-      await sendSingleEvent(toPayload(item));
+      await sendSingleEvent(toPayload(item), deviceId);
       await markEventsSynced([item.eventId]);
       resolvedIds.add(item.eventId);
       accumulator.synced += 1;
@@ -305,9 +437,13 @@ async function markTransientBatchRetry(
   return retryAt;
 }
 
-async function syncSingleEvent(item: QueuedTelemetryEvent, accumulator: SyncAccumulator): Promise<StepOutcome> {
+async function syncSingleEvent(
+  item: QueuedTelemetryEvent,
+  accumulator: SyncAccumulator,
+  deviceId: string,
+): Promise<StepOutcome> {
   try {
-    await sendSingleEvent(toPayload(item));
+    await sendSingleEvent(toPayload(item), deviceId);
     await markEventsSynced([item.eventId]);
     accumulator.synced += 1;
     return { stop: false };
@@ -320,7 +456,7 @@ async function syncSingleEvent(item: QueuedTelemetryEvent, accumulator: SyncAccu
       return { stop: false };
     }
     if (classification.action === "split_payload") {
-      return splitAndSendBatch([item], accumulator);
+      return splitAndSendBatch([item], accumulator, deviceId);
     }
     return handleGlobalBatchFailure([item], classification, error, accumulator);
   }

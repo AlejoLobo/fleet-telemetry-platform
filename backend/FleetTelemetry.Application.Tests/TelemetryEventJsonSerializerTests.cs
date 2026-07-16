@@ -14,7 +14,7 @@ public class TelemetryEventJsonSerializerTests
         var timestamp = new DateTimeOffset(2026, 7, 12, 8, 30, 0, TimeSpan.Zero);
         return TelemetryEvent.Create(
             eventId,
-            "VH-FT002",
+            Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
             "DRV-99",
             timestamp,
             4.6533,
@@ -33,7 +33,7 @@ public class TelemetryEventJsonSerializerTests
         var restored = TelemetryEventJsonSerializer.Deserialize(json, useEventEnvelope: true);
 
         Assert.Equal(original.EventId, restored.EventId);
-        Assert.Equal(original.VehicleId, restored.VehicleId);
+        Assert.Equal(original.DeviceId, restored.DeviceId);
         Assert.Equal(original.DriverId, restored.DriverId);
         Assert.Equal(original.Timestamp, restored.Timestamp);
         Assert.Equal(original.Latitude, restored.Latitude);
@@ -56,7 +56,7 @@ public class TelemetryEventJsonSerializerTests
         Assert.True(root.TryGetProperty("eventId", out _));
         Assert.True(root.TryGetProperty("occurredAt", out _));
         Assert.True(root.TryGetProperty("payload", out var payload));
-        Assert.True(payload.TryGetProperty("vehicleId", out _));
+        Assert.True(payload.TryGetProperty("deviceId", out _));
         Assert.True(payload.TryGetProperty("speedKmh", out _));
         Assert.False(root.TryGetProperty("SchemaVersion", out _));
     }
@@ -159,7 +159,7 @@ public class TelemetryEventJsonSerializerTests
               "occurredAt": "2026-07-12T08:30:00Z",
               "payload": {
                 "eventId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                "vehicleId": "VH-FT002",
+                "deviceId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 "timestamp": "2026-07-12T08:30:00Z",
                 "latitude": 95.0,
                 "longitude": -74.0,
@@ -189,7 +189,7 @@ public class TelemetryEventJsonSerializerTests
         var original = CreateSampleEvent();
         var json = TelemetryEventJsonSerializer.Serialize(original, useEnvelope: true);
         var restored = TelemetryEventJsonSerializer.Deserialize(json, useEventEnvelope: true);
-        Assert.Equal(original.VehicleId, restored.VehicleId);
+        Assert.Equal(original.DeviceId, restored.DeviceId);
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public class TelemetryEventJsonSerializerTests
                 StringComparison.Ordinal);
 
         var restored = TelemetryEventJsonSerializer.Deserialize(json, useEventEnvelope: true);
-        Assert.Equal("VH-FT002", restored.VehicleId);
+        Assert.Equal(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), restored.DeviceId);
     }
 
     [Fact]

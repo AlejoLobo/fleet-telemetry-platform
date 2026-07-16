@@ -41,7 +41,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-TRK-OLD", now.AddMinutes(-30), 0, 4.65, -74.08);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-TRK-OLD"), now.AddMinutes(-30), 0, 4.65, -74.08);
         await ProcessAsync(telemetryEvent);
 
         Assert.Single(_publisher.VehicleUpdates);
@@ -66,14 +66,14 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 15, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-TRK-KEEP", now.AddMinutes(-30), 0, 4.66, -74.07);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-TRK-KEEP"), now.AddMinutes(-30), 0, 4.66, -74.07);
         await ProcessAsync(telemetryEvent);
 
         using (var scope = _services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             var marker = await db.FleetOfflinePublishMarkers
-                .SingleOrDefaultAsync(marker => marker.VehicleId == telemetryEvent.VehicleId);
+                .SingleOrDefaultAsync(marker => marker.DeviceId == telemetryEvent.DeviceId);
             Assert.NotNull(marker);
             Assert.Equal(telemetryEvent.EventId, marker.LastEventId);
         }
@@ -85,7 +85,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             var marker = await db.FleetOfflinePublishMarkers
-                .SingleOrDefaultAsync(marker => marker.VehicleId == telemetryEvent.VehicleId);
+                .SingleOrDefaultAsync(marker => marker.DeviceId == telemetryEvent.DeviceId);
             Assert.NotNull(marker);
             Assert.Equal(telemetryEvent.EventId, marker.LastEventId);
         }
@@ -99,20 +99,20 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 16, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var offlineEvent = CreateEvent("VH-TRK-CLEAR", now.AddMinutes(-30), 0, 4.67, -74.06);
+        var offlineEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-TRK-CLEAR"), now.AddMinutes(-30), 0, 4.67, -74.06);
         await ProcessAsync(offlineEvent);
 
         using (var scope = _services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.NotEmpty(await db.FleetOfflinePublishMarkers
-                .Where(marker => marker.VehicleId == offlineEvent.VehicleId)
+                .Where(marker => marker.DeviceId == offlineEvent.DeviceId)
                 .ToListAsync());
         }
 
         _publisher.Reset();
         var onlineEvent = CreateEvent(
-            "VH-TRK-CLEAR",
+            DeviceIdTestHelper.CreateDeterministicGuid("VH-TRK-CLEAR"),
             now.AddMinutes(-1),
             55,
             4.68,
@@ -124,7 +124,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         {
             var db = scope.ServiceProvider.GetRequiredService<FleetDbContext>();
             Assert.Empty(await db.FleetOfflinePublishMarkers
-                .Where(marker => marker.VehicleId == offlineEvent.VehicleId)
+                .Where(marker => marker.DeviceId == offlineEvent.DeviceId)
                 .ToListAsync());
         }
 
@@ -141,7 +141,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 7, 10, 17, 0, 0, TimeSpan.Zero);
         _timeProvider.SetUtcNow(now);
 
-        var telemetryEvent = CreateEvent("VH-TRK-NODUP", now.AddMinutes(-30), 0, 4.69, -74.04);
+        var telemetryEvent = CreateEvent(DeviceIdTestHelper.CreateDeterministicGuid("VH-TRK-NODUP"), now.AddMinutes(-30), 0, 4.69, -74.04);
         await ProcessAsync(telemetryEvent);
         _publisher.Reset();
 
@@ -172,8 +172,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         return await uow.ProcessAsync(telemetryEvent);
     }
 
-    private static TelemetryEvent CreateEvent(
-        string vehicleId,
+    private static TelemetryEvent CreateEvent(Guid deviceId,
         DateTimeOffset timestamp,
         double speedKmh,
         double latitude,
@@ -181,7 +180,7 @@ public class ConnectivityPublishTrackerIntegrationTests : IAsyncLifetime
         Guid? eventId = null) =>
         TelemetryEvent.Create(
             eventId ?? Guid.NewGuid(),
-            vehicleId,
+            deviceId,
             "DRV-INT-001",
             timestamp,
             latitude,

@@ -1,8 +1,9 @@
 namespace FleetTelemetry.Application.DTOs;
 
 public record VehicleLatestStatusResponse(
-    string VehicleId,
-    string Name,
+    Guid DeviceId,
+    string VehicleName,
+    string VehicleType,
     string Status,
     DateTimeOffset? LastSeenAt,
     double? LastSpeedKmh,
@@ -11,4 +12,5 @@ public record VehicleLatestStatusResponse(
     double? LastHeadingDegrees,
     string? LastLocationSource = null,
     Guid? LastEventId = null,
-    DateTimeOffset? StatusEvaluatedAt = null);
+    DateTimeOffset? StatusEvaluatedAt = null,
+    string? DriverId = null);
