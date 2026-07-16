@@ -1,25 +1,48 @@
 ## Resumen
 
-Introduce `DeviceId` (UUID inmutable) como identidad técnica de flota, separada de `VehicleName` (`VH-###`).
+Introduce `DeviceId` (UUID inmutable) como identidad técnica de flota, separada de `VehicleName` (`VH-###`) y de `VehicleType` (catálogo cerrado).
+
+## Identidad
+
+- **DeviceId**: UUID estable (Kafka, historial, partición)
+- **VehicleName**: nombre visible editable (`VH-###` al registrar)
+- **VehicleType**: atributo separado (`car`, `motorcycle`, `van`, `truck`, `bus`, `pickup`); default legacy `car`; **no** se infiere desde el nombre
 
 ## Backend
 
 - Registro `fleet_devices` + pipeline por `DeviceId`
-- Migración PostgreSQL/Timescale **v7**
-- Enrolamiento demo `POST /api/auth/device-token` solo con `AllowDemoDeviceEnrollment=true` en Development; **prohibido en Production** (no es enrolamiento productivo / attestation)
+- Migración PostgreSQL/Timescale **v7** (DeviceId) y **v8** (`vehicle_type` + CHECK)
+- `POST /api/devices/register` con `vehicleType` opcional; idempotente **no sobrescribe** tipo existente
+- `PATCH /api/devices/{deviceId}/profile` (nombre y/o tipo); `PATCH .../name` por compatibilidad
+- Flota y SSE incluyen `vehicleType` desde `fleet_devices` (online y offline)
+- Enrolamiento demo `POST /api/auth/device-token` solo con `AllowDemoDeviceEnrollment=true` en Development; **prohibido en Production**
 
 ## Mobile
 
-- Cola SQLite **schema v5** con `readyDbPromise` (una apertura + migración por proceso)
+- Cola SQLite **schema v5** con `readyDbPromise`
 - Captura fija **cada 5 segundos**; sin selector de frecuencia
-- Sync single-flight con generaciones (`requestedGeneration` / `processedGeneration`)
-- Validación nativa Android: procedimiento en `docs/mobile-sqlite-migration.md` (**manual pendiente** en CI cloud)
+- Selector de tipo de vehículo + «Guardar perfil»
+- SecureStore `fleet.profile.vehicleType` (legacy → `car`)
+- Registro remoto **no** se repite al cambiar perfil (usa `initialVehicleTypeRef`)
+- Actualización de perfil **atómica** (restaura nombre/tipo ante cualquier error)
+- Sync single-flight con generaciones
 
 ## Web / SSE
 
-- Selector visual **solo** 5 / 10 / 15 / 20 s (default **5**); legado normalizado en `localStorage`
+- Iconos SVG por tipo; label del mapa = solo `vehicleName`
+- Popup y «Estado de flota» unificados Demo/API/SSE
+- `null` de velocidad → `—`; `0` → `0 km/h`
+- Selector visual **solo** 5 / 10 / 15 / 20 s (default **5**)
 - Buffer SSE; alertas inmediatas; Actualizar hace flush
-- Playwright en CI con `NEXT_PUBLIC_E2E_TEST_MODE` (Demo sembrado + inyector `window.__FLEET_E2E__`; no activo en builds normales)
+- Parches SSE usan `NormalizedVehiclePatch` (sin metadatos en `VehicleStatus`)
+- Playwright en CI con `NEXT_PUBLIC_E2E_TEST_MODE`
+
+## Validación
+
+- Application / Worker / Mobile / Web unitarios
+- Integration.Tests VehicleType v8 con Testcontainers
+- Docker Compose profile `app`
+- Playwright E2E (incl. VH-005 motocicleta)
 
 ## Base del PR
 
