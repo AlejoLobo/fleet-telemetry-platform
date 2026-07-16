@@ -133,4 +133,45 @@ public class VehicleTypeMigrationV8IntegrationTests : IAsyncLifetime
         Assert.Equal(first.VehicleName, second.VehicleName);
         Assert.Equal(deviceId, second.DeviceId);
     }
+
+    [Fact]
+    public async Task Schema_version_8_and_check_constraint_are_present()
+    {
+        await DatabaseInitializer.InitializeAsync(_services);
+        await DatabaseInitializer.InitializeAsync(_services); // idempotente
+
+        await using var connection = new NpgsqlConnection(_database.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var versionCmd = connection.CreateCommand())
+        {
+            versionCmd.CommandText = """SELECT MAX("Version") FROM schema_versions;""";
+            var maxVersion = Convert.ToInt32(await versionCmd.ExecuteScalarAsync());
+            Assert.True(maxVersion >= 8, $"Expected schema version >= 8, got {maxVersion}");
+        }
+
+        await using (var constraintCmd = connection.CreateCommand())
+        {
+            constraintCmd.CommandText = """
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'CK_fleet_devices_vehicle_type'
+                  AND conrelid = 'fleet_devices'::regclass;
+                """;
+            var definition = (string?)await constraintCmd.ExecuteScalarAsync();
+            Assert.False(string.IsNullOrWhiteSpace(definition));
+            foreach (var code in new[] { "car", "motorcycle", "van", "truck", "bus", "pickup" })
+                Assert.Contains(code, definition!, StringComparison.Ordinal);
+        }
+
+        await using (var invalidInsert = connection.CreateCommand())
+        {
+            invalidInsert.CommandText = """
+                INSERT INTO fleet_devices (device_id, vehicle_name, vehicle_type, created_at, updated_at)
+                VALUES (gen_random_uuid(), 'VH-INVALID', 'boat', NOW(), NOW());
+                """;
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => invalidInsert.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.CheckViolation, ex.SqlState);
+        }
+    }
 }
