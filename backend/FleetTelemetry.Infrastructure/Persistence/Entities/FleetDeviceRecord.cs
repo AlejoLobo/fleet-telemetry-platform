@@ -15,6 +15,11 @@ public class FleetDeviceRecord
     [Column("vehicle_name")]
     public string VehicleName { get; set; } = string.Empty;
 
+    [Required]
+    [MaxLength(32)]
+    [Column("vehicle_type")]
+    public string VehicleType { get; set; } = "car";
+
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 

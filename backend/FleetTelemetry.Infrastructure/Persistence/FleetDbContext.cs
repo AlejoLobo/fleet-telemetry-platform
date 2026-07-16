@@ -71,6 +71,7 @@ public class FleetDbContext : DbContext
             entity.HasIndex(e => e.VehicleName).IsUnique();
             entity.Property(e => e.DeviceId).HasColumnName("device_id");
             entity.Property(e => e.VehicleName).HasColumnName("vehicle_name").HasMaxLength(100).IsRequired();
+            entity.Property(e => e.VehicleType).HasColumnName("vehicle_type").HasMaxLength(32).IsRequired();
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
         });
