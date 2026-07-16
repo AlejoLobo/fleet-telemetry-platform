@@ -29,8 +29,10 @@ Introduce `DeviceId` (UUID inmutable) como identidad técnica de flota, separada
 
 ## Web / SSE
 
-- Iconos SVG por tipo; label del mapa = solo `vehicleName`
-- Popup y «Estado de flota» unificados Demo/API/SSE
+- Iconos por tipo (mapa) y Lucide en panel; label del mapa = solo `vehicleName`
+- Tooltip (mapa) y «Estado de flota» con formato unificado Demo/API/SSE:
+  - Tooltip: `Nombre` + badge de estado (verde/gris) · ID del dispositivo · conductor · `velocidad  hora  tipo` · coordenadas
+  - Card Estado de flota: `Nombre` + badge de estado (verde/gris) · ID del dispositivo · `velocidad  hora  tipo`
 - `null` de velocidad → `—`; `0` → `0 km/h`
 - Selector visual **solo** 5 / 10 / 15 / 20 s (default **5**)
 - Buffer SSE; alertas inmediatas; Actualizar hace flush
