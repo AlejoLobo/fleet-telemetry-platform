@@ -9,6 +9,7 @@ import {
   zoneForVehicleIndex,
 } from "@/lib/bogota-zones";
 import { formatVehicleDisplayName } from "@/lib/labels";
+import type { VehicleType } from "@/types/fleet";
 import { getE2eSeed, isE2eTestMode } from "@/lib/e2e-test-mode";
 import {
   createSeededRandom,
@@ -20,13 +21,22 @@ import {
 
 /** Datos sintéticos para el modo demostración del dashboard (sin backend). */
 
-const VEHICLE_NAMES = [
-  "Camión reparto",
-  "Furgoneta urbana",
-  "Van refrigerada",
-  "Camioneta ligera",
-  "Moto carga",
-  "Trailer corto",
+const DEMO_VEHICLE_NAMES = [
+  "VH-001",
+  "VH-002",
+  "VH-003",
+  "VH-004",
+  "VH-005",
+  "VH-006",
+];
+
+const DEMO_VEHICLE_TYPES: VehicleType[] = [
+  "truck",
+  "van",
+  "van",
+  "pickup",
+  "motorcycle",
+  "truck",
 ];
 
 const ALERT_TYPES = [
@@ -191,15 +201,18 @@ function generateVehicleBundle(
       ? computeBearingDegrees(previous.latitude, previous.longitude, latest.latitude, latest.longitude)
       : travelHeading;
 
+  const demoIndex = index % DEMO_VEHICLE_NAMES.length;
   const vehicle: VehicleStatus = {
     deviceId,
-    vehicleName: `${VEHICLE_NAMES[index % VEHICLE_NAMES.length]} · ${zone.name}`,
+    vehicleName: DEMO_VEHICLE_NAMES[demoIndex] ?? `VH-${String(index + 1).padStart(3, "0")}`,
+    vehicleType: DEMO_VEHICLE_TYPES[demoIndex] ?? "car",
     status: online ? "online" : "offline",
     lastSeenAt: latest.timestamp,
     lastSpeedKmh: latest.speedKmh,
     lastLatitude: latest.latitude,
     lastLongitude: latest.longitude,
     headingDegrees: Math.round(headingDegrees * 10) / 10,
+    lastLocationSource: "simulated",
   };
 
   return { vehicle, events };

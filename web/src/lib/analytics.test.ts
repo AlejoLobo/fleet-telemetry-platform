@@ -9,6 +9,7 @@ import type { FleetAlert, TelemetryEvent, VehicleStatus } from "@/types/fleet";
 const vehicle = (id: string, status: string): VehicleStatus => ({
   deviceId: id,
   vehicleName: id,
+  vehicleType: "car",
   status,
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 40,

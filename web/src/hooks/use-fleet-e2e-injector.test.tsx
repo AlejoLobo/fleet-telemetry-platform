@@ -57,6 +57,7 @@ describe("useFleetE2eInjector", () => {
     window.__FLEET_E2E__!.emitVehicleUpdate({
       deviceId: "00000000-0000-4000-8000-000000000001",
       vehicleName: "Vehículo E2E",
+      vehicleType: "car",
       status: "online",
       lastSeenAt: "2026-07-15T23:00:00Z",
       lastSpeedKmh: 137,

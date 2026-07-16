@@ -34,6 +34,7 @@ vi.mock("@/lib/utils", () => ({
 const vehicle = {
   deviceId: "00000000-0000-4000-8000-000000000001",
   vehicleName: "00000000-0000-4000-8000-000000000001",
+  vehicleType: "car" as const,
   status: "online",
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 1,
@@ -44,6 +45,7 @@ const vehicle = {
 const vehiclePayload = {
   deviceId: "00000000-0000-4000-8000-000000000095",
   vehicleName: "00000000-0000-4000-8000-000000000095",
+  vehicleType: "car" as const,
   status: "online",
   lastSeenAt: "2026-07-10T10:00:00Z",
   lastSpeedKmh: 40,

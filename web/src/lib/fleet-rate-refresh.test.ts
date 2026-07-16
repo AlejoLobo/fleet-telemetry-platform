@@ -30,6 +30,7 @@ describe("local-connectivity", () => {
         {
           deviceId: "00000000-0000-4000-8000-000000000001",
           vehicleName: "00000000-0000-4000-8000-000000000001",
+          vehicleType: "car",
           status: "online",
           lastSeenAt: "2026-07-15T10:00:00Z",
           lastSpeedKmh: 10,
