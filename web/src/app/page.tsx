@@ -399,9 +399,11 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-2">
+        <section className="grid items-start gap-6 lg:grid-cols-2">
           <TelemetryTable events={telemetry} vehicle={selectedVehicle} />
-          <AiChatPanel useDemoResponses={dataSource === "demo"} />
+          <div className="min-h-0 w-full max-w-full">
+            <AiChatPanel useDemoResponses={dataSource === "demo"} />
+          </div>
         </section>
       </main>
 

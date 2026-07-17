@@ -1,7 +1,7 @@
 /** Panel de chat con el agente IA operativo. */
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bot, Send, Sparkles, User } from "lucide-react";
 import { useAiChat } from "@/hooks/use-ai-chat";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,13 +22,18 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
   const { messages, loading, error, sendMessage } = useAiChat(useDemoResponses);
   const [question, setQuestion] = useState("");
   const messagesViewportRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll interno al último mensaje; no mueve la página ni agranda la card.
+  // Ancla el viewport al final tras pintar mensajes (sin agrandar la card).
+  useLayoutEffect(() => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [messages, loading, error]);
+
   useEffect(() => {
     const viewport = messagesViewportRef.current;
     if (!viewport) return;
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+    viewport.scrollTop = viewport.scrollHeight;
   }, [messages, loading, error]);
 
   const onSubmit = async (event: FormEvent) => {
@@ -44,7 +49,7 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
   };
 
   return (
-    <Card className="flex h-[32rem] max-h-[32rem] flex-col overflow-hidden">
+    <Card className="flex h-[32rem] max-h-[32rem] min-h-0 w-full flex-col overflow-hidden">
       <CardHeader className="shrink-0 border-b border-border bg-gradient-to-r from-violet-50 via-white to-sky-50">
         <CardTitle className="flex items-center gap-2 text-lg">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-primary text-white shadow-soft">
@@ -56,13 +61,15 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
           Consultas en lenguaje natural sobre tu flota · respuestas en español
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5">
+
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5 pt-4">
+        {/* basis-0 + min-h-0: el área de mensajes ocupa el resto y hace scroll sin estirar la card */}
         <div
           ref={messagesViewportRef}
-          className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-border bg-slate-50 p-4"
+          className="custom-scrollbar min-h-0 flex-1 basis-0 space-y-4 overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-slate-50 p-4"
         >
           {messages.length === 0 && (
-            <div className="flex h-full min-h-[12rem] flex-col items-center justify-center py-6 text-center">
+            <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-100 to-sky-100">
                 <Bot className="h-8 w-8 text-violet-500" />
               </div>
@@ -115,7 +122,7 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
                     : "border border-border bg-white text-slate-700",
                 )}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap break-words">{message.content}</p>
                 {message.sources && message.sources.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">
                     {message.sources.map((s) => (
@@ -145,14 +152,13 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
               </div>
             </div>
           )}
-          <div ref={messagesEndRef} className="h-px w-full shrink-0" aria-hidden />
         </div>
 
-        {error && (
+        {error ? (
           <p className="shrink-0 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </p>
-        )}
+        ) : null}
 
         <form onSubmit={onSubmit} className="flex shrink-0 gap-2">
           <Input
@@ -162,7 +168,12 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
             disabled={loading}
             className="h-11 rounded-xl border-slate-200 bg-white focus-visible:ring-primary"
           />
-          <Button type="submit" disabled={loading || !question.trim()} size="icon" className="h-11 w-11 shrink-0">
+          <Button
+            type="submit"
+            disabled={loading || !question.trim()}
+            size="icon"
+            className="h-11 w-11 shrink-0"
+          >
             <Send className="h-4 w-4" />
           </Button>
         </form>
