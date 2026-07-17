@@ -297,7 +297,7 @@ const DEFAULT_DEMO_SPEED_KMH = 80;
 
 /** Interpreta la pregunta demo con las mismas intenciones operativas del backend. */
 function parseDemoAiIntent(question: string): {
-  kind: "overview" | "critical" | "stopped" | "speed" | "unsupported";
+  kind: "overview" | "online" | "critical" | "stopped" | "speed" | "unsupported";
   speedKmh: number;
 } {
   const lower = question.trim().toLowerCase();
@@ -310,13 +310,15 @@ function parseDemoAiIntent(question: string): {
   const mentionsAlerts = /alerta|alert/.test(lower);
   const mentionsSpeed =
     /veloc|rápid|rapido|speed|exceso|por encima/.test(lower) || kmhMatch != null;
-  const mentionsOverview = /resumen|overview|flota|cuántos|cuantos/.test(lower);
+  const mentionsOnline = /en l[ií]nea|online|conectad/.test(lower);
+  const mentionsOverview = /resumen|overview|flota/.test(lower);
 
   if (mentionsStopped) return { kind: "stopped", speedKmh };
   if ((mentionsAlerts && mentionsCritical) || mentionsCritical) return { kind: "critical", speedKmh };
   if (mentionsSpeed) return { kind: "speed", speedKmh };
   if (mentionsAlerts) return { kind: "critical", speedKmh };
-  if (mentionsOverview) return { kind: "overview", speedKmh };
+  if (mentionsOnline) return { kind: "online", speedKmh };
+  if (mentionsOverview || /cu[aá]ntos/.test(lower)) return { kind: "overview", speedKmh };
   return { kind: "unsupported", speedKmh };
 }
 
@@ -389,6 +391,15 @@ export function generateMockAiResponse(question: string): AiQueryResponse {
     };
   }
 
+  if (intent.kind === "online") {
+    const online = vehicles.filter((v) => v.status === "online");
+    const offline = vehicles.length - online.length;
+    return {
+      answer: `Hay ${online.length} vehículo(s) en línea y ${offline} desconectado(s), de ${vehicles.length} en la flota.`,
+      sources: ["GetFleetOverview"],
+    };
+  }
+
   if (intent.kind === "unsupported") {
     return {
       answer:
@@ -398,9 +409,17 @@ export function generateMockAiResponse(question: string): AiQueryResponse {
   }
 
   const online = vehicles.filter((v) => v.status === "online").length;
+  const offline = vehicles.length - online;
   const criticalCount = alerts.filter((a) => /critical|crític/i.test(a.severity)).length;
   return {
-    answer: `Hay ${criticalCount} alerta(s) crítica(s) y ${alerts.length} alerta(s) abiertas. ${online} vehículos en línea de ${vehicles.length} en la flota.`,
+    answer: [
+      "Resumen operativo de flota:",
+      `- Vehículos: ${vehicles.length}`,
+      `- En línea: ${online}`,
+      `- Desconectados: ${offline}`,
+      `- Alertas abiertas: ${alerts.length}`,
+      `- Alertas críticas: ${criticalCount}`,
+    ].join("\n"),
     sources: ["GetFleetOverview", "GetVehiclesWithCriticalAlerts"],
   };
 }
