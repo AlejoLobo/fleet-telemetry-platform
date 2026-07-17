@@ -1,3 +1,6 @@
+> Documento histórico del PR #45. No es un runbook operativo; para el release
+> estable ver [`releases/v1.0.0.md`](releases/v1.0.0.md).
+
 ## Resumen
 
 Introduce `DeviceId` (UUID inmutable) como identidad técnica de flota, separada de `VehicleName` (`VH-###`) y de `VehicleType` (catálogo cerrado).

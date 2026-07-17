@@ -16,10 +16,10 @@ Políticas aplicadas por la migración `schema_versions` **v5** (`DatabaseInitia
 | Recurso | Valor |
 |---------|--------|
 | Chunk interval `telemetry_events` | 6 horas |
-| Compresión | Chunks con datos de más de **7 días** (`segmentby`: `VehicleId`, `orderby`: `Timestamp DESC`) |
+| Compresión | Chunks con datos de más de **7 días** (`segmentby`: `device_id`, `orderby`: `Timestamp DESC`) |
 | Retención cruda `telemetry_events` | **90 días** (no afecta `fleet_vehicle_state`, `fleet_alerts`, `fleet_alert_states`, agregados ni tablas de configuración) |
 | Idempotencia `processed_events` | Conservación **120 días**; limpieza por lotes (máx. 100.000 filas) cada **5 minutos** |
-| Agregado continuo `telemetry_hourly` | Bucket 1 h por `VehicleId`; refresh cada **15 minutos** desde **30 días** atrás hasta **10 minutos** antes del presente (`WITH NO DATA` al crear) |
+| Agregado continuo `telemetry_hourly` | Bucket 1 h por `device_id`; refresh cada **15 minutos** desde **30 días** atrás hasta **10 minutos** antes del presente (`WITH NO DATA` al crear) |
 
 ### Propósito de `telemetry_hourly`
 

@@ -650,9 +650,20 @@ verificable.
 
 ---
 
+## Versión estable
+
+Release preparado: **`1.0.0`**.
+
+Tras fusionar `release/1.0.0` → `main` y publicar el tag:
+
+- Tag: `v1.0.0`
+- Notas: [`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- Checklist: [`docs/releases/release-checklist.md`](docs/releases/release-checklist.md)
+
 ## Estado del proyecto
 
-El repositorio constituye un **MVP técnico completo**: vertical de telemetría (ingesta → Kafka → Worker → TimescaleDB → dashboard/SSE/mobile/agente) ejecutable en local y con entorno AWS **dev** documentado. Las limitaciones productivas (HA, TLS, exactly-once, tiendas, collector OTEL, Druid real) están declaradas de forma explícita; no se presentan como capacidades desplegadas.
+El repositorio constituye un **MVP técnico completo** (versión **1.0.0**): vertical de telemetría (ingesta → Kafka → Worker → TimescaleDB → dashboard/SSE/mobile/agente) ejecutable en local y con entorno AWS **dev** documentado. Las limitaciones productivas (HA, TLS, exactly-once, tiendas, collector OTEL, Druid real) están declaradas de forma explícita; no se presentan como capacidades desplegadas.
 
 ---
 

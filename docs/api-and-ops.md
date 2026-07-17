@@ -31,7 +31,9 @@ OpenAPI (Development): `http://localhost:5000/openapi/v1.json`
 
 ## Observabilidad (MVP)
 
-Sin Prometheus/Grafana/OpenTelemetry en esta fase.
+OpenTelemetry **opt-in** vía OTLP (trazas, métricas, logs). El monorepo Compose
+**no** incluye collector, Grafana, Tempo ni Prometheus; esos componentes se
+configuran fuera del MVP local.
 
 ### `GET /health/live`
 
@@ -130,7 +132,7 @@ curl "http://localhost:5000/api/telemetry/11111111-1111-1111-1111-111111111111?f
 - `excludeSimulated`: excluye vehículos cuyo **estado más reciente** es `simulated` (no retrocede a GPS antiguo).
 - El cursor es opaco (Base64URL + JSON validado). Reutilizarlo con filtros distintos → `400`.
 
-- `GET /api/telemetry/{vehicleId}` devuelve `CursorPage<TelemetryEventResponse>`.
+- `GET /api/telemetry/{deviceId}` devuelve `CursorPage<TelemetryEventResponse>`.
 - Orden: `Timestamp DESC`, `EventId DESC` (keyset, sin OFFSET).
 - En la primera página sin `to`, el servidor fija un límite superior estable incluido en el cursor.
 - Rango máximo configurable (`QueryLimits:HistoryMaxRangeDays`, default 7 días).
