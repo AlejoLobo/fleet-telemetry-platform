@@ -1,7 +1,7 @@
 /** Panel de chat con el agente IA operativo. */
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Bot, Send, Sparkles, User } from "lucide-react";
 import { useAiChat } from "@/hooks/use-ai-chat";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,15 @@ const SUGGESTED_QUESTIONS = [
 export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: boolean }) {
   const { messages, loading, error, sendMessage } = useAiChat(useDemoResponses);
   const [question, setQuestion] = useState("");
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll interno al último mensaje; no mueve la página ni agranda la card.
+  useEffect(() => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+  }, [messages, loading, error]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -30,14 +39,13 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
   };
 
   const askSuggestion = (q: string) => {
-    setQuestion(q);
-    void sendMessage(q);
     setQuestion("");
+    void sendMessage(q);
   };
 
   return (
-    <Card className="flex h-full min-h-[480px] flex-col">
-      <CardHeader className="border-b border-border bg-gradient-to-r from-violet-50 via-white to-sky-50">
+    <Card className="flex h-[32rem] max-h-[32rem] flex-col overflow-hidden">
+      <CardHeader className="shrink-0 border-b border-border bg-gradient-to-r from-violet-50 via-white to-sky-50">
         <CardTitle className="flex items-center gap-2 text-lg">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-primary text-white shadow-soft">
             <Sparkles className="h-4 w-4" />
@@ -48,10 +56,13 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
           Consultas en lenguaje natural sobre tu flota · respuestas en español
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-4 p-5">
-        <div className="custom-scrollbar min-h-[280px] flex-1 space-y-4 overflow-y-auto rounded-xl border border-border bg-slate-50 p-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5">
+        <div
+          ref={messagesViewportRef}
+          className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-border bg-slate-50 p-4"
+        >
           {messages.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center py-8 text-center">
+            <div className="flex h-full min-h-[12rem] flex-col items-center justify-center py-6 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-100 to-sky-100">
                 <Bot className="h-8 w-8 text-violet-500" />
               </div>
@@ -134,15 +145,16 @@ export function AiChatPanel({ useDemoResponses = false }: { useDemoResponses?: b
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} className="h-px w-full shrink-0" aria-hidden />
         </div>
 
         {error && (
-          <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+          <p className="shrink-0 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </p>
         )}
 
-        <form onSubmit={onSubmit} className="flex gap-2">
+        <form onSubmit={onSubmit} className="flex shrink-0 gap-2">
           <Input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
