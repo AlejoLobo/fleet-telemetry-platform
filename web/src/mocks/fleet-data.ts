@@ -293,14 +293,114 @@ export function getMockTelemetry(deviceId: string): TelemetryEvent[] {
   return getMockDataset().telemetryByDevice[deviceId] ?? [];
 }
 
-/** Respuesta simulada del agente IA para modo demo. */
-export function generateMockAiResponse(): AiQueryResponse {
-  const { vehicles, alerts } = getMockDataset();
-  const online = vehicles.filter((v) => v.status === "online").length;
-  const critical = alerts.filter((a) => a.severity === "critical").length;
+const DEFAULT_DEMO_SPEED_KMH = 80;
 
+/** Interpreta la pregunta demo con las mismas intenciones operativas del backend. */
+function parseDemoAiIntent(question: string): {
+  kind: "overview" | "critical" | "stopped" | "speed" | "unsupported";
+  speedKmh: number;
+} {
+  const lower = question.trim().toLowerCase();
+  const kmhMatch = lower.match(/(\d+(?:[.,]\d+)?)\s*km\s*\/?\s*h/);
+  const speedKmh = kmhMatch
+    ? Number.parseFloat(kmhMatch[1].replace(",", ".")) || DEFAULT_DEMO_SPEED_KMH
+    : DEFAULT_DEMO_SPEED_KMH;
+  const mentionsStopped = /deten|parad|stopped|quieto|inmovil|inmóvil|sin mover/.test(lower);
+  const mentionsCritical = /crític|critic|grave/.test(lower);
+  const mentionsAlerts = /alerta|alert/.test(lower);
+  const mentionsSpeed =
+    /veloc|rápid|rapido|speed|exceso|por encima/.test(lower) || kmhMatch != null;
+  const mentionsOverview = /resumen|overview|flota|cuántos|cuantos/.test(lower);
+
+  if (mentionsStopped) return { kind: "stopped", speedKmh };
+  if ((mentionsAlerts && mentionsCritical) || mentionsCritical) return { kind: "critical", speedKmh };
+  if (mentionsSpeed) return { kind: "speed", speedKmh };
+  if (mentionsAlerts) return { kind: "critical", speedKmh };
+  if (mentionsOverview) return { kind: "overview", speedKmh };
+  return { kind: "unsupported", speedKmh };
+}
+
+function formatDemoVehicleLine(vehicle: VehicleStatus): string {
+  const speed =
+    vehicle.lastSpeedKmh == null ? "n/d" : `${vehicle.lastSpeedKmh.toFixed(1)} km/h`;
+  return `- ${vehicle.vehicleName} (${vehicle.status}, ${speed})`;
+}
+
+/** Respuesta simulada del agente IA para modo demo (varía según la pregunta). */
+export function generateMockAiResponse(question: string): AiQueryResponse {
+  const { vehicles, alerts } = getMockDataset();
+  const intent = parseDemoAiIntent(question);
+
+  if (intent.kind === "critical") {
+    const critical = alerts.filter((a) => /critical|crític/i.test(a.severity));
+    if (critical.length === 0) {
+      return {
+        answer: "No hay alertas críticas abiertas en la flota de demostración.",
+        sources: ["GetVehiclesWithCriticalAlerts"],
+      };
+    }
+
+    const lines = critical.slice(0, 8).map((a) => {
+      const name =
+        vehicles.find((v) => v.deviceId === a.deviceId)?.vehicleName ?? a.deviceId;
+      return `- ${name}: ${a.message}`;
+    });
+    return {
+      answer: `Alertas críticas (${critical.length}):\n${lines.join("\n")}`,
+      sources: ["GetVehiclesWithCriticalAlerts"],
+    };
+  }
+
+  if (intent.kind === "stopped") {
+    const stopped = vehicles.filter(
+      (v) => (v.lastSpeedKmh ?? 0) <= 1 || v.status === "offline",
+    );
+    if (stopped.length === 0) {
+      return {
+        answer: "No hay vehículos detenidos en la flota de demostración.",
+        sources: ["GetStoppedVehicles"],
+      };
+    }
+
+    return {
+      answer: `Vehículos detenidos o sin movimiento (${stopped.length}):\n${stopped
+        .slice(0, 10)
+        .map(formatDemoVehicleLine)
+        .join("\n")}`,
+      sources: ["GetStoppedVehicles"],
+    };
+  }
+
+  if (intent.kind === "speed") {
+    const above = vehicles.filter((v) => (v.lastSpeedKmh ?? 0) > intent.speedKmh);
+    if (above.length === 0) {
+      return {
+        answer: `Ningún vehículo supera ${intent.speedKmh.toFixed(0)} km/h en la flota de demostración.`,
+        sources: ["GetVehiclesAboveSpeed"],
+      };
+    }
+
+    return {
+      answer: `Vehículos por encima de ${intent.speedKmh.toFixed(0)} km/h (${above.length}):\n${above
+        .slice(0, 10)
+        .map(formatDemoVehicleLine)
+        .join("\n")}`,
+      sources: ["GetVehiclesAboveSpeed"],
+    };
+  }
+
+  if (intent.kind === "unsupported") {
+    return {
+      answer:
+        "Solo respondo consultas operativas de flota: resumen, alertas críticas, detenidos o velocidad.",
+      sources: [],
+    };
+  }
+
+  const online = vehicles.filter((v) => v.status === "online").length;
+  const criticalCount = alerts.filter((a) => /critical|crític/i.test(a.severity)).length;
   return {
-    answer: `Hay ${critical} alerta(s) crítica(s) y ${alerts.length} alerta(s) abiertas. ${online} vehículos en línea de ${vehicles.length} en la flota.`,
+    answer: `Hay ${criticalCount} alerta(s) crítica(s) y ${alerts.length} alerta(s) abiertas. ${online} vehículos en línea de ${vehicles.length} en la flota.`,
     sources: ["GetFleetOverview", "GetVehiclesWithCriticalAlerts"],
   };
 }

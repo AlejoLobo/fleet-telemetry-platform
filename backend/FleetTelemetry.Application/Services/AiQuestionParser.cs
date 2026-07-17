@@ -99,7 +99,7 @@ public static class AiQuestionParser
             "deten", "parad", "stopped", "quieto", "inmovil", "inmóvil", "sin mover");
         var mentionsAlerts = ContainsAny(lower, "alerta", "alert");
         var mentionsCriticalSeverity = ContainsAny(lower, "crític", "critico", "critical", "grave");
-        var mentionsSpeed = ContainsAny(lower, "veloc", "rápid", "rapido", "speed", "exceso");
+        var mentionsSpeed = ContainsAny(lower, "veloc", "rápid", "rapido", "speed", "exceso", "por encima");
         var mentionsAnalytics = ContainsAny(lower, "promedio", "analít", "analit", "analytics", "resumen anal");
         var mentionsStatus = ContainsAny(lower, "estado", "status", "vehículo", "vehiculo", "dispositivo", "device");
         var mentionsOverview = ContainsAny(lower, "resumen", "overview", "flota", "cuántos", "cuantos");
@@ -120,7 +120,8 @@ public static class AiQuestionParser
         if (mentionsCriticalSeverity && !mentionsStopped)
             return AiQuestionIntent.CriticalAlerts();
 
-        if (mentionsSpeed)
+        // "por encima" + km/h (sugerencia del chat) o keywords de velocidad.
+        if (mentionsSpeed || (speed.HasValue && SpeedRegex.IsMatch(text)))
             return AiQuestionIntent.SpeedAbove(speed ?? DefaultSpeedKmh);
 
         if (mentionsAnalytics)
