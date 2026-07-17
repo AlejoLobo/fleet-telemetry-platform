@@ -33,7 +33,7 @@ flowchart LR
 5. Persistencia transaccional: evento + alertas + marca de idempotencia por `EventId` (`processed_events`).
 6. Duplicados se detectan y se confirman sin reprocesar.
 7. TimescaleDB alimenta flota/alertas; el dashboard las muestra vía REST + SSE.
-8. Errores de procesamiento no transitorios → DLQ `processing_failure`; offset solo se confirma si el camino (éxito o DLQ) es seguro.
+8. Fallos de contrato/datos agotados → DLQ (`invalid_payload` / `processing_failure`) y commit seguro del offset. Errores **inesperados** → **sin** DLQ, **sin** commit y detención del Worker (reproceso del mismo offset al reiniciar).
 
 ## 4. Resiliencia y calidad
 
