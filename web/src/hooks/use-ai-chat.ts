@@ -29,7 +29,7 @@ export function useAiChat(useDemoResponses = false) {
 
     try {
       const response: AiQueryResponse = useDemoResponses
-        ? generateMockAiResponse()
+        ? generateMockAiResponse(question.trim())
         : await apiClient.queryAi(question.trim());
 
       setMessages((prev) => [

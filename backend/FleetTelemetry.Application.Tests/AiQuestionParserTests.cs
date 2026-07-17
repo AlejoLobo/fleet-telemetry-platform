@@ -13,6 +13,7 @@ public class AiQuestionParserTests
     [InlineData("vehículos detenidos", AiQueryIntent.StoppedVehicles, null, false)]
     [InlineData("alertas críticas abiertas", AiQueryIntent.CriticalAlerts, null, false)]
     [InlineData("exceso de velocidad 95 km/h", AiQueryIntent.SpeedAbove, null, false)]
+    [InlineData("Vehículos por encima de 80 km/h", AiQueryIntent.SpeedAbove, null, false)]
     [InlineData("estado de 33333333-3333-3333-3333-333333333333", AiQueryIntent.VehicleStatus, null, false)]
     public void Parse_detects_intent(
         string question,
@@ -25,6 +26,15 @@ public class AiQuestionParserTests
         Assert.Equal(expectedIntent, intent.Intent);
         Assert.Equal(expectedMinutes, intent.StoppedMinutes);
         Assert.Equal(expectedCritical, intent.CriticalZonesOnly);
+    }
+
+    [Fact]
+    public void Parse_speed_suggestion_reads_threshold_from_kmh()
+    {
+        var intent = AiQuestionParser.Parse("Vehículos por encima de 80 km/h");
+
+        Assert.Equal(AiQueryIntent.SpeedAbove, intent.Intent);
+        Assert.Equal(80, intent.SpeedThresholdKmh);
     }
 
     [Fact]
