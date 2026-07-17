@@ -46,9 +46,9 @@ Documentación operativa: [`terraform/dev/README.md`](terraform/dev/README.md).
 - Credenciales AWS (VPC, EC2, ELB, IAM, Secrets Manager)
 - `ami_id` de Amazon Linux 2023 en la región
 - `app_git_ref` = SHA Git completo de 40 caracteres hexadecimales (obligatorio).
-  Debe apuntar a un commit que **ya contenga FT-009** (normalmente el merge commit
-  de FT-009 en `develop`). El valor de ejemplo en `terraform.tfvars.example` es
-  inválido a propósito y debe reemplazarse antes de `terraform plan`; Terraform
+  Debe apuntar al commit que se desea desplegar (p. ej. el SHA de `main` o del
+  tag `v1.0.0` tras el release). El valor de ejemplo en `terraform.tfvars.example`
+  es inválido a propósito y debe reemplazarse antes de `terraform plan`; Terraform
   lo rechaza hasta que cumpla `^[0-9a-f]{40}$`.
 
 ### Despliegue
@@ -57,7 +57,7 @@ Documentación operativa: [`terraform/dev/README.md`](terraform/dev/README.md).
 cd infra/terraform/dev
 cp terraform.tfvars.example terraform.tfvars
 # ami_id, instance_type, allowed_cidr_blocks, app_git_repository, app_git_ref
-# (reemplazar PEGAR_SHA_MERGE_FT009_DE_40_CARACTERES por el SHA real de FT-009)
+# (reemplazar el placeholder por un SHA real de 40 caracteres hex)
 terraform init
 terraform plan
 terraform apply
@@ -71,11 +71,12 @@ aws ec2 describe-images --owners amazon \
   --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text
 ```
 
-Fijar el SHA a desplegar (tras fusionar FT-009 en `develop`):
+Fijar el SHA a desplegar (p. ej. `main` estable o tag `v1.0.0`):
 
 ```bash
-git fetch origin develop
-git rev-parse origin/develop
+git fetch --tags origin
+git rev-parse origin/main
+# o: git rev-parse v1.0.0
 ```
 
 ### Acceso SSM y validación

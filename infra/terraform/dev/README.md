@@ -34,7 +34,7 @@ Un Application Load Balancer expone Web (tráfico por defecto) y API (`/api/*`, 
 | `instance_type` | Tipo EC2 (p. ej. `t3.large`) |
 | `allowed_cidr_blocks` | CIDRs con acceso HTTP al ALB |
 | `app_git_repository` | URL HTTPS del repositorio |
-| `app_git_ref` | SHA Git completo de **40** caracteres hexadecimales; debe apuntar a un commit que **ya contenga FT-009** |
+| `app_git_ref` | SHA Git completo de **40** caracteres hexadecimales del commit a desplegar (p. ej. `main` / `v1.0.0`) |
 
 Credenciales PostgreSQL/TimescaleDB: las genera Terraform (`random_password`),
 las guarda en Secrets Manager y la instancia las lee al arrancar con su IAM role.
@@ -51,10 +51,8 @@ aws ec2 describe-images --owners amazon \
 ## `app_git_ref` (SHA completo)
 
 `app_git_ref` es obligatorio y debe ser un SHA hexadecimal de exactamente 40 caracteres
-(`^[0-9a-f]{40}$`). Debe apuntar a un commit que **ya contenga FT-009**.
-
-En la práctica habitual, usar el **merge commit de FT-009 en `develop`** (el SHA que
-queda en `develop` tras fusionar este cambio), no un SHA anterior a FT-009.
+(`^[0-9a-f]{40}$`). Debe apuntar al commit que se desea desplegar (p. ej. el tip
+de `main` o el objeto del tag `v1.0.0` tras el release).
 
 El valor en `terraform.tfvars.example` (`PEGAR_SHA_MERGE_FT009_DE_40_CARACTERES`)
 es deliberadamente inválido: hay que reemplazarlo en `terraform.tfvars` antes de
@@ -62,9 +60,9 @@ es deliberadamente inválido: hay que reemplazarlo en `terraform.tfvars` antes d
 de 40 caracteres hexadecimales en minúsculas.
 
 ```bash
-# Tras fusionar FT-009 en develop:
-git fetch origin develop
-git rev-parse origin/develop
+git fetch --tags origin
+git rev-parse origin/main
+# o: git rev-parse v1.0.0
 ```
 
 No usar `latest` ni nombres de rama flotantes.
@@ -75,7 +73,7 @@ No usar `latest` ni nombres de rama flotantes.
 cd infra/terraform/dev
 cp terraform.tfvars.example terraform.tfvars
 # editar ami_id, instance_type, allowed_cidr_blocks, app_git_repository, app_git_ref
-# (reemplazar PEGAR_SHA_MERGE_FT009_DE_40_CARACTERES por el SHA real de FT-009)
+# (reemplazar PEGAR_SHA_MERGE_FT009_DE_40_CARACTERES por un SHA real de 40 hex)
 
 terraform init
 terraform plan

@@ -91,7 +91,14 @@ FT-004 (read model + paginación): `FleetVehicleStateIntegrationTests`, `FleetPa
 ## Smoke / k6
 
 ```bash
-./scripts/smoke-test.ps1
+# Smoke E2E (elige la variante del SO)
+./scripts/smoke-test.sh
+# ./scripts/smoke-test.ps1
+
+# k6 reducido (CI / release)
+k6 run load-tests/telemetry-smoke.js
+
+# k6 de carga documentada
 k6 run load-tests/telemetry-ingest.js
 ```
 
