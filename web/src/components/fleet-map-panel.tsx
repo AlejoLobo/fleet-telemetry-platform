@@ -25,7 +25,7 @@ const LeafletFleetMap = dynamic(
 
 type FleetMapPanelProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string;
+  selectedDeviceId?: string | null;
   focusTarget?: MapFocusTarget | null;
   autoFit?: boolean;
 };
@@ -33,7 +33,7 @@ type FleetMapPanelProps = {
 /** Tarjeta del mapa en tiempo real con badges de estado. */
 export function FleetMapPanel({
   vehicles,
-  selectedVehicleId,
+  selectedDeviceId,
   focusTarget,
   autoFit = true,
 }: FleetMapPanelProps) {
@@ -77,7 +77,7 @@ export function FleetMapPanel({
           {withCoords.length > 0 ? (
             <LeafletFleetMap
               vehicles={vehicles}
-              selectedVehicleId={selectedVehicleId}
+              selectedDeviceId={selectedDeviceId}
               focusTarget={focusTarget}
               autoFit={autoFit}
             />

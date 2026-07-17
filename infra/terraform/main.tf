@@ -1,7 +1,7 @@
-# Blueprint ejecutivo AWS — no es un despliegue productivo completo.
-# Incluye red, RDS PostgreSQL 16 (sin extensión TimescaleDB), ECS cluster, ECR y task definitions de ejemplo.
-# Para series de tiempo en producción usar Timescale Cloud o PostgreSQL self-hosted con TimescaleDB.
-# Faltan MSK, ALB/services, secrets productivos y deploy del dashboard. Ver infra/README.md.
+# Blueprint conceptual AWS — no es un despliegue productivo completo.
+# Incluye red, RDS PostgreSQL 16 (sin extensión TimescaleDB), ECS cluster y ECR.
+# El entorno ejecutable de desarrollo está en infra/terraform/dev/ (EC2 + Docker Compose + ALB).
+# Ver infra/README.md.
 
 terraform {
   required_version = ">= 1.6.0"
@@ -66,7 +66,7 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_security_group" "api" {
   name        = "${var.project_name}-api-sg"
-  description = "API y ALB"
+  description = "API y ALB (blueprint)"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -86,7 +86,7 @@ resource "aws_security_group" "api" {
 
 resource "aws_security_group" "data" {
   name        = "${var.project_name}-data-sg"
-  description = "RDS PostgreSQL"
+  description = "RDS PostgreSQL (blueprint)"
   vpc_id      = aws_vpc.main.id
 
   ingress {

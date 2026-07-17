@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Exceptions;
 
-// Manejador global que unifica errores no controlados en ProblemDetails.
 public sealed class GlobalExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<GlobalExceptionHandler> _logger;
@@ -52,6 +51,22 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
                 StatusCodes.Status400BadRequest,
                 "Solicitud inválida",
                 argumentException.Message),
+            InvalidDeviceIdException invalidDeviceIdException => (
+                StatusCodes.Status400BadRequest,
+                "DeviceId inválido",
+                invalidDeviceIdException.Message),
+            InvalidVehicleNameException invalidVehicleNameException => (
+                StatusCodes.Status400BadRequest,
+                "VehicleName inválido",
+                invalidVehicleNameException.Message),
+            DeviceNotFoundException deviceNotFoundException => (
+                StatusCodes.Status404NotFound,
+                "Dispositivo no encontrado",
+                deviceNotFoundException.Message),
+            VehicleNameConflictException vehicleNameConflictException => (
+                StatusCodes.Status409Conflict,
+                "Nombre de vehículo en conflicto",
+                vehicleNameConflictException.Message),
             DependencyCircuitOpenException circuitException => (
                 StatusCodes.Status503ServiceUnavailable,
                 "Dependencia no disponible",

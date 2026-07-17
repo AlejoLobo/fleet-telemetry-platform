@@ -3,14 +3,10 @@ using FleetTelemetry.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-// Consultas analíticas sobre TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
 /// <summary>
-/// Implementación local de analítica sobre TimescaleDB.
-/// En producción se reemplazaría por Apache Druid vía IAnalyticsQueryService.
 /// </summary>
-// Calcula métricas agregadas desde telemetría almacenada.
 public class TimescaleAnalyticsQueryService : IAnalyticsQueryService
 {
     private readonly FleetDbContext _dbContext;
@@ -23,20 +19,20 @@ public class TimescaleAnalyticsQueryService : IAnalyticsQueryService
     }
 
     public async Task<double> GetAverageSpeedAsync(
-        string vehicleId,
+        Guid deviceId,
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken = default)
     {
         var speeds = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == vehicleId && e.Timestamp >= from && e.Timestamp <= to)
+            .Where(e => e.DeviceId == deviceId && e.Timestamp >= from && e.Timestamp <= to)
             .Select(e => e.SpeedKmh)
             .ToListAsync(cancellationToken);
 
         if (speeds.Count == 0)
         {
-            _logger.LogDebug("Sin telemetría para {VehicleId} en el rango solicitado", vehicleId);
+            _logger.LogDebug("Sin telemetría para {DeviceId} en el rango solicitado", deviceId);
             return 0;
         }
 

@@ -4,6 +4,7 @@ using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,21 +12,23 @@ using Polly.CircuitBreaker;
 
 namespace FleetTelemetry.Infrastructure.Kafka;
 
-// Publicador de eventos de telemetría en Kafka con batching configurable.
 public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposable
 {
     private readonly IProducer<string, string> _producer;
     private readonly KafkaOptions _options;
     private readonly ILogger<KafkaTelemetryEventPublisher> _logger;
     private readonly ResiliencePipelineFactory _resilience;
+    private readonly FleetTelemetryMetrics _metrics;
 
     public KafkaTelemetryEventPublisher(
         IOptions<KafkaOptions> options,
         ResiliencePipelineFactory resilience,
+        FleetTelemetryMetrics metrics,
         ILogger<KafkaTelemetryEventPublisher> logger)
     {
         _options = options.Value;
         _resilience = resilience;
+        _metrics = metrics;
         _logger = logger;
 
         var config = new ProducerConfig
@@ -66,7 +69,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
         var json = TelemetryEventJsonSerializer.Serialize(telemetryEvent, _options.UseEventEnvelope);
         var message = new Message<string, string>
         {
-            Key = telemetryEvent.VehicleId,
+            Key = telemetryEvent.DeviceId.ToString("D"),
             Value = json,
             Headers = BuildHeaders(telemetryEvent)
         };
@@ -78,14 +81,17 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
                 cancellationToken);
 
             _logger.LogInformation(
-                "Published telemetry event {EventId} for vehicle {VehicleId} to {Topic} partition {Partition}",
+                "Published telemetry event {EventId} for device {DeviceId} to {Topic} partition {Partition}",
                 telemetryEvent.EventId,
-                telemetryEvent.VehicleId,
+                telemetryEvent.DeviceId,
                 result.Topic,
                 result.Partition.Value);
+
+            _metrics.TelemetryIngestedTotal.Add(1);
         }
         catch (BrokenCircuitException ex)
         {
+            _metrics.KafkaPublishFailuresTotal.Add(1);
             _logger.LogError(ex, "Kafka publish bloqueado: circuit breaker abierto");
             throw new DependencyCircuitOpenException(
                 ResilienceDependency.Kafka.ToString(),
@@ -97,7 +103,7 @@ public class KafkaTelemetryEventPublisher : ITelemetryEventPublisher, IDisposabl
     {
         var headers = new Headers
         {
-            { "schema-version", BitConverter.GetBytes(TelemetryEventEnvelope.CurrentSchemaVersion) },
+            { "schema-version", BitConverter.GetBytes(TelemetryEventEnvelopeV1.SupportedSchemaVersion) },
             { "event-id", telemetryEvent.EventId.ToByteArray() },
             { "correlation-id", telemetryEvent.EventId.ToByteArray() }
         };

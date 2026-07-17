@@ -1,9 +1,8 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-// Enrutador determinista de intenciones a herramientas operativas.
 namespace FleetTelemetry.Application.Services;
 
-// Resultado del enrutamiento a una herramienta.
 public sealed record AiToolRoutingResult(
     bool Success,
     string? ToolName,
@@ -26,7 +25,6 @@ public class AiToolRouter
         _logger = logger;
     }
 
-    // Enruta la intención parseada a la herramienta correspondiente.
     public async Task<AiToolRoutingResult> RouteAsync(
         AiQuestionIntent intent,
         CancellationToken cancellationToken = default)
@@ -41,6 +39,23 @@ public class AiToolRouter
         }
 
         var toolName = MapIntentToTool(intent.Intent);
+        return await ExecuteByNameAsync(toolName, intent, cancellationToken);
+    }
+
+    // Ejecuta herramienta del catálogo por nombre con intent ya mapeado.
+    public async Task<AiToolRoutingResult> ExecuteByNameAsync(
+        string toolName,
+        AiQuestionIntent intent,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(toolName) || !AiToolCatalog.IsSupported(toolName))
+        {
+            return Reject(
+                toolName,
+                "unsupported_tool",
+                "La herramienta solicitada no está disponible en el catálogo operativo.");
+        }
+
         if (!AiToolCatalog.TryGet(toolName, out var definition))
         {
             return Reject(
@@ -86,6 +101,18 @@ public class AiToolRouter
         }
     }
 
+    public Task<AiToolRoutingResult> ExecuteToolCallAsync(
+        string toolName,
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        CancellationToken cancellationToken = default)
+    {
+        var intent = AiToolIntentMapper.FromToolCall(toolName, arguments);
+        if (intent.Intent == AiQueryIntent.UnsupportedQuery)
+            return Task.FromResult(Reject(toolName, "unsupported_tool", "Herramienta no soportada en el catálogo operativo."));
+
+        return ExecuteByNameAsync(toolName, intent, cancellationToken);
+    }
+
     private static string MapIntentToTool(AiQueryIntent intent) =>
         intent switch
         {
@@ -105,7 +132,9 @@ public class AiToolRouter
         foreach (var parameter in definition.Parameters.Where(p => p.Required))
         {
             var value = GetParameterValue(intent, parameter.Name);
-            if (value is null || (value is string s && string.IsNullOrWhiteSpace(s)))
+            if (value is null
+                || (value is string s && string.IsNullOrWhiteSpace(s))
+                || (value is Guid g && g == Guid.Empty))
                 return $"Falta el parámetro obligatorio '{parameter.Name}' para {definition.Name}.";
         }
 
@@ -127,8 +156,9 @@ public class AiToolRouter
                 return $"Los minutos de detención deben estar entre {minutesParam.Minimum} y {minutesParam.Maximum}.";
         }
 
-        if (intent.Intent == AiQueryIntent.VehicleStatus && intent.VehicleId is null)
-            return "Se requiere un identificador de vehículo (ej. VH-001).";
+        if (intent.Intent == AiQueryIntent.VehicleStatus
+            && (intent.DeviceId is null || intent.DeviceId == Guid.Empty))
+            return "Se requiere un identificador de dispositivo (GUID).";
 
         return null;
     }
@@ -136,7 +166,7 @@ public class AiToolRouter
     private static object? GetParameterValue(AiQuestionIntent intent, string parameterName) =>
         parameterName switch
         {
-            "vehicleId" => intent.VehicleId,
+            "deviceId" => intent.DeviceId,
             "minutes" => intent.StoppedMinutes,
             "thresholdKmh" => intent.SpeedThresholdKmh,
             "criticalZonesOnly" => intent.CriticalZonesOnly,
@@ -164,13 +194,13 @@ public class AiToolRouter
                 _tools.GetVehiclesWithCriticalAlertsAsync(cancellationToken),
 
             AiToolCatalog.GetLatestVehicleStatus =>
-                _tools.GetLatestVehicleStatusAsync(intent.VehicleId!, cancellationToken),
+                _tools.GetLatestVehicleStatusAsync(intent.DeviceId!.Value, cancellationToken),
 
             AiToolCatalog.GetVehiclesAboveSpeed =>
                 _tools.GetVehiclesAboveSpeedAsync(intent.SpeedThresholdKmh ?? DefaultSpeedKmh, cancellationToken),
 
             AiToolCatalog.GetAnalyticsSummary =>
-                _tools.GetAnalyticsSummaryAsync(intent.VehicleId, cancellationToken),
+                _tools.GetAnalyticsSummaryAsync(intent.DeviceId, cancellationToken),
 
             AiToolCatalog.GetFleetOverview =>
                 _tools.GetFleetOverviewAsync(cancellationToken),
@@ -179,7 +209,6 @@ public class AiToolRouter
                 ("Herramienta no soportada.", ["unsupported_tool"]))
         };
 
-    // Trunca listas largas conservando el encabezado y un aviso de recorte.
     public static string ReduceResultLines(string answer, int maxLines)
     {
         if (maxLines <= 0)

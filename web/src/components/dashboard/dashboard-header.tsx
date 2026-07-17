@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/connection-status";
 import { AlertsModalTrigger } from "@/components/alerts/alerts-modal";
 import { cn } from "@/lib/utils";
+import {
+  MONITOR_REFRESH_RATE_OPTIONS,
+  type MonitorRefreshRate,
+  parseMonitorRefreshRate,
+} from "@/lib/monitor-refresh-rate";
 import type { SseConnectionState } from "@/types/fleet";
 
 type DashboardHeaderProps = {
@@ -13,6 +18,9 @@ type DashboardHeaderProps = {
   alertCount: number;
   criticalAlertCount: number;
   alertsAttention?: boolean;
+  refreshRate: MonitorRefreshRate;
+  refreshRateReady?: boolean;
+  onRefreshRateChange: (rate: MonitorRefreshRate) => void;
   onOpenAlerts: () => void;
   onLoadApi: () => void;
   onLoadDemo: () => void;
@@ -27,6 +35,9 @@ export function DashboardHeader({
   alertCount,
   criticalAlertCount,
   alertsAttention = false,
+  refreshRate,
+  refreshRateReady = true,
+  onRefreshRateChange,
   onOpenAlerts,
   onLoadApi,
   onLoadDemo,
@@ -83,6 +94,28 @@ export function DashboardHeader({
             <Dices className="h-4 w-4" />
             Demo
           </Button>
+          <label
+            htmlFor="monitor-refresh-rate"
+            className="flex items-center gap-1.5 text-xs text-slate-600"
+          >
+            <span className="whitespace-nowrap font-medium">Actualización</span>
+            <select
+              id="monitor-refresh-rate"
+              title="Los datos se reciben continuamente; esta opción controla cuándo se actualiza la pantalla."
+              className="h-8 max-w-[11rem] rounded-md border border-input bg-background px-2 text-xs text-slate-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={String(refreshRate)}
+              disabled={!refreshRateReady}
+              onChange={(event) => {
+                onRefreshRateChange(parseMonitorRefreshRate(event.target.value));
+              }}
+            >
+              {MONITOR_REFRESH_RATE_OPTIONS.map((option) => (
+                <option key={String(option.value)} value={String(option.value)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             Actualizar

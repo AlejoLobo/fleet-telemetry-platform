@@ -3,7 +3,6 @@ using System.Text.Json;
 // Catálogo explícito de herramientas operativas del agente IA.
 namespace FleetTelemetry.Application.Services;
 
-// Esquema JSON de un parámetro de herramienta.
 public sealed record AiToolParameterSchema(
     string Name,
     string Type,
@@ -13,7 +12,6 @@ public sealed record AiToolParameterSchema(
     double? Minimum = null,
     double? Maximum = null);
 
-// Definición de herramienta con metadatos y límites operativos.
 public sealed record AiToolDefinition(
     string Name,
     string Description,
@@ -64,7 +62,7 @@ public static class AiToolCatalog
                 GetLatestVehicleStatus,
                 "Estado reciente de un vehículo específico.",
                 [
-                    new("vehicleId", "string", "Identificador del vehículo (ej. VH-001).", Required: true)
+                    new("deviceId", "string", "Identificador del dispositivo (GUID).", Required: true)
                 ],
                 MaxResultLines: 10,
                 Timeout: TimeSpan.FromSeconds(10)),
@@ -82,7 +80,7 @@ public static class AiToolCatalog
                 GetAnalyticsSummary,
                 "Resumen analítico de las últimas 24 horas para un vehículo.",
                 [
-                    new("vehicleId", "string", "Identificador del vehículo; si se omite se usa el primero disponible.")
+                    new("deviceId", "string", "Identificador del dispositivo (GUID); si se omite se usa el primero disponible.")
                 ],
                 MaxResultLines: 10,
                 Timeout: TimeSpan.FromSeconds(15)),
@@ -129,4 +127,30 @@ public static class AiToolCatalog
 
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
+
+    public static IReadOnlyList<object> ToOpenAiToolDefinitions() =>
+        All.Select(tool => new
+        {
+            type = "function",
+            function = new
+            {
+                name = tool.Name,
+                description = tool.Description,
+                parameters = new
+                {
+                    type = "object",
+                    properties = tool.Parameters.ToDictionary(
+                        p => p.Name,
+                        p => (object)new Dictionary<string, object?>
+                        {
+                            ["type"] = p.Type,
+                            ["description"] = p.Description,
+                            ["minimum"] = p.Minimum,
+                            ["maximum"] = p.Maximum
+                        }.Where(kv => kv.Value is not null)
+                         .ToDictionary(kv => kv.Key, kv => kv.Value!)),
+                    required = tool.Parameters.Where(p => p.Required).Select(p => p.Name).ToArray()
+                }
+            }
+        }).ToList();
 }

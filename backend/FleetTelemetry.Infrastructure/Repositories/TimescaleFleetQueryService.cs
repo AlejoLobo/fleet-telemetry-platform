@@ -1,96 +1,200 @@
 using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
+using FleetTelemetry.Application.Services;
+using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Geo;
 using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
-// Consultas de último estado de vehículos.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Obtiene telemetría reciente y calcula estado online/offline.
 public class TimescaleFleetQueryService : IFleetQueryService
 {
-    /// <summary>Ventana para considerar un vehículo "en línea" en el dashboard.</summary>
-    private static readonly TimeSpan OnlineThreshold = TimeSpan.FromMinutes(5);
-
     private readonly FleetDbContext _dbContext;
+    private readonly TimeProvider _timeProvider;
+    private readonly QueryLimitsOptions _queryLimits;
     private readonly ILogger<TimescaleFleetQueryService> _logger;
 
-    public TimescaleFleetQueryService(FleetDbContext dbContext, ILogger<TimescaleFleetQueryService> logger)
+    public TimescaleFleetQueryService(
+        FleetDbContext dbContext,
+        TimeProvider timeProvider,
+        IOptions<QueryLimitsOptions> queryLimits,
+        ILogger<TimescaleFleetQueryService> logger)
     {
         _dbContext = dbContext;
+        _timeProvider = timeProvider;
+        _queryLimits = queryLimits.Value;
         _logger = logger;
     }
 
-    // Obtiene último evento por vehículo con DISTINCT ON.
-    public async Task<IReadOnlyList<VehicleLatestStatusResponse>> GetLatestVehicleStatusesAsync(
+    public async Task<CursorPage<VehicleLatestStatusResponse>> GetFleetPageAsync(
+        int pageSize,
+        string? cursor,
         bool liveOnly = false,
         bool excludeSimulated = false,
         CancellationToken cancellationToken = default)
     {
-        var latestRecords = await _dbContext.TelemetryEvents
-            .FromSqlRaw(
-                """
-                SELECT DISTINCT ON ("VehicleId")
-                    "EventId", "VehicleId", "DriverId", "Timestamp", "Latitude", "Longitude",
-                    "SpeedKmh", "FuelLevelPercent", "BatteryPercent", "CapturedAt", "LocationSource"
-                FROM telemetry_events
-                ORDER BY "VehicleId", "Timestamp" DESC
-                """)
-            .AsNoTracking()
+        ValidatePageSize(pageSize, _queryLimits.FleetMaxPageSize);
+
+        FleetCursorPayload? cursorPayload = null;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            cursorPayload = CursorCodec.Decode<FleetCursorPayload>(cursor);
+            CursorValidators.ValidateFleetCursor(cursorPayload, liveOnly, excludeSimulated);
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        var onlineThreshold = now.AddMinutes(-_queryLimits.OnlineThresholdMinutes);
+        var lastDeviceId = cursorPayload?.LastDeviceId;
+        var take = pageSize + 1;
+
+        var pageRecords = await (
+            from state in _dbContext.FleetVehicleStates.AsNoTracking()
+            join device in _dbContext.FleetDevices.AsNoTracking()
+                on state.DeviceId equals device.DeviceId into devices
+            from device in devices.DefaultIfEmpty()
+            where (lastDeviceId == null || state.DeviceId.CompareTo(lastDeviceId.Value) > 0)
+                && (!liveOnly || state.LastTimestamp >= onlineThreshold)
+                && (!excludeSimulated || state.LocationSource != "simulated")
+            orderby state.DeviceId
+            select new FleetStatusJoinRow(
+                state,
+                device != null ? device.VehicleName : null,
+                device != null ? device.VehicleType : null)
+        )
+            .Take(take)
             .ToListAsync(cancellationToken);
 
-        var latest = latestRecords
-            .Select(record => MapToStatus(record, headingDegrees: null))
-            .OrderBy(v => v.VehicleId)
+        var hasMore = pageRecords.Count > pageSize;
+        var page = hasMore ? pageRecords.Take(pageSize).ToList() : pageRecords;
+
+        var items = page
+            .Select(row => MapToStatus(row.State, row.VehicleName, row.VehicleType, headingDegrees: null, now))
             .ToList();
 
-        if (excludeSimulated)
-            latest = latest.Where(v => v.LastLocationSource != "simulated").ToList();
+        string? nextCursor = null;
+        if (hasMore && page.Count > 0)
+        {
+            var last = page[^1];
+            nextCursor = CursorCodec.Encode(new FleetCursorPayload(
+                FleetCursorPayload.CurrentVersion,
+                last.State.DeviceId,
+                liveOnly,
+                excludeSimulated));
+        }
 
-        if (liveOnly)
-            latest = latest.Where(v => v.Status == "online").ToList();
+        return new CursorPage<VehicleLatestStatusResponse>(items, nextCursor, hasMore);
+    }
 
-        return latest;
+    public async Task<IReadOnlyList<VehicleLatestStatusResponse>> GetAllFleetStatusesAsync(
+        bool liveOnly = false,
+        bool excludeSimulated = false,
+        CancellationToken cancellationToken = default)
+    {
+        var all = new List<VehicleLatestStatusResponse>();
+        string? cursor = null;
+
+        while (true)
+        {
+            var page = await GetFleetPageAsync(
+                _queryLimits.FleetMaxPageSize,
+                cursor,
+                liveOnly,
+                excludeSimulated,
+                cancellationToken);
+
+            all.AddRange(page.Items);
+            if (!page.HasMore || string.IsNullOrWhiteSpace(page.NextCursor))
+                break;
+
+            cursor = page.NextCursor;
+        }
+
+        return all;
     }
 
     public async Task<VehicleLatestStatusResponse?> GetVehicleStatusAsync(
-        string vehicleId,
+        Guid deviceId,
         CancellationToken cancellationToken = default)
     {
-        var records = await _dbContext.TelemetryEvents
+        var row = await (
+            from state in _dbContext.FleetVehicleStates.AsNoTracking()
+            join device in _dbContext.FleetDevices.AsNoTracking()
+                on state.DeviceId equals device.DeviceId into devices
+            from device in devices.DefaultIfEmpty()
+            where state.DeviceId == deviceId
+            select new FleetStatusJoinRow(
+                state,
+                device != null ? device.VehicleName : null,
+                device != null ? device.VehicleType : null)
+        ).SingleOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+            return null;
+
+        var previous = await _dbContext.TelemetryEvents
             .AsNoTracking()
-            .Where(e => e.VehicleId == vehicleId)
+            .Where(e => e.DeviceId == deviceId && e.Timestamp < row.State.LastTimestamp)
             .OrderByDescending(e => e.Timestamp)
-            .Take(2)
-            .ToListAsync(cancellationToken);
+            .ThenByDescending(e => e.EventId)
+            .Take(1)
+            .SingleOrDefaultAsync(cancellationToken);
 
-        if (records.Count == 0) return null;
-
-        var heading = records.Count > 1
-            ? GeoBearing.ComputeHeadingDegrees(records[1], records[0])
+        var heading = previous is not null
+            ? GeoBearing.ComputeHeadingDegrees(previous, ToTelemetryPoint(row.State))
             : null;
 
-        return MapToStatus(records[0], heading);
+        return MapToStatus(row.State, row.VehicleName, row.VehicleType, heading, _timeProvider.GetUtcNow());
     }
 
-    private static VehicleLatestStatusResponse MapToStatus(
-        TelemetryEventRecord record,
-        double? headingDegrees)
+    private VehicleLatestStatusResponse MapToStatus(
+        FleetVehicleStateRecord record,
+        string? vehicleName,
+        string? vehicleType,
+        double? headingDegrees,
+        DateTimeOffset now)
     {
-        var isOnline = DateTimeOffset.UtcNow - record.Timestamp <= OnlineThreshold;
+        var connectivityStatus = VehicleConnectivityStatus.Resolve(
+            record.LastTimestamp,
+            now,
+            _queryLimits.OnlineThresholdMinutes);
 
         return new VehicleLatestStatusResponse(
-            VehicleId: record.VehicleId,
-            Name: record.VehicleId,
-            Status: isOnline ? "online" : "offline",
-            LastSeenAt: record.Timestamp,
+            DeviceId: record.DeviceId,
+            VehicleName: string.IsNullOrWhiteSpace(vehicleName)
+                ? record.DeviceId.ToString("D")
+                : vehicleName,
+            VehicleType: Domain.ValueObjects.VehicleType.ParseOrDefault(vehicleType).Value,
+            Status: connectivityStatus,
+            LastSeenAt: record.LastTimestamp,
             LastSpeedKmh: record.SpeedKmh,
             LastLatitude: record.Latitude,
             LastLongitude: record.Longitude,
             LastHeadingDegrees: headingDegrees,
-            LastLocationSource: record.LocationSource);
+            LastLocationSource: record.LocationSource,
+            LastEventId: record.LastEventId,
+            StatusEvaluatedAt: now,
+            DriverId: record.DriverId);
     }
+
+    private static void ValidatePageSize(int pageSize, int maxPageSize)
+    {
+        if (pageSize < 1 || pageSize > maxPageSize)
+            throw new ArgumentOutOfRangeException(nameof(pageSize), $"pageSize debe estar entre 1 y {maxPageSize}.");
+    }
+
+    private static TelemetryEventRecord ToTelemetryPoint(FleetVehicleStateRecord record) =>
+        new()
+        {
+            Latitude = record.Latitude,
+            Longitude = record.Longitude
+        };
+
+    private sealed record FleetStatusJoinRow(
+        FleetVehicleStateRecord State,
+        string? VehicleName,
+        string? VehicleType);
 }

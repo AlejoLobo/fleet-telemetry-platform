@@ -5,6 +5,7 @@ using FleetTelemetry.Application.Validation;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Infrastructure.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,15 +18,18 @@ public class TelemetryMessageProcessor
 {
     private readonly IDeadLetterPublisher _deadLetterPublisher;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly FleetTelemetryMetrics _metrics;
     private readonly ILogger<TelemetryMessageProcessor> _logger;
 
     public TelemetryMessageProcessor(
         IDeadLetterPublisher deadLetterPublisher,
         IOptions<KafkaOptions> kafkaOptions,
+        FleetTelemetryMetrics metrics,
         ILogger<TelemetryMessageProcessor> logger)
     {
         _deadLetterPublisher = deadLetterPublisher;
         _kafkaOptions = kafkaOptions.Value;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -40,42 +44,57 @@ public class TelemetryMessageProcessor
 
         if (string.IsNullOrWhiteSpace(message.Payload))
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
-                reason: "invalid_payload",
+                reason: "null_payload",
                 exceptionMessage: "Payload nulo, vacío o whitespace.");
         }
 
         TelemetryEvent telemetryEvent;
         try
         {
-            telemetryEvent = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            telemetryEvent = TelemetryEventJsonSerializer.Deserialize(
+                message.Payload,
+                _kafkaOptions.UseEventEnvelope);
             TelemetryDomainEventValidator.Validate(telemetryEvent);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
+        catch (TelemetryKafkaContractException ex)
         {
+            _metrics.TelemetryInvalidTotal.Add(1);
             return TerminalDeadLetterOutcome(
                 message,
-                reason: "invalid_payload",
+                reason: ex.ErrorCode,
+                exceptionMessage: ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            _metrics.TelemetryInvalidTotal.Add(1);
+            return TerminalDeadLetterOutcome(
+                message,
+                reason: "invalid_domain",
                 exceptionMessage: ex.Message);
         }
 
         try
         {
+            using var duration = _metrics.TrackProcessingDuration();
             var outcome = await processEvent(telemetryEvent, cancellationToken);
 
             if (outcome == ProcessTelemetryOutcome.Processed)
             {
+                _metrics.TelemetryProcessedTotal.Add(1);
                 _logger.LogInformation(
-                    "Telemetry event processed. EventId={EventId} VehicleId={VehicleId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
+                    "Telemetry event processed. EventId={EventId} DeviceId={DeviceId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
-                    telemetryEvent.VehicleId,
+                    telemetryEvent.DeviceId,
                     message.Partition,
                     message.Offset,
                     currentAttempt);
             }
             else
             {
+                _metrics.TelemetryDuplicateTotal.Add(1);
                 _logger.LogInformation(
                     "Telemetry event duplicate skipped. EventId={EventId} Partition={Partition} Offset={Offset} Attempt={Attempt}",
                     telemetryEvent.EventId,
@@ -98,23 +117,7 @@ public class TelemetryMessageProcessor
         {
             return await HandleTransientFailureAsync(message, currentAttempt, ex, "transient_database");
         }
-        catch (Exception ex)
-        {
-            // Error permanente: DLQ inmediata sin agotar reintentos.
-            _logger.LogWarning(
-                ex,
-                "Permanent processing error; sending to DLQ immediately. Attempt={Attempt} Topic={Topic} Partition={Partition} Offset={Offset}",
-                currentAttempt,
-                message.Topic,
-                message.Partition,
-                message.Offset);
-
-            return TerminalDeadLetterOutcome(
-                message,
-                reason: "processing_failure",
-                exceptionMessage: ex.Message,
-                attemptNumber: currentAttempt);
-        }
+        // Excepciones desconocidas se propagan: no DLQ ni commit (el coordinador detiene el Worker).
     }
 
     public async Task PublishDeadLetterAsync(DeadLetterMessage deadLetterMessage, CancellationToken cancellationToken = default)
@@ -194,6 +197,8 @@ public class TelemetryMessageProcessor
     {
         var category = reason switch
         {
+            "invalid_json" or "null_payload" or "invalid_envelope" or "unknown_event_type" or "invalid_domain" => "validation",
+            "unsupported_schema_version" => "contract",
             "invalid_payload" => "validation",
             "processing_failure" => "processing",
             _ => "unknown"
@@ -202,12 +207,34 @@ public class TelemetryMessageProcessor
         Guid? correlationId = null;
         try
         {
-            var parsed = TelemetryEventJsonSerializer.Deserialize(message.Payload);
+            var parsed = TelemetryEventJsonSerializer.Deserialize(
+                message.Payload,
+                useEventEnvelope: false);
             correlationId = parsed.EventId;
         }
         catch
         {
-            // Payload inválido: no hay correlationId confiable.
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(message.Payload);
+                if (doc.RootElement.TryGetProperty("eventId", out var eventIdProp)
+                    && eventIdProp.ValueKind == System.Text.Json.JsonValueKind.String
+                    && Guid.TryParse(eventIdProp.GetString(), out var envelopeEventId))
+                {
+                    correlationId = envelopeEventId;
+                }
+                else if (doc.RootElement.TryGetProperty("payload", out var payloadProp)
+                         && payloadProp.TryGetProperty("eventId", out var nestedEventId)
+                         && nestedEventId.ValueKind == System.Text.Json.JsonValueKind.String
+                         && Guid.TryParse(nestedEventId.GetString(), out var payloadEventId))
+                {
+                    correlationId = payloadEventId;
+                }
+            }
+            catch
+            {
+                // Payload inválido: no hay correlationId confiable.
+            }
         }
 
         var sanitizedDetail = SanitizeTechnicalDetail(exceptionMessage);

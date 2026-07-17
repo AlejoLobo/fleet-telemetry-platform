@@ -2,10 +2,10 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Exceptions;
 using FleetTelemetry.Application.UseCases;
 using FleetTelemetry.Api.Filters;
+using FleetTelemetry.Api.Identity;
 using FleetTelemetry.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
-// Controlador de ingesta y consulta de telemetría.
 namespace FleetTelemetry.Api.Controllers;
 
 [ApiController]
@@ -23,13 +23,16 @@ public partial class TelemetryController : ControllerBase
         _ingestBatchUseCase = ingestBatchUseCase;
     }
 
-    // Acepta un evento de telemetría para procesamiento asíncrono.
     [HttpPost]
     [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
     public async Task<IActionResult> IngestSingle(
         [FromBody] TelemetryEventRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateOrError(HttpContext, request.DeviceId);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             await _ingestEventUseCase.ExecuteAsync(request, cancellationToken);
@@ -45,13 +48,16 @@ public partial class TelemetryController : ControllerBase
         }
     }
 
-    // Acepta un lote de eventos de telemetría.
     [HttpPost("batch")]
     [AuthorizeWhenEnabled(AuthorizationPolicies.TelemetryWrite)]
     public async Task<IActionResult> IngestBatch(
         [FromBody] TelemetryBatchRequest request,
         CancellationToken cancellationToken)
     {
+        var identityError = TelemetryDeviceIdentityGuard.ValidateBatchOrError(HttpContext, request.Events);
+        if (identityError is not null)
+            return identityError;
+
         try
         {
             await _ingestBatchUseCase.ExecuteAsync(request, cancellationToken);
@@ -67,7 +73,6 @@ public partial class TelemetryController : ControllerBase
         }
     }
 
-    // Respuesta 503 cuando un circuit breaker está abierto.
     private ObjectResult ServiceUnavailable(DependencyCircuitOpenException ex)
     {
         if (ex.RetryAfter is { } retryAfter)

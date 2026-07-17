@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Domain.Common;
 
-// Base para objetos de valor inmutables comparados por componentes.
 public abstract class ValueObject : IEquatable<ValueObject>
 {
     protected abstract IEnumerable<object?> GetEqualityComponents();

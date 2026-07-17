@@ -5,6 +5,7 @@ using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Resilience;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Worker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -18,11 +19,12 @@ public class TelemetryMessageCoordinatorTests
     private const string Topic = "telemetry.raw";
 
     [Fact]
-    public async Task Permanent_error_runs_process_once_even_when_dlq_fails_multiple_times()
+    public async Task Excepcion_inesperada_detiene_worker_sin_commit()
     {
-        var dlq = new FlakyDeadLetterPublisher(failuresBeforeSuccess: 3);
+        var lifetime = new TestHostLifetime();
+        var dlq = new RecordingDeadLetterPublisher();
         var processCalls = 0;
-        var coordinator = CreateCoordinator(dlq, maxDlqAttempts: 5, retryInitialMs: 1, retryMaxMs: 5);
+        var coordinator = CreateCoordinator(dlq, lifetime: lifetime, maxAttempts: 3, retryInitialMs: 1, retryMaxMs: 5);
 
         var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
         var message = new KafkaConsumedMessage(payload, Topic, 0, 10);
@@ -32,12 +34,82 @@ public class TelemetryMessageCoordinatorTests
             async (_, _) =>
             {
                 Interlocked.Increment(ref processCalls);
-                throw new InvalidOperationException("permanent");
+                throw new NullReferenceException("unexpected");
+            },
+            CancellationToken.None);
+
+        Assert.Equal(CoordinatorResult.StopWithoutCommit, result);
+        Assert.True(lifetime.StopRequested);
+        Assert.Equal(1, processCalls);
+        Assert.Empty(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Excepcion_inesperada_no_se_reintenta()
+    {
+        var lifetime = new TestHostLifetime();
+        var dlq = new RecordingDeadLetterPublisher();
+        var processCalls = 0;
+        var coordinator = CreateCoordinator(dlq, lifetime: lifetime, maxAttempts: 5, retryInitialMs: 1, retryMaxMs: 5);
+
+        var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
+        var message = new KafkaConsumedMessage(payload, Topic, 1, 20);
+
+        var result = await coordinator.ProcessUntilTerminalAsync(
+            message,
+            async (_, _) =>
+            {
+                Interlocked.Increment(ref processCalls);
+                throw new NullReferenceException("unexpected");
+            },
+            CancellationToken.None);
+
+        Assert.Equal(CoordinatorResult.StopWithoutCommit, result);
+        Assert.Equal(1, processCalls);
+        Assert.Empty(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Payload_invalido_con_DLQ_exitosa_sigue_retornando_commit()
+    {
+        var dlq = new RecordingDeadLetterPublisher();
+        var processCalls = 0;
+        var coordinator = CreateCoordinator(dlq, maxDlqAttempts: 5, retryInitialMs: 1, retryMaxMs: 5);
+        var message = new KafkaConsumedMessage("{ bad", Topic, 0, 12);
+
+        var result = await coordinator.ProcessUntilTerminalAsync(
+            message,
+            async (_, _) =>
+            {
+                Interlocked.Increment(ref processCalls);
+                return ProcessTelemetryOutcome.Processed;
             },
             CancellationToken.None);
 
         Assert.Equal(CoordinatorResult.Commit, result);
-        Assert.Equal(1, processCalls);
+        Assert.Equal(0, processCalls);
+        Assert.Single(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Invalid_payload_runs_process_zero_times_even_when_dlq_fails_multiple_times()
+    {
+        var dlq = new FlakyDeadLetterPublisher(failuresBeforeSuccess: 3);
+        var processCalls = 0;
+        var coordinator = CreateCoordinator(dlq, maxDlqAttempts: 5, retryInitialMs: 1, retryMaxMs: 5);
+        var message = new KafkaConsumedMessage("{ bad", Topic, 0, 10);
+
+        var result = await coordinator.ProcessUntilTerminalAsync(
+            message,
+            async (_, _) =>
+            {
+                Interlocked.Increment(ref processCalls);
+                return ProcessTelemetryOutcome.Processed;
+            },
+            CancellationToken.None);
+
+        Assert.Equal(CoordinatorResult.Commit, result);
+        Assert.Equal(0, processCalls);
         Assert.Equal(4, dlq.PublishAttempts);
         Assert.Single(dlq.Messages);
     }
@@ -157,7 +229,7 @@ public class TelemetryMessageCoordinatorTests
             RetryMaxDelayMilliseconds = retryMaxMs
         });
 
-        var processor = new TelemetryMessageProcessor(dlq, options, NullLogger<TelemetryMessageProcessor>.Instance);
+        var processor = new TelemetryMessageProcessor(dlq, options, new FleetTelemetryMetrics(), NullLogger<TelemetryMessageProcessor>.Instance);
 
         return new TelemetryMessageCoordinator(
             new NoOpScopeFactory(),
@@ -177,7 +249,7 @@ public class TelemetryMessageCoordinatorTests
     private static TelemetryEvent CreateValidEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-COORD",
+            Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

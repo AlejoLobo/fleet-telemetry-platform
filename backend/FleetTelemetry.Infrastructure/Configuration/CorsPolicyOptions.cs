@@ -1,6 +1,5 @@
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Orígenes permitidos para CORS (configuración explícita, sin wildcard en producción).
 public class CorsPolicyOptions
 {
     public const string SectionName = "Cors";

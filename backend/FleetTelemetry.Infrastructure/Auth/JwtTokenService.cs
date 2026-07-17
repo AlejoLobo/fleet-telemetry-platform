@@ -5,10 +5,8 @@ using FleetTelemetry.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
-// Servicio de generación de tokens JWT.
 namespace FleetTelemetry.Infrastructure.Auth;
 
-// Emite tokens firmados para operadores de flota.
 public class JwtTokenService
 {
     private readonly AuthOptions _options;
@@ -18,13 +16,11 @@ public class JwtTokenService
         _options = options.Value;
     }
 
-    // Genera token JWT con rol operator.
-    public string GenerateToken(string username)
-    {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.JwtSecret));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expires = DateTime.UtcNow.AddMinutes(_options.TokenExpirationMinutes);
+    /// <summary>Alias de compatibilidad: token de operador sin device:manage.</summary>
+    public string GenerateToken(string username) => GenerateOperatorToken(username);
 
+    public string GenerateOperatorToken(string username, bool canManageDevices = false)
+    {
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, username),
@@ -32,6 +28,33 @@ public class JwtTokenService
         };
         foreach (var permission in AuthorizationPermissions.OperatorPermissions)
             claims.Add(new Claim(AuthorizationPermissions.ClaimType, permission));
+
+        if (canManageDevices)
+            claims.Add(new Claim(AuthorizationPermissions.ClaimType, AuthorizationPermissions.DeviceManage));
+
+        return WriteToken(claims);
+    }
+
+    public string GenerateDeviceToken(Guid deviceId)
+    {
+        if (deviceId == Guid.Empty)
+            throw new ArgumentException("DeviceId is required.", nameof(deviceId));
+
+        var claims = new List<Claim>
+        {
+            new(AuthorizationPermissions.DeviceIdClaimType, deviceId.ToString("D")),
+            new(ClaimTypes.Role, "device"),
+            new(AuthorizationPermissions.ClaimType, AuthorizationPermissions.TelemetryWrite)
+        };
+
+        return WriteToken(claims);
+    }
+
+    private string WriteToken(IEnumerable<Claim> claims)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.JwtSecret));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var expires = DateTime.UtcNow.AddMinutes(_options.TokenExpirationMinutes);
 
         var token = new JwtSecurityToken(
             issuer: _options.JwtIssuer,

@@ -6,19 +6,20 @@ import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { VehicleStatus } from "@/types/fleet";
 import { OSM_TILE_ATTRIBUTION, OSM_TILE_URL, getMapBounds } from "@/lib/map-config";
-import { createCarMarkerIcon } from "@/lib/vehicle-car-marker";
+import { createVehicleMarkerIcon } from "@/lib/vehicle-marker";
 import { useSnappedVehicles } from "@/hooks/use-snapped-vehicles";
-import { etiquetaEstadoVehiculo } from "@/lib/labels";
+import { formatVehicleTooltip } from "@/lib/vehicle-display-format";
+import { VehicleConnectivityBadge } from "@/components/vehicle-connectivity-badge";
 import "leaflet/dist/leaflet.css";
 
 export type MapFocusTarget = {
-  vehicleId: string;
+  deviceId: string;
   tick: number;
 };
 
 type LeafletFleetMapProps = {
   vehicles: VehicleStatus[];
-  selectedVehicleId?: string;
+  selectedDeviceId?: string | null;
   focusTarget?: MapFocusTarget | null;
   autoFit?: boolean;
 };
@@ -75,7 +76,7 @@ function FocusVehicle({
   useEffect(() => {
     if (!focusTarget) return;
 
-    const vehicle = vehicles.find((v) => v.vehicleId === focusTarget.vehicleId);
+    const vehicle = vehicles.find((v) => v.deviceId === focusTarget.deviceId);
     if (vehicle?.lastLatitude == null || vehicle.lastLongitude == null) return;
 
     map.flyTo([vehicle.lastLatitude, vehicle.lastLongitude], 17, {
@@ -90,7 +91,7 @@ function FocusVehicle({
 /** Mapa interactivo con marcadores de flota. */
 export function LeafletFleetMap({
   vehicles,
-  selectedVehicleId,
+  selectedDeviceId,
   focusTarget,
   autoFit = true,
 }: LeafletFleetMapProps) {
@@ -116,29 +117,31 @@ export function LeafletFleetMap({
         <TileLayer url={OSM_TILE_URL} attribution={OSM_TILE_ATTRIBUTION} />
         <FitBounds vehicles={snappedVehicles} enabled={autoFit} />
         <FocusVehicle focusTarget={focusTarget} vehicles={snappedVehicles} />
-        {positioned.map((vehicle) => (
-          <Marker
-            key={vehicle.vehicleId}
-            position={[vehicle.lastLatitude!, vehicle.lastLongitude!]}
-            icon={createCarMarkerIcon(vehicle, vehicle.vehicleId === selectedVehicleId)}
-          >
-            <Popup>
-              <strong>{vehicle.vehicleId}</strong>
-              {vehicle.name && (
-                <>
-                  <br />
-                  <span className="text-slate-600">{vehicle.name}</span>
-                </>
-              )}
-              <br />
-              <span className="text-slate-500">{etiquetaEstadoVehiculo(vehicle.status)}</span>
-              <br />
-              <span className="text-xs text-slate-400">
-                {vehicle.lastLatitude?.toFixed(5)}, {vehicle.lastLongitude?.toFixed(5)}
-              </span>
-            </Popup>
-          </Marker>
-        ))}
+        {positioned.map((vehicle) => {
+          const lat = vehicle.lastLatitude!;
+          const lng = vehicle.lastLongitude!;
+          const tip = formatVehicleTooltip(vehicle);
+          return (
+            <Marker
+              key={`${vehicle.deviceId}:${vehicle.vehicleType}:${vehicle.status}`}
+              position={[lat, lng]}
+              icon={createVehicleMarkerIcon(vehicle, vehicle.deviceId === selectedDeviceId)}
+            >
+              <Popup>
+                <div className="space-y-0.5 text-sm leading-snug">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{tip.name}</strong>
+                    <VehicleConnectivityBadge status={tip.status} />
+                  </div>
+                  <div className="font-mono text-[11px]">{tip.deviceId}</div>
+                  <div>{tip.driverName}</div>
+                  <div>{tip.metrics}</div>
+                  <div>{tip.coordinates}</div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
     </div>
   );

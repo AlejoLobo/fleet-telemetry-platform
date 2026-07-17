@@ -5,10 +5,8 @@ using FleetTelemetry.Infrastructure.Persistence;
 using FleetTelemetry.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
-// Repositorio de alertas en TimescaleDB.
 namespace FleetTelemetry.Infrastructure.Repositories;
 
-// Implementación de IAlertRepository con EF Core.
 public class TimescaleAlertRepository : IAlertRepository
 {
     private readonly FleetDbContext _dbContext;
@@ -67,7 +65,7 @@ public class TimescaleAlertRepository : IAlertRepository
         var record = new FleetAlertRecord
         {
             AlertId = alert.AlertId,
-            VehicleId = alert.VehicleId,
+            DeviceId = alert.DeviceId,
             AlertType = alert.AlertType,
             Severity = alert.Severity,
             Message = alert.Message,
@@ -82,7 +80,7 @@ public class TimescaleAlertRepository : IAlertRepository
     private static FleetAlert MapToDomain(FleetAlertRecord record) =>
         FleetAlert.FromPersistence(
             record.AlertId,
-            record.VehicleId,
+            record.DeviceId,
             record.AlertType,
             record.Severity,
             record.Message,

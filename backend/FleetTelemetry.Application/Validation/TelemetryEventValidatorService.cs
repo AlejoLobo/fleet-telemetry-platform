@@ -4,7 +4,6 @@ using FleetTelemetry.Domain.Entities;
 
 namespace FleetTelemetry.Application.Validation;
 
-// Implementación de reglas de ingesta con errores tipados.
 public sealed class TelemetryEventValidatorService : ITelemetryEventValidator
 {
     public Result<TelemetryEvent> ValidateAndMap(TelemetryEventRequest request)
@@ -13,7 +12,7 @@ public sealed class TelemetryEventValidatorService : ITelemetryEventValidator
 
         if (!TelemetryEvent.TryCreate(
                 request.EventId,
-                request.VehicleId,
+                request.DeviceId,
                 request.DriverId,
                 request.Timestamp,
                 request.Latitude,

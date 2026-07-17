@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, "release/**"]
   pull_request:
     branches: [main, develop]
 
@@ -11,6 +11,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify architectural decisions section in README
+        run: |
+          set -euo pipefail
+          test -f README.md
+          grep -Fq '## Decisiones arquitectónicas críticas' README.md
+          grep -Fq '### Caso 1:' README.md
+          grep -Fq '### Caso 2:' README.md
+          grep -Fq '**Enfoque incorrecto:**' README.md
+          grep -Fq '**Riesgo:**' README.md
+          grep -Fq '**Criterio aplicado y corrección:**' README.md
+          grep -Fq '**Archivos:**' README.md
+          grep -Fq '**Pruebas:**' README.md
+          grep -Fq '**Commit:**' README.md
+
+      - name: Verify test and documentation consistency
+        run: |
+          set -euo pipefail
+          node -e '
+          const fs = require("fs");
+          const assert = (cond, msg) => { if (!cond) { console.error(msg); process.exit(1); } };
+          const read = (p) => fs.readFileSync(p, "utf8");
+
+          const webPkg = JSON.parse(read("web/package.json"));
+          const mobilePkg = JSON.parse(read("mobile/package.json"));
+          assert(typeof webPkg.scripts?.["test:ci"] === "string", "web/package.json debe definir scripts.test:ci");
+          assert(typeof mobilePkg.scripts?.["test:ci"] === "string", "mobile/package.json debe definir scripts.test:ci");
+
+          const testing = read("docs/testing.md");
+          assert(testing.includes("test:ci") && /web/i.test(testing), "docs/testing.md debe documentar test:ci para Web");
+          assert(testing.includes("npm run test:ci --prefix web") || /Web[\s\S]*test:ci/.test(testing), "docs/testing.md debe documentar test:ci de Web");
+          assert(testing.includes("npm run test:ci --prefix mobile") || /Mobile[\s\S]*test:ci/.test(testing), "docs/testing.md debe documentar test:ci de Mobile");
+          assert(/test:ci/.test(testing) && testing.includes("web"), "docs/testing.md debe mencionar test:ci (Web)");
+          assert(/test:ci/.test(testing) && testing.includes("mobile"), "docs/testing.md debe mencionar test:ci (Mobile)");
+
+          const demo = read("docs/demo-sustentacion.md");
+          assert(/KafkaPush/.test(demo), "docs/demo-sustentacion.md debe identificar KafkaPush como modo SSE");
+          assert(/OpenTelemetry/.test(demo) && /opt-in/i.test(demo), "docs/demo-sustentacion.md debe identificar OpenTelemetry como implementado y opt-in");
+          assert(/infra\/terraform\/dev/.test(demo) || /entorno dev ejecutable/i.test(demo), "docs/demo-sustentacion.md debe identificar entorno AWS dev ejecutable");
+          assert(!demo.includes("| OpenTelemetry | No implementado | No implementado |"), "No debe reaparecer la fila OpenTelemetry no implementado");
+
+          const webReadme = read("web/README.md");
+          assert(!/decisión actual es polling/i.test(webReadme), "web/README.md no debe decir que la decisión actual es polling");
+          assert(!/SSE: decisión de polling/i.test(webReadme), "web/README.md no debe afirmar polling como decisión actual");
+
+          console.log("documentation_consistency=OK");
+          '
+
   backend:
     name: Backend (.NET 10)
     runs-on: ubuntu-latest
@@ -100,13 +153,51 @@ jobs:
       - name: Terraform fmt
         run: terraform fmt -check -recursive infra/terraform
 
-      - name: Terraform init
+      - name: Terraform init (blueprint)
         working-directory: infra/terraform
         run: terraform init -backend=false
 
-      - name: Terraform validate
+      - name: Terraform validate (blueprint)
         working-directory: infra/terraform
         run: terraform validate
+
+      - name: Terraform init (dev)
+        working-directory: infra/terraform/dev
+        run: terraform init -backend=false
+
+      - name: Terraform validate (dev)
+        working-directory: infra/terraform/dev
+        run: terraform validate
+
+      - name: Reject placeholders and secrets in Terraform tree
+        run: |
+          set -euo pipefail
+          failed=0
+          if git grep -n "REPLACE_WITH_" -- infra/terraform; then
+            echo "::error::Se encontraron placeholders REPLACE_WITH_ en infra/terraform"
+            failed=1
+          fi
+          if find infra/terraform -type f -name 'terraform.tfvars' ! -path '*/.terraform/*' | grep -q .; then
+            echo "::error::No versionar terraform.tfvars reales bajo infra/terraform"
+            failed=1
+          fi
+          if find infra/terraform -type f \( -name '*.tfstate' -o -name '*.tfstate.*' \) ! -path '*/.terraform/*' | grep -q .; then
+            echo "::error::No versionar archivos .tfstate bajo infra/terraform"
+            failed=1
+          fi
+          if grep -R --line-number --exclude-dir=.terraform \
+            --include='*.tf' --include='*.tftpl' --include='*.hcl' --include='*.example' \
+            -E 'BEGIN (OPENSSH |RSA )?PRIVATE KEY' infra/terraform; then
+            echo "::error::Se detectaron claves privadas en infra/terraform"
+            failed=1
+          fi
+          if grep -R --line-number --exclude-dir=.terraform \
+            --include='*.tf' --include='*.tftpl' --include='*.hcl' \
+            -Ei 'password\s*=\s*"[^$\{][^"]{7,}"' infra/terraform; then
+            echo "::error::Posibles contraseñas literales en archivos Terraform"
+            failed=1
+          fi
+          exit "$failed"
 
       - name: Docker Compose config
         run: docker compose config --quiet
@@ -137,10 +228,48 @@ jobs:
         run: npm run typecheck --prefix web
 
       - name: Tests
-        run: npm run test --prefix web
+        run: npm run test:ci --prefix web
 
       - name: Build
         run: npm run build --prefix web
+
+  web-e2e:
+    name: Web E2E Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify package-lock.json
+        run: test -f web/package-lock.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix web
+
+      - name: Build frontend (E2E)
+        run: npm run build --prefix web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_E2E_TEST_MODE: "true"
+          NEXT_PUBLIC_E2E_SEED: "12345"
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: web
+
+      - name: Run Playwright E2E
+        run: npm run test:e2e --prefix web
+        env:
+          CI: true
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_E2E_TEST_MODE: "true"
+          NEXT_PUBLIC_E2E_SEED: "12345"
 
   mobile:
     name: Mobile (Expo)
@@ -170,6 +299,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Tests
+        run: npm run test:ci
 
       - name: Export Android bundle
         run: npm run export

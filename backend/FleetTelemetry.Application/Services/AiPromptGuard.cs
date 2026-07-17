@@ -1,15 +1,12 @@
 using System.Text.RegularExpressions;
 
-// Protección básica contra inyección de prompts en consultas IA.
 namespace FleetTelemetry.Application.Services;
 
-// Resultado de inspección de una pregunta.
 public sealed record AiPromptGuardResult(
     bool IsSafe,
     string SanitizedQuestion,
     string? RejectionReason);
 
-// Detecta y neutraliza patrones de inyección de prompt.
 public static class AiPromptGuard
 {
     private const int MaxQuestionLength = 500;
@@ -46,7 +43,6 @@ public static class AiPromptGuard
         @"\n{3,}",
         RegexOptions.Compiled);
 
-    // Inspecciona y sanitiza la pregunta antes del enrutamiento.
     public static AiPromptGuardResult Inspect(string question)
     {
         if (string.IsNullOrWhiteSpace(question))

@@ -31,17 +31,30 @@ check_api() {
 
 send_valid() {
   EVENT_ID="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$RANDOM")"
-  VEHICLE_ID="SMOKE-$(echo "$EVENT_ID" | tr -d '-' | cut -c1-8 | tr '[:lower:]' '[:upper:]')"
+  DEVICE_ID="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "aaaaaaaa-bbbb-4ccc-8ddd-$(date +%s | tail -c 13)")"
   TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-  step "Enviando evento válido vehicleId=${VEHICLE_ID}"
+  step "Registrando dispositivo deviceId=${DEVICE_ID}"
+  local reg_code
+  reg_code=$(curl -sS -o /tmp/fleet-smoke-register.json -w "%{http_code}" --max-time 10 \
+    -X POST "${API_BASE}/api/devices/register" \
+    -H "Content-Type: application/json" \
+    -H "X-Device-Id: ${DEVICE_ID}" \
+    -d "{\"deviceId\": \"${DEVICE_ID}\"}" 2>/dev/null || echo "000")
+  if [ "$reg_code" != "200" ]; then
+    fail "Evento válido enviado" "registro HTTP ${reg_code}"
+    return 1
+  fi
+
+  step "Enviando evento válido deviceId=${DEVICE_ID}"
   local code
   code=$(curl -sS -o /tmp/fleet-smoke-ingest.json -w "%{http_code}" --max-time 10 \
     -X POST "${API_BASE}/api/telemetry" \
     -H "Content-Type: application/json" \
+    -H "X-Device-Id: ${DEVICE_ID}" \
     -d "{
       \"eventId\": \"${EVENT_ID}\",
-      \"vehicleId\": \"${VEHICLE_ID}\",
+      \"deviceId\": \"${DEVICE_ID}\",
       \"driverId\": \"DRV-SMOKE\",
       \"timestamp\": \"${TIMESTAMP}\",
       \"latitude\": 4.7110,
@@ -65,19 +78,19 @@ wait_processed() {
   local i
   for i in $(seq 1 "$WAIT_SECONDS"); do
     sleep 1
-    if curl -fsS --max-time 5 "${API_BASE}/api/fleet/${VEHICLE_ID}" 2>/dev/null | grep -q "${VEHICLE_ID}"; then
+    if curl -fsS --max-time 5 "${API_BASE}/api/fleet/${DEVICE_ID}" 2>/dev/null | grep -qi "${DEVICE_ID}"; then
       PROCESS_OK="OK"
       ok "Evento procesado"
       return 0
     fi
   done
-  fail "Evento procesado" "vehículo no encontrado en /api/fleet/${VEHICLE_ID}"
+  fail "Evento procesado" "dispositivo no encontrado en /api/fleet/${DEVICE_ID}"
   return 1
 }
 
 test_dlq() {
   local marker="SMOKE-DLQ-${RANDOM}${RANDOM}"
-  local payload="{\"vehicleId\":\"${marker}\"}"
+  local payload="{\"deviceId\":\"${marker}\"}"
   local tmp
   tmp="$(mktemp 2>/dev/null || echo /tmp/fleet-smoke-dlq.$$)"
 
@@ -102,7 +115,7 @@ test_dlq() {
   output="$(cat "$tmp" 2>/dev/null || true)"
   rm -f "$tmp"
 
-  if echo "$output" | grep -q 'invalid_payload' && echo "$output" | grep -q "$marker"; then
+  if echo "$output" | grep -Eq 'invalid_(payload|domain|json)' && echo "$output" | grep -q "$marker"; then
     DLQ_OK="OK"
     ok "DLQ validada"
     return 0
@@ -113,13 +126,13 @@ test_dlq() {
   output=$(docker exec fleet-redpanda sh -c \
     "timeout 8s rpk topic consume telemetry.dead-letter --brokers localhost:9092 -n 50 -f '%v\n'" 2>/dev/null || true)
 
-  if echo "$output" | grep -q 'invalid_payload' && echo "$output" | grep -q "$marker"; then
+  if echo "$output" | grep -Eq 'invalid_(payload|domain|json)' && echo "$output" | grep -q "$marker"; then
     DLQ_OK="OK"
     ok "DLQ validada"
     return 0
   fi
 
-  fail "DLQ validada" "no se encontró invalid_payload para el marker"
+  fail "DLQ validada" "no se encontró invalid_domain/invalid_payload/invalid_json para el marker"
   echo "Salida DLQ (recorte): $(printf '%s' "$output" | head -c 400)"
   return 1
 }

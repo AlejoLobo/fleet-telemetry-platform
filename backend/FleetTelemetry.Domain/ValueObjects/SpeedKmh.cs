@@ -2,7 +2,6 @@ using FleetTelemetry.Domain.Common;
 
 namespace FleetTelemetry.Domain.ValueObjects;
 
-// Velocidad en km/h no negativa.
 public sealed class SpeedKmh : ValueObject
 {
     public double Value { get; }

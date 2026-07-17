@@ -1,7 +1,5 @@
-// Excepción cuando un circuit breaker está abierto.
 namespace FleetTelemetry.Application.Exceptions;
 
-// Indica dependencia externa no disponible temporalmente.
 public class DependencyCircuitOpenException : Exception
 {
     // Crea la excepción con nombre de dependencia y reintento opcional.

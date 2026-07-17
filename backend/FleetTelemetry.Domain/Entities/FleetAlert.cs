@@ -2,11 +2,10 @@ using FleetTelemetry.Domain.ValueObjects;
 
 namespace FleetTelemetry.Domain.Entities;
 
-// Alerta operativa de flota con severidad y tipo validados.
 public sealed class FleetAlert
 {
     public Guid AlertId => _alertId;
-    public string VehicleId => _vehicleId.Value;
+    public Guid DeviceId => _deviceId.Value;
     public string AlertType => _alertType.Value;
     public string Severity => _severity.Value;
     public string Message { get; }
@@ -14,13 +13,13 @@ public sealed class FleetAlert
     public bool IsAcknowledged { get; private set; }
 
     private readonly Guid _alertId;
-    private readonly VehicleId _vehicleId;
+    private readonly DeviceId _deviceId;
     private readonly AlertType _alertType;
     private readonly AlertSeverity _severity;
 
     private FleetAlert(
         Guid alertId,
-        VehicleId vehicleId,
+        DeviceId deviceId,
         AlertType alertType,
         AlertSeverity severity,
         string message,
@@ -28,7 +27,7 @@ public sealed class FleetAlert
         bool isAcknowledged)
     {
         _alertId = alertId;
-        _vehicleId = vehicleId;
+        _deviceId = deviceId;
         _alertType = alertType;
         _severity = severity;
         Message = message;
@@ -36,9 +35,11 @@ public sealed class FleetAlert
         IsAcknowledged = isAcknowledged;
     }
 
+    public string DeviceIdStorage => DeviceId.ToString("D");
+
     public static bool TryCreate(
         Guid alertId,
-        string vehicleId,
+        Guid deviceId,
         string alertType,
         string severity,
         string message,
@@ -56,7 +57,7 @@ public sealed class FleetAlert
             return false;
         }
 
-        if (!ValueObjects.VehicleId.TryCreate(vehicleId, out var domainVehicleId, out error))
+        if (!ValueObjects.DeviceId.TryCreate(deviceId, out var domainDeviceId, out error))
             return false;
 
         if (!ValueObjects.AlertType.TryCreate(alertType, out var domainAlertType, out error))
@@ -79,7 +80,7 @@ public sealed class FleetAlert
 
         alert = new FleetAlert(
             alertId,
-            domainVehicleId!,
+            domainDeviceId!,
             domainAlertType!,
             domainSeverity!,
             message.Trim(),
@@ -91,7 +92,7 @@ public sealed class FleetAlert
 
     public static FleetAlert Create(
         Guid alertId,
-        string vehicleId,
+        Guid deviceId,
         string alertType,
         string severity,
         string message,
@@ -99,7 +100,7 @@ public sealed class FleetAlert
         bool isAcknowledged = false) =>
         TryCreate(
             alertId,
-            vehicleId,
+            deviceId,
             alertType,
             severity,
             message,
@@ -120,7 +121,7 @@ public sealed class FleetAlert
 
     public static FleetAlert FromPersistence(
         Guid alertId,
-        string vehicleId,
+        Guid deviceId,
         string alertType,
         string severity,
         string message,
@@ -128,10 +129,32 @@ public sealed class FleetAlert
         bool isAcknowledged) =>
         new(
             alertId,
-            ValueObjects.VehicleId.Create(vehicleId),
+            ValueObjects.DeviceId.Create(deviceId),
             ValueObjects.AlertType.Create(alertType),
             ValueObjects.AlertSeverity.Create(severity),
             message,
             createdAt,
             isAcknowledged);
+
+    public static FleetAlert FromPersistence(
+        Guid alertId,
+        string deviceIdStorage,
+        string alertType,
+        string severity,
+        string message,
+        DateTimeOffset createdAt,
+        bool isAcknowledged)
+    {
+        if (!Guid.TryParse(deviceIdStorage, out var deviceId))
+            throw new ArgumentException("DeviceId storage value is not a valid Guid.", nameof(deviceIdStorage));
+
+        return FromPersistence(
+            alertId,
+            deviceId,
+            alertType,
+            severity,
+            message,
+            createdAt,
+            isAcknowledged);
+    }
 }

@@ -14,7 +14,10 @@ export function useSnappedVehicles(vehicles: VehicleStatus[]) {
   const vehiclesKey = useMemo(
     () =>
       vehicles
-        .map((v) => `${v.vehicleId}|${v.lastLatitude}|${v.lastLongitude}|${v.status}`)
+        .map(
+          (v) =>
+            `${v.deviceId}|${v.vehicleType}|${v.vehicleName}|${v.lastLatitude}|${v.lastLongitude}|${v.status}|${v.headingDegrees ?? ""}`,
+        )
         .join(";"),
     [vehicles],
   );

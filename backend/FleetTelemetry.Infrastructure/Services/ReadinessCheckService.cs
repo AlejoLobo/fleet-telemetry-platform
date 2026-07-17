@@ -3,12 +3,13 @@ using FleetTelemetry.Application.DTOs;
 using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Persistence;
+using FleetTelemetry.Infrastructure.Realtime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FleetTelemetry.Infrastructure.Services;
 
-// Readiness: TimescaleDB + metadata Kafka (sin publicar mensajes de negocio).
+// Readiness: TimescaleDB + metadata Kafka + consumidor KafkaPush de la réplica.
 public class ReadinessCheckService : IReadinessCheckService
 {
     private const string ServiceName = "fleet-telemetry-api";
@@ -16,15 +17,21 @@ public class ReadinessCheckService : IReadinessCheckService
 
     private readonly FleetDbContext _dbContext;
     private readonly KafkaOptions _kafkaOptions;
+    private readonly SseOptions _sseOptions;
+    private readonly IRealtimeStreamCoordinator _streamCoordinator;
     private readonly ILogger<ReadinessCheckService> _logger;
 
     public ReadinessCheckService(
         FleetDbContext dbContext,
         IOptions<KafkaOptions> kafkaOptions,
+        IOptions<SseOptions> sseOptions,
+        IRealtimeStreamCoordinator streamCoordinator,
         ILogger<ReadinessCheckService> logger)
     {
         _dbContext = dbContext;
         _kafkaOptions = kafkaOptions.Value;
+        _sseOptions = sseOptions.Value;
+        _streamCoordinator = streamCoordinator;
         _logger = logger;
     }
 
@@ -33,10 +40,11 @@ public class ReadinessCheckService : IReadinessCheckService
         var checks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["timescaledb"] = await CheckTimescaleAsync(cancellationToken),
-            ["kafka"] = CheckKafka()
+            ["kafka"] = CheckKafka(),
+            ["kafka_push"] = CheckKafkaPush()
         };
 
-        var ready = checks.Values.All(status => status == "ok");
+        var ready = checks.Values.All(status => status is "ok" or "bypassed");
         return new ReadinessCheckResponse(
             Status: ready ? "ready" : "not_ready",
             Service: ServiceName,
@@ -76,5 +84,19 @@ public class ReadinessCheckService : IReadinessCheckService
             _logger.LogWarning(ex, "Readiness Kafka check failed");
             return "unavailable";
         }
+    }
+
+    private string CheckKafkaPush()
+    {
+        if (_sseOptions.Mode != SseDeliveryMode.KafkaPush)
+            return "bypassed";
+
+        return _streamCoordinator.State switch
+        {
+            RealtimeStreamState.Ready => "ok",
+            RealtimeStreamState.Faulted => "faulted",
+            RealtimeStreamState.Recovering => "recovering",
+            _ => "starting"
+        };
     }
 }

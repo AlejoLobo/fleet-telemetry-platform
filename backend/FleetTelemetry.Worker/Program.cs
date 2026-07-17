@@ -11,6 +11,7 @@ ConfigurationValidator.Validate(builder.Configuration, builder.Environment);
 
 builder.Services.AddInfrastructure(builder.Configuration, InfrastructureProfile.Worker);
 builder.Services.AddFleetOpenTelemetry(builder.Configuration, InfrastructureProfile.Worker);
+builder.Services.AddFleetConnectivityExpiry();
 builder.Services.AddSingleton<TelemetryMessageProcessor>();
 builder.Services.AddSingleton<TelemetryMessageCoordinator>();
 builder.Services.AddHostedService<TelemetryConsumerWorker>();

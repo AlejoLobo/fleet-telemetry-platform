@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-// Entidad ORM de evento de telemetría.
 namespace FleetTelemetry.Infrastructure.Persistence.Entities;
 
 // Mapeo a hypertable telemetry_events.
@@ -10,8 +9,8 @@ public class TelemetryEventRecord
 {
     public Guid EventId { get; set; }
 
-    [MaxLength(64)]
-    public string VehicleId { get; set; } = string.Empty;
+    [Column("device_id")]
+    public Guid DeviceId { get; set; }
 
     [MaxLength(64)]
     public string? DriverId { get; set; }

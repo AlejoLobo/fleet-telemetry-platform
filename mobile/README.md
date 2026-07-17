@@ -1,15 +1,55 @@
 # Fleet Telemetry Mobile
 
-App React Native Expo para conductores con cola offline-first.
-
-Quickstart global del monorepo: [../docs/getting-started.md](../docs/getting-started.md) · [../README.md](../README.md).
+App React Native Expo para conductores con cola offline-first y sincronización autenticada.
 
 ## Stack
 
-- Expo 52 + React Native
+- Expo 54 + React Native
 - SQLite (`expo-sqlite`) para cola local
+- `expo-secure-store` para JWT (nunca en SQLite ni variables públicas)
 - NetInfo para detectar conectividad
 - `expo-location` con fallback a coordenadas simuladas
+
+## Autenticación
+
+Al iniciar la app:
+
+1. Consulta `GET /api/auth/status`.
+2. Si `enabled=false`: sincroniza sin header `Authorization`.
+3. Si `enabled=true`: restaura token de SecureStore, valida expiración local y exige login si falta.
+4. `POST /api/auth/login` guarda JWT y expiración; habilita sync pendiente.
+5. Logout elimina token; **la cola SQLite no se borra**.
+
+## Identidad de dispositivo
+
+1. `DeviceId` UUID estable en SecureStore (`fleet.device.id`).
+2. Antes del sync, `POST /api/devices/register` (idempotente) obtiene `vehicleName` y `vehicleType` del backend.
+3. El tipo se selecciona en UI (catálogo: Automóvil, Motocicleta, Van, Camión, Bus, Camioneta) y se envía como código canónico (`car`, `motorcycle`, …).
+4. Perfil local: `fleet.device.vehicleName` + `fleet.profile.vehicleType` (legacy sin tipo → `car`).
+5. `PATCH /api/devices/{deviceId}/profile` actualiza nombre y tipo juntos; `DeviceId` no cambia.
+6. Los eventos de telemetría llevan `deviceId` (no incluyen el tipo; el tipo vive en el registro).
+7. Header `X-Device-Id` debe coincidir con el payload.
+8. No se puede editar el perfil mientras el tracking está activo.
+
+### Comportamiento ante errores de auth
+
+| HTTP | Acción |
+|------|--------|
+| 401 | Elimina token, pausa sync, libera eventos reclamados sin incrementar `retryCount` |
+| 403 | Conserva token/cola, pausa sync, estado `forbidden` |
+
+## Matriz batch (`sendBatchEvents`)
+
+| Error | Política |
+|-------|----------|
+| 2xx | Marca lote `synced` |
+| 400/422 | Fallback individual; solo el evento inválido → `permanent_failure` |
+| 401/403 | Sin fallback; libera lote; detiene corrida |
+| 408/429/5xx/red | Sin fallback; `markBatchRetry` + backoff/`Retry-After` |
+| 404/405/415 | `configuration_error`; conserva eventos |
+| 413 | Divide lote por mitades; evento único → `permanent_failure` |
+
+`SyncResult.status`: `completed`, `offline`, `auth_required`, `forbidden`, `deferred`, `configuration_error`, `failed`.
 
 ## Configuración
 
@@ -19,76 +59,56 @@ cp .env.example .env
 
 | Variable | Descripción |
 |----------|-------------|
-| `EXPO_PUBLIC_API_URL` | Backend .NET (default `http://localhost:5000`) |
-| `EXPO_PUBLIC_VEHICLE_ID` | Vehículo por defecto |
+| `EXPO_PUBLIC_API_URL` | Backend .NET |
 | `EXPO_PUBLIC_DRIVER_ID` | Conductor por defecto |
 
-> En dispositivo físico o emulador Android, usa la IP de tu máquina en lugar de `localhost`.
+La identidad del vehículo es el `DeviceId` UUID generado en el dispositivo (SecureStore). Mobile **no** genera nombres `VH-###`; el backend los asigna en `POST /api/devices/register`. El nombre visible se puede editar con `PATCH /api/devices/{deviceId}/name` sin cambiar la identidad ni la partición Kafka.
+
+No usar `EXPO_PUBLIC_JWT` ni credenciales en variables públicas.
+
+## Captura de telemetría
+
+Intervalo fijo de **5 segundos** (`TELEMETRY_CAPTURE_INTERVAL_MILLISECONDS`). No hay selector ni configuración de frecuencia en la UI.
+
+Texto informativo: “Captura automática cada 5 segundos.”
+
+## Cola SQLite
+
+La apertura y migración del esquema se ejecutan **una sola vez** por proceso. Detalle de migración `device_id` y validación en dispositivo: [../docs/mobile-sqlite-migration.md](../docs/mobile-sqlite-migration.md).
+
+Limpieza de cache en desarrollo:
+
+```bash
+cd mobile
+npx expo start -c
+npx expo export --clear
+```
+
+Si se usa APK o development build antigua, reconstruir e reinstalar/actualizar la app.
 
 ## Comandos
 
 ```bash
 cd mobile
-npm install
+npm ci
+npm run typecheck
+npm run test:ci
+npm run export
 npx expo start
 ```
 
-## EAS Preview (Android APK)
+## Pruebas
 
-Build de preview **manual** vía GitHub Actions. No publica en Play Store ni App Store.
+`npm run test:ci` ejecuta Jest (`jest-expo`) con cobertura (`text` + `json-summary`) sobre `src/services`, `src/db` y `src/hooks`. No hay umbral porcentual global obligatorio. El directorio `coverage/` está ignorado por Git.
 
-### Prerrequisito (una vez por proyecto)
+Áreas cubiertas (archivos representativos):
 
-1. Crear cuenta en [expo.dev](https://expo.dev).
-2. Vincular el proyecto local con EAS (genera `extra.eas.projectId` en `app.json`):
-
-```bash
-cd mobile
-npx eas-cli login
-npx eas init
-```
-
-3. Configurar el secret `EXPO_TOKEN` en GitHub:
-   - Expo → **Account settings** → **Access tokens** → **Create token**
-   - GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
-   - Nombre: `EXPO_TOKEN`, valor: el token de Expo
-
-### Lanzar el workflow
-
-1. GitHub → **Actions** → **Mobile Preview Build**
-2. **Run workflow** → branch `main`
-3. Opcional: `api_url` (default `http://localhost:5000`; en dispositivo físico usa la IP de tu máquina, p. ej. `http://192.168.1.10:5000`)
-4. Esperar a que termine el job (EAS compila en la nube)
-
-### Artefacto producido
-
-| Campo | Valor |
-|-------|-------|
-| Tipo | APK Android (`buildType: apk`) |
-| Perfil | `preview` en `eas.json` |
-| Distribución | `internal` (descarga directa, sin tiendas) |
-| Dónde descargar | [expo.dev](https://expo.dev) → proyecto **fleet-telemetry-mobile** → **Builds** |
-
-La lógica offline-first (SQLite, cola local, sync batch) no cambia; el APK empaqueta la misma app Expo 52.
-
-### Build local con EAS (opcional)
-
-```bash
-cd mobile
-eas build --platform android --profile preview
-```
-
-## Funcionalidades
-
-- Captura periódica de telemetría (GPS o simulado)
-- `EventId` generado en cliente (`expo-crypto`)
-- Persistencia local en SQLite si no hay red
-- Sincronización batch vía `POST /api/telemetry/batch` al reconectar
-- Reintento individual si falla un batch
-- UI mínima de conductor: tracking, captura manual, sync
-
-## Requisitos
-
-- Node.js 18+
-- Expo Go o emulador Android/iOS
-- Backend en ejecución para sync en vivo
+| Área | Archivo |
+|------|---------|
+| Auth + SecureStore + cola | `src/__tests__/auth-service.test.ts`, `auth-expiration.test.ts`, `auth-expiration-integration.test.ts` |
+| telemetry-api (401/403, captura) | `src/__tests__/telemetry-api.test.ts` |
+| Cola SQLite / estados terminales / EventId | `src/__tests__/offline-queue.test.ts` |
+| Sync batch / policy | `src/__tests__/offline-sync-coordinator.test.ts`, `sync-policy.test.ts` |
+| Fallback parcial / 413 | `src/__tests__/offline-sync-fallback-sqlite.test.ts`, `offline-sync-fallback-413-sqlite.test.ts`, `offline-sync-split-sqlite.test.ts` |
+| Reanudación post-login | `src/__tests__/resume-sync.test.ts`, `use-driver-telemetry-resume.test.ts` |
+| Ubicación simulada explícita | `src/__tests__/location-provider.test.ts` |

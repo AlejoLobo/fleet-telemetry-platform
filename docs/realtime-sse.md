@@ -1,78 +1,173 @@
-# Tiempo real SSE — decisión MVP
+# Tiempo real SSE
 
 Índice: [README.md](README.md) · Arquitectura: [architecture.md](architecture.md).
 
-## Qué hay hoy
+## Modo actual: KafkaPush
 
-El dashboard consume `GET /api/events/stream` (Server-Sent Events). Los eventos (`fleet-update`, `alert`, `heartbeat`) no salen de Kafka ni del Worker: los genera `FleetSsePollerHostedService`, un `BackgroundService` en la API que:
+El stack local y la configuración por defecto usan `Sse:Mode = KafkaPush`:
 
-1. Consulta TimescaleDB (estado de flota + alertas abiertas).
-2. Compara un hash del snapshot de flota para evitar broadcasts redundantes.
-3. Publica en `FleetSseBroker` solo cuando hay cambios (o heartbeat cada 15s).
+1. El **Worker** persiste telemetría y publica en Kafka (`fleet.realtime`) eventos `vehicle-update` (canónico) y `alert`.
+2. La **API** consume `fleet.realtime` con `FleetSseKafkaPushHostedService` y reenvía al `FleetSseBroker`.
+3. El dashboard abre `GET /api/events/stream` y procesa SSE con `useSseStream`.
 
-Intervalos configurables (`Sse` en `appsettings.json` / env):
+### Contrato de eventos
+
+| Evento | Estado | Descripción |
+|--------|--------|-------------|
+| `vehicle-update` | **Canónico** | Un vehículo por mensaje; payload `VehicleLatestStatusResponse` (incluye `lastEventId`) |
+| `fleet-update` | Legacy | Array de vehículos; soportado por compatibilidad en el cliente |
+| `alert` | Activo | Nueva alerta operativa |
+| `heartbeat` | Activo | Mantiene viva la conexión |
+| `stream-reset` | Activo | Cortocircuito de cursor; el cliente ejecuta snapshot REST |
+
+El cliente web fusiona parches `vehicle-update` con el snapshot REST usando `lastSeenAt` + `lastEventId` (misma regla que PostgreSQL).
+
+## Modo alternativo: Polling
+
+Con `Sse:Mode = Polling`, `FleetSsePollerHostedService` consulta TimescaleDB periódicamente y emite `fleet-update` cuando el hash del snapshot cambia.
+
+Intervalos (`Sse` en `appsettings.json`):
 
 | Modo | Default | Cuándo |
 |------|---------|--------|
-| Activo | **3 segundos** | La flota cambió en el ciclo anterior |
-| Idle | **10 segundos** | Sin cambios (menos carga en DB) |
+| Activo | 3 s | La flota cambió en el ciclo anterior |
+| Idle | 10 s | Sin cambios |
 
-Si no hay suscriptores SSE, el poller espera el intervalo activo y no consulta la DB.
+## Conectividad online / offline
 
-## Por qué es una decisión MVP (consciente)
+La conectividad se calcula con `VehicleConnectivityStatus.Resolve`:
 
-- Entrega tiempo real usable en el dashboard sin acoplar el Worker a HTTP/SSE.
-- Evita un segundo consumidor Kafka solo para UI en esta fase.
-- El hash reduce ruido: no reenvía el mismo snapshot cada 3s.
-- Trade-off aceptado: latencia acotada al intervalo de polling (~3s en activo) y carga de lectura en TimescaleDB proporcional a suscriptores activos.
+```
+LastTimestamp >= now - OnlineThresholdMinutes  →  online
+en caso contrario                              →  offline
+```
 
-**No es** push event-driven extremo Kafka → cliente. Es polling + fan-out SSE, suficiente para demostrar la vertical.
+`OnlineThresholdMinutes` está en `QueryLimits` (default 5).
 
-## Alternativas productivas (no implementadas)
+### Transición a offline sin telemetría nueva (KafkaPush)
 
-Cuando el volumen o la latencia lo exijan, sin reescribir el contrato SSE del cliente:
+En KafkaPush, un vehículo que deja de transmitir no genera `vehicle-update` por sí solo. El Worker ejecuta `FleetConnectivityExpiryHostedService`:
 
-### 1. Worker publica evento directo al broker SSE
+- Consulta incremental sobre `fleet_vehicle_state.LastTimestamp` (índice `ix_fleet_vehicle_state_last_timestamp`).
+- Detecta vehículos que acaban de cruzar el umbral.
+- Publica **una vez** `vehicle-update` con `status=offline` por `(DeviceId, LastEventId)`.
+- El payload offline conserva `vehicleName` y `vehicleType` del registro del dispositivo (misma estructura que online).
+- No recorre toda la flota en cada ciclo; usa ventana deslizante entre umbrales consecutivos.
 
-Tras persistir telemetría/alertas, el Worker (o un bus interno compartido) notifica al mismo `FleetSseBroker` / canal de pub-sub.
+Configuración (`Sse`):
 
-- **Pros:** latencia baja; menos lecturas periódicas a DB.
-- **Contras:** Worker y API deben compartir infraestructura de mensajería in-process o Redis/SignalR; más acoplamiento operativo.
+| Opción | Default | Descripción |
+|--------|---------|-------------|
+| `ConnectivityExpiryIntervalSeconds` | 30 | Intervalo del ciclo |
+| `ConnectivityExpiryLookbackSeconds` | 90 | Ventana inicial si no hay umbral previo |
+| `ConnectivityExpiryBatchSize` | 200 | Tope por ciclo |
 
-### 2. Consumidor Kafka dedicado alimenta el broker SSE
+Cuando llega telemetría nueva, el Worker publica `online` y limpia el marcador de offline publicado.
 
-Un servicio (o proceso en la API) consume `telemetry.raw` (o un tópico de “fleet-changed”) y traduce mensajes a eventos SSE.
+## Multi-réplica y replay (FT-005)
 
-- **Pros:** desacopla persistencia de UI; escala con particiones Kafka; alineado al pipeline event-driven.
-- **Contras:** otro consumidor/grupo; hay que definir payload de “cambio de flota” vs reconsultar DB.
+### Fan-out entre réplicas API
 
-En ambos casos el endpoint `GET /api/events/stream` y los tipos de evento pueden mantenerse; solo cambia la **fuente** que alimenta el broker.
+- El tópico `fleet.realtime` debe tener **exactamente 1 partición** (orden global de offsets).
+- Cada réplica hace **Assign manual** de la partición 0 (sin `Subscribe` ni rebalance de consumer group).
+- El `GroupId` sigue siendo único por réplica (`{RealtimeConsumerGroupBase}-{InstanceId}`) solo como identidad; **no** coordina offsets entre réplicas.
+- Todas las réplicas reciben **todos** los mensajes futuros desde su Assign.
+- El snapshot REST cubre el estado anterior al arranque de la réplica.
 
+### ID SSE canónico
+
+- En KafkaPush, `id:` del SSE = **offset Kafka** (`ConsumeResult.Offset.Value`).
+- `connected`, `heartbeat` y `stream-reset` son efímeros: **sin** `id:` y fuera del replay.
+
+### Snapshot inicial sin `Last-Event-ID`
+
+Al arrancar, la réplica consulta watermarks, fija `baseline = High - 1`, inicializa el broker y hace Assign en High.
+
+Una suscripción `Missing` (sin `Last-Event-ID`):
+
+- emite `stream-reset` con `reason=initial-snapshot` y `latestEventId = baseline`;
+- el cliente bloquea live hasta completar `refreshForResync`;
+- los live con `id > baseline` se aplican después, una vez y en orden.
+
+### Replay local acotado
+
+- La admisión SSE en KafkaPush pasa por `RealtimeStreamCoordinator.TryOpenStream` (Ready + `SubscribeFrom` atómicos bajo el mismo lock).
+- Si `Last-Event-ID` queda fuera del buffer → `event: stream-reset` con `reason`:
+  - `initial-snapshot` — primera conexión / sin cursor
+  - `replay-gap`
+  - `instance-restarted`
+  - `invalid-last-event-id`
+  - `invalid-payload-gap` — offsets Kafka inválidos (tombstone/contrato) en el rango
+- El cliente web limpia el cursor, recarga snapshot completo y continúa con eventos live.
+
+### Estado del stream (`RealtimeStreamCoordinator`)
+
+Estados: `Starting` → `Ready` ↔ `Recovering` → (`Faulted`).
+
+| Estado | SSE `/api/events/stream` | `/health/ready` (`kafka_push`) |
+|--------|--------------------------|--------------------------------|
+| Starting | **503** | `starting` |
+| Recovering | **503** | `recovering` |
+| Ready | admite stream | `ok` |
+| Faulted | **503** | `faulted` |
+| Polling (sin KafkaPush) | admite | `bypassed` |
+
+`EnterRecovering` / `EnterFaulted` incrementan epoch, cierran todas las suscripciones (`CompleteAllSubscribers`) e impiden nuevas admisiones.
+
+### Loop con pendingRecord
+
+- Un solo registro pendiente: no se Consume N+1 hasta completar el pendiente.
+- Accepted / Duplicate / InvalidPermanent → avanzan watermark del broker y liberan el pending.
+- TransientPublishFailure → conserva el mismo `ConsumeResult`, `EnterRecovering` si estaba Ready, backoff, reintenta **sin Seek**.
+- Idle o Completed en `Recovering`/`Starting` → `EnterReady` (tópico quieto recupera admisión SSE).
+- FatalTransportFailure → `EnterRecovering`, disponer consumidor, crear uno nuevo vía `IRealtimeKafkaConsumerFactory`, resolver Assign (Low/High), poll saludable, `EnterReady`.
+- No hay commits Kafka para coordinar la réplica.
+
+### Recuperación
+
+- `resumeOffset = LastProcessedExternalOffset + 1`
+- Si `Low <= resumeOffset <= High` → Assign en `resumeOffset`.
+- Si `resumeOffset < Low` o `resumeOffset > High` → `ResetToBaseline(High - 1)`, Assign en High, `initial-snapshot`.
+- Ready solo tras Idle/Completed saludable con el consumidor nuevo.
+- Fallos transitorios en validación de metadata, creación del consumidor, watermarks, Assign o materialización de Assign se recuperan disponiendo la sesión, backoff cancelable (200 ms → 5 s) y recreando la sesión; no pasan a `Faulted` ni habilitan Ready sin poll saludable.
+- El backoff de sesión (`consecutiveFailures`) solo se reinicia tras el primer `Idle`/`Completed` saludable; un `PrepareAssignment` exitoso no reinicia la racha.
+- Metadata Kafka inaccesible o tópico aún no disponible → `RealtimeTopicMetadataUnavailableException` (transitoria, Starting). `Partitions.Count != 1` → `RealtimeTopicPartitionCountException` (permanente, Faulted). No hay Assign ni Ready hasta validar una partición.
+- Si la materialización de Assign expira sin confirmar la posición objetivo, se lanza un error transitorio específico y se recrea el consumidor.
+
+### Configuración (`Sse` / `Kafka`)
+
+| Opción | Default | Descripción |
+|--------|---------|-------------|
+| `Kafka:RealtimeConsumerGroupBase` | `fleet-realtime-sse` | Prefijo de identidad del GroupId |
+| `Sse:InstanceId` | `HOSTNAME` o `MachineName` | Sufijo estable por proceso (post-configure) |
+| `Sse:RequireSingleRealtimePartition` | `true` | Exige 1 partición; metadata transitoria reintenta en Starting; conteo ≠ 1 → Faulted |
+| `Sse:ReplayBufferSize` | `200` | Eventos retenidos para replay local |
+
+### Cliente web
+
+- `SseParser` soporta `id:`, `event:`, `data:`, `retry:`.
+- `useSseStream` envía `Last-Event-ID` por header en reconexión y persiste el cursor en `sessionStorage`.
+- Tras `stream-reset` (incluido `initial-snapshot`) no escribe cursor si la conexión ya fue reemplazada o el token cambió.
 
 ## Autenticación segura para SSE
 
-`EventSource` nativo del navegador **no permite** enviar cabeceras personalizadas (p. ej. `Authorization: Bearer …`). Por eso **no se debe** pasar el JWT en query string (`?token=…`): queda en logs de proxy, historial del navegador y referrers.
+`EventSource` nativo **no permite** cabeceras `Authorization`. No usar JWT en query string.
 
 ### Enfoque recomendado (producción)
 
-1. **Ticket de corta duración (preferido)**  
-   - El cliente autenticado llama `POST /api/auth/sse-ticket` con JWT en cabecera.  
-   - La API devuelve un ticket opaco de un solo uso, TTL ~60 s, ligado al usuario y al endpoint SSE.  
-   - El cliente abre SSE con `fetch` + `ReadableStream` (o polyfill) y envía `Authorization: Bearer <ticket>` o `X-Sse-Ticket: <ticket>`.  
-   - El ticket se invalida al cerrar la conexión o al expirar.
-
-2. **Cabecera vía fetch-stream (sin ticket)**  
-   - Usar `fetch('/api/events/stream', { headers: { Authorization: 'Bearer …' } })` y parsear el stream manualmente.  
-   - Válido cuando el token JWT tiene vida corta y rotación controlada; menos seguro que ticket de un solo uso.
+1. Ticket de corta duración (`POST /api/auth/sse-ticket`) + `fetch` stream con cabecera.
+2. O `fetch('/api/events/stream', { headers: { Authorization: '...' } })` con JWT de vida corta.
 
 ### Estado MVP
 
-- Con `Auth:Enabled=false` (default), SSE permanece abierto para demo local.  
-- Con `Auth:Enabled=true`, el endpoint exige política `FleetRead` vía `AuthorizeWhenEnabled`; el dashboard debe migrar a **fetch-stream + cabecera** o al flujo de **sse-ticket** antes de producción.  
-- No implementar `?access_token=` en la URL.
+- `Auth:Enabled=false` (default): SSE abierto para demo local.
+- `Auth:Enabled=true`: exige política `FleetRead`; el dashboard usa fetch-stream + cabecera.
 
-## Qué no se hace ahora
+## Truncación en el dashboard
 
-- No se reescribe la arquitectura SSE completa.
-- No se introduce Redis/SignalR/WebSockets en este MVP.
-- No se elimina el poller hasta que una alternativa productiva esté cableada.
+El snapshot de flota en web está acotado (`maxVehicles`, default 5000). Cuando `truncated=true`:
+
+- KPIs globales usan `/api/ops/summary` (`aggregationSource: ops`).
+- El panel lateral muestra **mostrados vs total** (no `vehicles.length` como total global).
+
+Ver [api-and-ops.md](api-and-ops.md).

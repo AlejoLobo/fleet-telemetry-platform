@@ -3,12 +3,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FleetTelemetry.Api.Controllers;
 
-// Health checks de liveness/readiness + circuit breakers existentes.
 [ApiController]
 [Route("health")]
 public class HealthController : ControllerBase
 {
-    // Liveness: proceso vivo, sin dependencias externas.
     [HttpGet("live")]
     public IActionResult Live()
     {
@@ -33,7 +31,6 @@ public class HealthController : ControllerBase
         return Ok(result);
     }
 
-    // Estado general del servicio y circuitos abiertos.
     [HttpGet]
     public IActionResult Get([FromServices] ICircuitBreakerStateRegistry registry)
     {
@@ -50,7 +47,6 @@ public class HealthController : ControllerBase
         });
     }
 
-    // Detalle de todos los circuit breakers.
     [HttpGet("circuit-breakers")]
     public IActionResult CircuitBreakers([FromServices] ICircuitBreakerStateRegistry registry)
     {

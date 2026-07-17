@@ -46,15 +46,17 @@ services:
         set -e
         ensure_topic() {
           topic="$$1"
+          partitions="$$2"
           if rpk topic list --brokers redpanda:9092 | awk 'NR>1 {print $$1}' | grep -Fxq "$$topic"; then
             echo "Topic already exists: $$topic"
           else
-            rpk topic create "$$topic" --brokers redpanda:9092
-            echo "Topic created: $$topic"
+            rpk topic create "$$topic" --brokers redpanda:9092 --partitions "$$partitions"
+            echo "Topic created: $$topic (partitions=$$partitions)"
           fi
         }
-        ensure_topic telemetry.raw
-        ensure_topic telemetry.dead-letter
+        ensure_topic telemetry.raw 1
+        ensure_topic telemetry.dead-letter 1
+        ensure_topic fleet.realtime 1
         echo "Kafka topics ready"
     restart: "no"
 
@@ -90,6 +92,11 @@ services:
       Kafka__BootstrapServers: redpanda:9092
       TimescaleDb__ConnectionString: Host=timescaledb;Port=5432;Database=${POSTGRES_DB:-fleet};Username=${POSTGRES_USER:-fleet};Password=${POSTGRES_PASSWORD:-fleet}
       Auth__Enabled: "false"
+      RateLimiting__Enabled: ${RateLimiting__Enabled:-false}
+      RateLimiting__PermitLimit: ${RateLimiting__PermitLimit:-600}
+      RateLimiting__WindowSeconds: ${RateLimiting__WindowSeconds:-60}
+      RateLimiting__TelemetryPermitLimit: ${RateLimiting__TelemetryPermitLimit:-120}
+      RateLimiting__TelemetryWindowSeconds: ${RateLimiting__TelemetryWindowSeconds:-60}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -99,10 +106,10 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health/live"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 10
+      start_period: 45s
 
   worker:
     profiles: ["app"]
@@ -134,14 +141,15 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:5000
+        # En AWS ALB (FT-009) se inyecta vía .env; localmente localhost.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
     container_name: fleet-web
     restart: unless-stopped
     ports:
       - "3000:3000"
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   timescale_data:

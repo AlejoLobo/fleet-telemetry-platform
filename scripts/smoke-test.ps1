@@ -43,12 +43,27 @@ function Test-ApiAlive {
 
 function Send-ValidTelemetry {
     $eventId = [guid]::NewGuid().ToString()
-    $vehicleId = "SMOKE-$([guid]::NewGuid().ToString('N').Substring(0, 8).ToUpperInvariant())"
+    $deviceId = [guid]::NewGuid().ToString()
     $timestamp = [DateTimeOffset]::UtcNow.ToString("o")
+
+    Write-Step "Registrando dispositivo deviceId=$deviceId"
+    try {
+        $regBody = @{ deviceId = $deviceId } | ConvertTo-Json
+        $regHeaders = @{ "X-Device-Id" = $deviceId }
+        $reg = Invoke-WebRequest -Uri "$ApiBase/api/devices/register" -Method POST -Body $regBody -ContentType "application/json" -Headers $regHeaders -UseBasicParsing -TimeoutSec 10
+        if ($reg.StatusCode -ne 200) {
+            Write-Host "Evento válido enviado: FAIL (registro HTTP $($reg.StatusCode))" -ForegroundColor Red
+            return $null
+        }
+    }
+    catch {
+        Write-Host "Evento válido enviado: FAIL (registro $($_.Exception.Message))" -ForegroundColor Red
+        return $null
+    }
 
     $body = @{
         eventId          = $eventId
-        vehicleId        = $vehicleId
+        deviceId         = $deviceId
         driverId         = "DRV-SMOKE"
         timestamp        = $timestamp
         latitude         = 4.7110
@@ -58,13 +73,14 @@ function Send-ValidTelemetry {
         batteryPercent   = 88
     } | ConvertTo-Json
 
-    Write-Step "Enviando evento válido vehicleId=$vehicleId"
+    Write-Step "Enviando evento válido deviceId=$deviceId"
     try {
-        $response = Invoke-WebRequest -Uri "$ApiBase/api/telemetry" -Method POST -Body $body -ContentType "application/json" -UseBasicParsing -TimeoutSec 10
+        $headers = @{ "X-Device-Id" = $deviceId }
+        $response = Invoke-WebRequest -Uri "$ApiBase/api/telemetry" -Method POST -Body $body -ContentType "application/json" -Headers $headers -UseBasicParsing -TimeoutSec 10
         if ($response.StatusCode -eq 202) {
             $results["Evento válido enviado"] = "OK"
             Write-Host "Evento válido enviado: OK (202)" -ForegroundColor Green
-            return @{ EventId = $eventId; VehicleId = $vehicleId }
+            return @{ EventId = $eventId; DeviceId = $deviceId }
         }
         Write-Host "Evento válido enviado: FAIL (HTTP $($response.StatusCode))" -ForegroundColor Red
     }
@@ -74,16 +90,16 @@ function Send-ValidTelemetry {
     return $null
 }
 
-function Wait-ForProcessed([string]$VehicleId) {
+function Wait-ForProcessed([string]$DeviceId) {
     Write-Step "Esperando procesamiento del Worker (${WaitSeconds}s) y consultando flota"
     $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
     do {
         Start-Sleep -Seconds 1
         try {
-            $response = Invoke-RestMethod -Uri "$ApiBase/api/fleet/$VehicleId" -Method GET -TimeoutSec 5
-            if ($null -ne $response -and $response.vehicleId -eq $VehicleId) {
+            $response = Invoke-RestMethod -Uri "$ApiBase/api/fleet/$DeviceId" -Method GET -TimeoutSec 5
+            if ($null -ne $response -and ("$($response.deviceId)" -ieq $DeviceId)) {
                 $results["Evento procesado"] = "OK"
-                Write-Host "Evento procesado: OK (vehicleId=$VehicleId)" -ForegroundColor Green
+                Write-Host "Evento procesado: OK (deviceId=$DeviceId)" -ForegroundColor Green
                 return $true
             }
         }
@@ -92,13 +108,13 @@ function Wait-ForProcessed([string]$VehicleId) {
         }
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    Write-Host "Evento procesado: FAIL (vehículo no encontrado en /api/fleet/$VehicleId)" -ForegroundColor Red
+    Write-Host "Evento procesado: FAIL (dispositivo no encontrado en /api/fleet/$DeviceId)" -ForegroundColor Red
     return $false
 }
 
 function Test-DeadLetterQueue {
     $marker = "SMOKE-DLQ-$([guid]::NewGuid().ToString('N').Substring(0, 12))"
-    $invalidPayload = "{`"vehicleId`":`"$marker`"}"
+    $invalidPayload = "{`"deviceId`":`"$marker`"}"
 
     Write-Step "Suscribiendo a telemetry.dead-letter y publicando payload inválido (marker=$marker)"
 
@@ -136,19 +152,19 @@ function Test-DeadLetterQueue {
     }
     Remove-Job $job -Force -ErrorAction SilentlyContinue
 
-    if (-not ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_payload")) {
+    if (-not ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain|json)")) {
         # Fallback acotado: escanear mensajes recientes
         Start-Sleep -Seconds $WaitSeconds
         $scan = docker exec fleet-redpanda sh -c "timeout 8s rpk topic consume telemetry.dead-letter --brokers localhost:9092 -n 50 -f '%v\n'" 2>&1 | Out-String
     }
 
-    if ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_payload") {
+    if ($scan -match [regex]::Escape($marker) -and $scan -match "invalid_(payload|domain|json)") {
         $results["DLQ validada"] = "OK"
-        Write-Host "DLQ validada: OK (reason=invalid_payload)" -ForegroundColor Green
+        Write-Host "DLQ validada: OK (reason=invalid_domain, invalid_payload o invalid_json)" -ForegroundColor Green
         return $true
     }
 
-    Write-Host "DLQ validada: FAIL (no se encontró invalid_payload para el marker)" -ForegroundColor Red
+    Write-Host "DLQ validada: FAIL (no se encontró invalid_domain/invalid_payload/invalid_json para el marker)" -ForegroundColor Red
     $previewLen = [Math]::Min(400, $scan.Length)
     if ($previewLen -gt 0) {
         Write-Host "Salida DLQ (recorte): $($scan.Substring(0, $previewLen))"
@@ -168,7 +184,7 @@ $dlqOk = $false
 if ($apiOk) {
     $sent = Send-ValidTelemetry
     if ($null -ne $sent) {
-        $processedOk = Wait-ForProcessed -VehicleId $sent.VehicleId
+        $processedOk = Wait-ForProcessed -DeviceId $sent.DeviceId
     }
     $dlqOk = Test-DeadLetterQueue
 }
@@ -181,8 +197,6 @@ foreach ($key in $results.Keys) {
 
 $passed = ($results.Values | Where-Object { $_ -ne "OK" }).Count -eq 0
 $final = if ($passed) { "PASSED" } else { "FAILED" }
-Write-Host ("Resultado final: {0}" -f $final) -ForegroundColor $(if ($passed) { "Green" } else { "Red" })
-Write-Host "==============================`n"
-
-if (-not $passed) { exit 1 }
-exit 0
+Write-Host "Resultado final: $final" -ForegroundColor $(if ($passed) { "Green" } else { "Red" })
+Write-Host "=============================="
+if ($passed) { exit 0 } else { exit 1 }

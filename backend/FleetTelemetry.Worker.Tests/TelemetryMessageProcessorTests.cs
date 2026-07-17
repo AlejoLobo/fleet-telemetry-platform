@@ -4,6 +4,7 @@ using FleetTelemetry.Application.Interfaces;
 using FleetTelemetry.Domain.Entities;
 using FleetTelemetry.Infrastructure.Configuration;
 using FleetTelemetry.Infrastructure.Kafka;
+using FleetTelemetry.Infrastructure.Observability;
 using FleetTelemetry.Worker;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -42,7 +43,7 @@ public class TelemetryMessageProcessorTests
         Assert.NotNull(outcome.PendingDeadLetter);
         Assert.False(processCalled);
         Assert.Empty(dlq.Messages);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
+        Assert.Equal("null_payload", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public class TelemetryMessageProcessorTests
 
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
+        Assert.Equal("null_payload", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]
@@ -87,8 +88,7 @@ public class TelemetryMessageProcessorTests
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
         Assert.NotNull(outcome.PendingDeadLetter);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
-        Assert.Equal(message.Payload, outcome.PendingDeadLetter.OriginalPayload);
+        Assert.Equal("invalid_json", outcome.PendingDeadLetter!.Reason);
         Assert.Equal(Topic, outcome.PendingDeadLetter.OriginalTopic);
         Assert.Equal(0, outcome.PendingDeadLetter.Partition);
         Assert.Equal(10, outcome.PendingDeadLetter.Offset);
@@ -99,7 +99,7 @@ public class TelemetryMessageProcessorTests
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq);
-        var message = new KafkaConsumedMessage("""{"vehicleId":"VH-001"}""", Topic, 1, 22);
+        var message = new KafkaConsumedMessage("""{"deviceId":"11111111-1111-1111-1111-111111111111"}""", Topic, 1, 22);
 
         var processCalled = false;
         var outcome = await processor.ProcessAsync(
@@ -114,8 +114,7 @@ public class TelemetryMessageProcessorTests
         Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
         Assert.False(processCalled);
         Assert.NotNull(outcome.PendingDeadLetter);
-        Assert.Equal("invalid_payload", outcome.PendingDeadLetter!.Reason);
-        Assert.Contains("EventId", outcome.PendingDeadLetter.ExceptionMessage);
+        Assert.Equal("invalid_domain", outcome.PendingDeadLetter!.Reason);
     }
 
     [Fact]
@@ -163,7 +162,41 @@ public class TelemetryMessageProcessorTests
     }
 
     [Fact]
-    public async Task Transient_db_error_before_max_attempts_retries_without_dlq()
+    public async Task Invalid_json_sigue_requiriendo_DLQ()
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq, maxAttempts: 3);
+        var message = new KafkaConsumedMessage("{ not valid json }", Topic, 0, 10);
+
+        var outcome = await processor.ProcessAsync(
+            message,
+            currentAttempt: 1,
+            (_, _) => Task.FromResult(ProcessTelemetryOutcome.Processed));
+
+        Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
+        Assert.Equal("invalid_json", outcome.PendingDeadLetter!.Reason);
+        Assert.Empty(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Invalid_domain_sigue_requiriendo_DLQ()
+    {
+        var dlq = new FakeDeadLetterPublisher();
+        var processor = CreateProcessor(dlq);
+        var message = new KafkaConsumedMessage("""{"deviceId":"11111111-1111-1111-1111-111111111111"}""", Topic, 1, 22);
+
+        var outcome = await processor.ProcessAsync(
+            message,
+            currentAttempt: 1,
+            (_, _) => Task.FromResult(ProcessTelemetryOutcome.Processed));
+
+        Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
+        Assert.Equal("invalid_domain", outcome.PendingDeadLetter!.Reason);
+        Assert.Empty(dlq.Messages);
+    }
+
+    [Fact]
+    public async Task Transient_db_error_sigue_reintentando()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 3);
@@ -198,21 +231,20 @@ public class TelemetryMessageProcessorTests
     }
 
     [Fact]
-    public async Task Permanent_error_on_first_attempt_goes_to_dlq_immediately()
+    public async Task Excepcion_inesperada_se_propaga_sin_crear_DLQ()
     {
         var dlq = new FakeDeadLetterPublisher();
         var processor = CreateProcessor(dlq, maxAttempts: 5);
         var payload = TelemetryEventJsonSerializer.Serialize(CreateValidEvent());
         var message = new KafkaConsumedMessage(payload, Topic, 2, 99);
 
-        var outcome = await processor.ProcessAsync(
-            message,
-            currentAttempt: 1,
-            (_, _) => throw new InvalidOperationException("permanent failure"));
+        await Assert.ThrowsAsync<NullReferenceException>(() =>
+            processor.ProcessAsync(
+                message,
+                currentAttempt: 1,
+                (_, _) => throw new NullReferenceException("unexpected null")));
 
-        Assert.Equal(TelemetryMessageProcessingResult.RequiresDeadLetterPublish, outcome.Result);
-        Assert.NotNull(outcome.PendingDeadLetter);
-        Assert.Equal("processing_failure", outcome.PendingDeadLetter!.Reason);
+        Assert.Empty(dlq.Messages);
     }
 
     [Fact]
@@ -284,13 +316,14 @@ public class TelemetryMessageProcessorTests
         return new TelemetryMessageProcessor(
             dlq,
             options,
+            new FleetTelemetryMetrics(),
             NullLogger<TelemetryMessageProcessor>.Instance);
     }
 
     private static TelemetryEvent CreateValidEvent() =>
         TelemetryEvent.Create(
             Guid.NewGuid(),
-            "VH-WORKER-001",
+            Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             "DRV-001",
             DateTimeOffset.UtcNow,
             4.65,

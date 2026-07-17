@@ -1,7 +1,5 @@
-// Opciones de autenticación JWT.
 namespace FleetTelemetry.Infrastructure.Configuration;
 
-// Configuración de tokens y credenciales de demo.
 public class AuthOptions
 {
     public const string SectionName = "Auth";
@@ -12,6 +10,21 @@ public class AuthOptions
     public string JwtIssuer { get; set; } = "fleet-telemetry";
     public string JwtAudience { get; set; } = "fleet-clients";
     public int TokenExpirationMinutes { get; set; } = 480;
+
+    /// <summary>Operador demo sin device:manage (portal / lectura).</summary>
     public string DemoUsername { get; set; } = "admin";
     public string DemoPassword { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Administrador demo con device:manage (renombrar cualquier dispositivo).
+    /// No recibe telemetry:write; no puede publicar como dispositivo.
+    /// </summary>
+    public string AdminUsername { get; set; } = string.Empty;
+    public string AdminPassword { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Enrolamiento demo vía POST /api/auth/device-token.
+    /// Debe ser false en producción; solo Development/demo.
+    /// </summary>
+    public bool AllowDemoDeviceEnrollment { get; set; }
 }

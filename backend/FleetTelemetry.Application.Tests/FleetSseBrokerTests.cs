@@ -1,4 +1,5 @@
 using FleetTelemetry.Application.DTOs;
+using FleetTelemetry.Application.Realtime;
 using FleetTelemetry.Infrastructure.Realtime;
 
 namespace FleetTelemetry.Application.Tests;
@@ -6,25 +7,56 @@ namespace FleetTelemetry.Application.Tests;
 public class FleetSseBrokerTests
 {
     [Fact]
-    public void Publish_drops_events_for_slow_subscriber_without_blocking()
+    public void PublishLocal_overflow_cierra_suscripcion_sin_bloquear_publisher()
     {
-        var broker = new FleetSseBroker(channelCapacity: 5);
-        var reader = broker.Subscribe(out var subscriptionId);
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 5);
+        var subscription = broker.SubscribeFrom(new SseLastEventId.Missing());
 
         for (var i = 0; i < 20; i++)
-        {
-            broker.Publish(new FleetSseEvent("alert", new { index = i }, DateTimeOffset.UtcNow));
-        }
+            broker.PublishLocal("alert", new { index = i });
 
-        var drained = 0;
-        while (reader.TryRead(out _))
-            drained++;
-
-        Assert.Equal(5, drained);
-        Assert.True(broker.PublishedEvents >= 5);
-
-        broker.Unsubscribe(subscriptionId);
         Assert.Equal(0, broker.SubscriberCount);
+        Assert.True(broker.OverflowEvents > 0);
+        Assert.Equal(1, broker.TotalUnsubscribes);
+        broker.Unsubscribe(subscription.SubscriptionId);
+    }
+
+    [Fact]
+    public void TryPublishExternal_assigns_kafka_offset_as_stream_id()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System);
+        Assert.Equal(ExternalPublishResult.Accepted, broker.PublishExternal(100, "heartbeat", new { ok = true }));
+        Assert.Equal(ExternalPublishResult.Accepted, broker.PublishExternal(101, "heartbeat", new { ok = true }));
+        Assert.Equal(101, broker.LatestStreamId);
+    }
+
+    [Fact]
+    public void SubscribeFrom_replays_events_after_cursor()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, replayBufferSize: 50);
+        broker.PublishExternal(10, "alert", new { n = 1 });
+        broker.PublishExternal(11, "alert", new { n = 2 });
+        broker.PublishExternal(12, "alert", new { n = 3 });
+
+        var subscription = broker.SubscribeFrom(new SseLastEventId.ValidCursor(10));
+
+        Assert.Equal(SseReplayStatus.ReplayAvailable, subscription.ReplayStatus);
+        Assert.Equal(2, subscription.ReplayEvents.Count);
+        Assert.Equal(12, subscription.ReplayEvents[^1].StreamId);
+    }
+
+    [Fact]
+    public void Unsubscribe_removes_subscriber_without_affecting_others()
+    {
+        var broker = new FleetSseBroker(TimeProvider.System, channelCapacity: 10);
+        var first = broker.SubscribeFrom(new SseLastEventId.Missing());
+        broker.SubscribeFrom(new SseLastEventId.Missing());
+
+        Assert.Equal(2, broker.SubscriberCount);
+
+        broker.Unsubscribe(first.SubscriptionId);
+        Assert.Equal(1, broker.SubscriberCount);
+        Assert.Equal(2, broker.TotalSubscriptions);
     }
 
     [Fact]
